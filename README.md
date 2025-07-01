@@ -2,6 +2,8 @@
 
 A Flask web application that tracks and displays Solana rewards from Orca liquidity pools using the Helius API.
 
+![Screenshot](Screenshot.png)
+
 ## Features
 
 - Real-time tracking of COLLECT_FEES events from your Solana wallet
@@ -18,7 +20,7 @@ A Flask web application that tracks and displays Solana rewards from Orca liquid
 bash
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/JHenzi/OrcaRewardDashboard
 cd solana-rewards-tracker
 ```
 
