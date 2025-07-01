@@ -327,10 +327,10 @@ def index():
         'collection_patterns': get_collection_patterns(),
         'redemption_frequency': get_redemption_frequency()
     }
-    # Debug prints
-    print("Analytics debug:")
-    for key, value in analytics.items():
-        print(f"{key}: {type(value)} - {value}")
+    # # Debug prints
+    # print("Analytics debug:")
+    # for key, value in analytics.items():
+    #     print(f"{key}: {type(value)} - {value}")
 
     return render_template('index.html', 
         sol=totals.get('SOL', 0),
