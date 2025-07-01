@@ -6,7 +6,7 @@ A Flask web application that tracks and displays Solana rewards from Orca liquid
 
 ## Features
 
-- Real-time tracking of COLLECT_FEES events from your Solana wallet
+- ~~Real-time tracking of COLLECT_FEES events from your Solana wallet~~ Using the free API tier we refresh every 2 hours!
 - SQLite database storage for transaction history
 - Web dashboard displaying total SOL and USDC rewards
 - Live SOL price data from LiveCoinWatch
