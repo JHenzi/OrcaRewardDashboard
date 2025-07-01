@@ -102,6 +102,13 @@ Visit `http://localhost:5030` to view your rewards dashboard showing:
 - Total USD value of rewards
 - Data collection start date
 
+**Collection Analytics:**
+
+- **Average Days Between Collections**: Track how frequently you collect rewards
+- **Total Collection Sessions**: Count of all reward collection events
+- **Daily Earnings Rate**: Average earnings per day across your collection history
+- **Collection Patterns**: Number of distinct collection time patterns detected
+
 ### Backfill Historical Data
 
 Visit `http://localhost:5030/backfill_newer` to manually trigger a backfill of newer transactions.
@@ -149,4 +156,4 @@ Stores token metadata with columns:
 
 ## License
 
-This project is open source and available under the [MIT License](https://claude.ai/chat/LICENSE).
+This project is open source and available under the [MIT License](LICENSE).
