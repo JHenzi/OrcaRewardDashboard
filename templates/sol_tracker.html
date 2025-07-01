@@ -14,7 +14,43 @@
         <div class="bg-white p-6 rounded-lg shadow-lg">
             <canvas id="solChart"></canvas>
         </div>
+        <div class="mt-8 bg-white p-6 rounded-lg shadow-lg">
+            <h2 class="text-xl font-semibold mb-4">📊 24h Price Summary</h2>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-gray-800">
+          
+              <div><strong>💰 Current Price:</strong> ${{ stats.current_price }}</div>
+              <div><strong>📅 24h Ago:</strong> ${{ stats.price_24h_ago }}</div>
+          
+              <div>
+                <strong>📈 % Change:</strong>
+                <span class="{% if stats.percent_change > 0 %}text-green-600{% elif stats.percent_change < 0 %}text-red-600{% else %}text-gray-500{% endif %}">
+                  {{ stats.percent_change }}%
+                  {% if stats.percent_change > 0 %}⬆️{% elif stats.percent_change < 0 %}⬇️{% else %}⏸️{% endif %}
+                </span>
+              </div>
+          
+              <div><strong>📈 High (24h):</strong> ${{ stats.high_24h }}</div>
+              <div><strong>📉 Low (24h):</strong> ${{ stats.low_24h }}</div>
+              <div><strong>📊 Range:</strong> ${{ stats.range_24h }}</div>
+          
+              <div><strong>🕐 SMA (1h):</strong> ${{ stats.sma_1h }}</div>
+              <div><strong>🕓 SMA (4h):</strong> ${{ stats.sma_4h }}</div>
+              <div><strong>🕛 SMA (24h):</strong> ${{ stats.sma_24h }}</div>
+          
+              <div>
+                <strong>🎯 Std Dev:</strong>
+                <span class="{% if stats.std_dev > 2 %}text-red-500 font-semibold{% elif stats.std_dev > 1 %}text-yellow-500{% else %}text-green-600{% endif %}">
+                  ${{ stats.std_dev }}
+                  {% if stats.std_dev > 2 %}⚠️{% elif stats.std_dev > 1 %}📉{% else %}👌{% endif %}
+                </span>
+              </div>
+          
+              <div><strong>📉 Avg Δ / 5min:</strong> ${{ stats.avg_delta }}</div>
+            </div>
+          </div>
+          
     </div>
+
 
     <script>
         const ctx = document.getElementById('solChart').getContext('2d');

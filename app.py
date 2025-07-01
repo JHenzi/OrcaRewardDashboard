@@ -9,6 +9,8 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 from sol_price_fetcher import SOLPriceFetcher
+from statistics import mean, stdev
+
 
 
 # Load environment variables from .env file
@@ -348,24 +350,55 @@ def index():
 @app.route("/sol-tracker")
 def sol_tracker():
     fetcher = SOLPriceFetcher()
-
-    # Fetch all historical prices
-    all_data = fetcher.get_price_history(limit=288)  # Get last 288 records (24 hours at 5 minute intervals)
-
-    # Close DB connection
+    all_data = fetcher.get_price_history(limit=288)  # 24 hours at 5-min intervals
     fetcher.close()
 
-    # Prepare data for chart (reverse so oldest data is first)
     timestamps = []
     prices = []
 
     for row in reversed(all_data):
-        ts = row[1]  # timestamp
-        price = row[2]  # rate
+        ts = row[1]  # ISO timestamp
+        price = row[2]
         timestamps.append(ts)
         prices.append(price)
 
-    return render_template("sol_tracker.html", timestamps=timestamps, prices=prices)
+    # === 📊 Stats Calculations ===
+    def simple_moving_average(prices, window):
+        if len(prices) < window:
+            return None
+        return round(mean(prices[-window:]), 4)
+
+    sma_1h = simple_moving_average(prices, 12)
+    sma_4h = simple_moving_average(prices, 48)
+    sma_24h = simple_moving_average(prices, 288)
+
+    current_price = prices[-1]
+    price_24h_ago = prices[0]
+    percent_change = round(((current_price - price_24h_ago) / price_24h_ago) * 100, 2)
+
+    high_24h = round(max(prices), 4)
+    low_24h = round(min(prices), 4)
+    range_24h = round(high_24h - low_24h, 4)
+
+    price_stdev = round(stdev(prices), 4) if len(prices) > 1 else 0
+    avg_price_delta = round(mean([abs(prices[i] - prices[i - 1]) for i in range(1, len(prices))]), 4)
+
+    stats = {
+        "current_price": round(current_price, 4),
+        "price_24h_ago": round(price_24h_ago, 4),
+        "percent_change": percent_change,
+        "high_24h": high_24h,
+        "low_24h": low_24h,
+        "range_24h": range_24h,
+        "sma_1h": sma_1h,
+        "sma_4h": sma_4h,
+        "sma_24h": sma_24h,
+        "std_dev": price_stdev,
+        "avg_delta": avg_price_delta
+    }
+
+    return render_template("sol_tracker.html", timestamps=timestamps, prices=prices, stats=stats)
+
 
 def background_fetch_loop():
     # Configurable fetch interval (in seconds)
