@@ -359,10 +359,12 @@ def sol_tracker():
     for row in reversed(all_data):
         ts = row[1]  # ISO timestamp
         price = row[2]
-        timestamps.append(ts)
+        dt = datetime.fromisoformat(ts)
+        short_ts = dt.strftime("%b %d, %I:%M %p")
+        timestamps.append(short_ts)
         prices.append(price)
 
-    # === 📊 Stats Calculations ===
+    # === Stats Calculations ===
     def simple_moving_average(prices, window):
         if len(prices) < window:
             return None

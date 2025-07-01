@@ -13,6 +13,20 @@ A Flask web application that tracks and displays Solana rewards from Orca liquid
 - Background fetching with configurable intervals
 - Backfill functionality for historical data
 
+### Bonus SOL Price Database/Scraper
+
+We are using the LiveCoinWatch API to grab the price of SOL and stashing in a SQLite database for long term analysis and statistical display.
+
+You can start the price fetcher, on a `screen` session, by executing this command:
+
+```bash
+python sol_price_fetcher.py
+```
+
+This will count the API calls that remain for the day and ask you how often it should fetch prices based on the math it does. I have it fetching the price of SOL every five minutes. You can then see a chart of the last 288 price fetches (24 hours @ 5 minutes between fetches), the standard deviation, 24 hour range, low, high and so forth at `http://localhost:5030/sol-tracker`.
+
+![Chart.png](Chart.png)
+
 ## Setup
 
 ### 1\. Clone the repository
