@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Solana Rewards Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 p-6">
+  <div class="max-w-4xl mx-auto bg-white p-6 rounded-xl shadow-md space-y-6">
+    <div class="flex items-center space-x-4">
+      <img src="{{ sol_img }}" alt="SOL Icon" class="w-12 h-12">
+      <div>
+        <h1 class="text-2xl font-bold">Solana Rewards Tracker</h1>
+        <p class="text-sm text-gray-500">Tracking since {{ since_date }}</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="bg-blue-50 p-4 rounded-xl shadow">
+        <h2 class="text-lg font-semibold">Total SOL Collected</h2>
+        <p class="text-2xl font-bold text-purple-600">{{ '%.4f'|format(sol) }} SOL</p>
+        <p class="text-gray-600">~${{ '%.2f'|format(sol * sol_price) }} USD</p>
+      </div>
+
+      <div class="bg-green-50 p-4 rounded-xl shadow">
+        <h2 class="text-lg font-semibold">Total USDC Collected</h2>
+        <p class="text-2xl font-bold text-green-600">{{ '%.2f'|format(usdc) }} USDC</p>
+        <p class="text-gray-600">~${{ '%.2f'|format(usdc) }} USD</p>
+      </div>
+    </div>
+
+    <div class="bg-yellow-50 p-4 rounded-xl shadow space-y-2">
+      <h2 class="text-lg font-semibold">Live Solana Price</h2>
+      <p class="text-2xl font-bold text-yellow-700">${{ '%.2f'|format(sol_price) }} USD</p>
+      <div class="text-sm space-y-1 text-gray-700">
+        <p>Last Hour: <span class="{{ 'text-green-600' if sol_deltas.hour > 1 else 'text-red-600' }}">{{ '%.2f'|format((sol_deltas.hour - 1) * 100) }}%</span></p>
+        <p>Last Day: <span class="{{ 'text-green-600' if sol_deltas.day > 1 else 'text-red-600' }}">{{ '%.2f'|format((sol_deltas.day - 1) * 100) }}%</span></p>
+        <p>Last Week: <span class="{{ 'text-green-600' if sol_deltas.week > 1 else 'text-red-600' }}">{{ '%.2f'|format((sol_deltas.week - 1) * 100) }}%</span></p>
+      </div>
+    </div>
+
+    <div class="text-right">
+      <p class="text-sm text-gray-400">Total Value Collected: <strong>${{ '%.2f'|format(total_usd) }}</strong></p>
+    </div>
+  </div>
+</body>
+</html>

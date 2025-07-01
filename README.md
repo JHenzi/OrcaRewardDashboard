@@ -1,0 +1,150 @@
+# Solana Rewards Tracker
+
+A Flask web application that tracks and displays Solana rewards from Orca liquidity pools using the Helius API.
+
+## Features
+
+- Real-time tracking of COLLECT_FEES events from your Solana wallet
+- SQLite database storage for transaction history
+- Web dashboard displaying total SOL and USDC rewards
+- Live SOL price data from LiveCoinWatch
+- Background fetching with configurable intervals
+- Backfill functionality for historical data
+
+## Setup
+
+### 1\. Clone the repository
+
+bash
+
+```bash
+git clone <your-repo-url>
+cd solana-rewards-tracker
+```
+
+### 2\. Install dependencies
+
+bash
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3\. Set up environment variables
+
+Copy the `.env.example` file to `.env` and fill in your API keys and wallet address:
+
+bash
+
+```bash
+cp .env.example .env
+```
+
+Edit the `.env` file with your actual values:
+
+env
+
+```env
+HELIUS_API_KEY=your_helius_api_key_here
+SOLANA_WALLET_ADDRESS=your_solana_wallet_address_here
+LIVECOINWATCH_API_KEY=your_livecoinwatch_api_key_here
+```
+
+### 4\. Run the application
+
+bash
+
+```bash
+python app.py
+```
+
+The application will be available at `http://localhost:5030`
+
+## API Keys Required
+
+### Helius API Key
+
+- Sign up at [Helius](https://helius.xyz/)
+- Create a new project
+- Copy your API key to the `.env` file
+
+### LiveCoinWatch API Key
+
+- Sign up at [LiveCoinWatch](https://www.livecoinwatch.com/tools/api)
+- Get your API key
+- Copy it to the `.env` file
+
+## Configuration
+
+You can customize the application behavior through environment variables in the `.env` file:
+
+- `HELIUS_API_KEY`: Your Helius API key (required)
+- `SOLANA_WALLET_ADDRESS`: Your Solana wallet address to track (required)
+- `LIVECOINWATCH_API_KEY`: Your LiveCoinWatch API key (required)
+- `DATABASE_PATH`: Path to SQLite database file (default: rewards.db)
+- `FLASK_HOST`: Flask server host (default: 0.0.0.0)
+- `FLASK_PORT`: Flask server port (default: 5030)
+- `FLASK_DEBUG`: Enable Flask debug mode (default: True)
+- `FETCH_INTERVAL_SECONDS`: Background fetch interval in seconds (default: 7200 = 2 hours)
+- `LAST_KNOWN_SIGNATURE`: Starting signature for backfill operations
+
+## Usage
+
+### Web Dashboard
+
+Visit `http://localhost:5030` to view your rewards dashboard showing:
+
+- Total SOL rewards collected
+- Total USDC rewards collected
+- Current SOL price
+- Total USD value of rewards
+- Data collection start date
+
+### Backfill Historical Data
+
+Visit `http://localhost:5030/backfill_newer` to manually trigger a backfill of newer transactions.
+
+## Database Schema
+
+The application uses SQLite with two main tables:
+
+### collect_fees
+
+Stores reward collection events with columns:
+
+- `signature`: Transaction signature
+- `timestamp`: Transaction timestamp
+- `fee_payer`: Fee payer address
+- `token_mint`: Token mint address
+- `token_amount`: Amount of tokens transferred
+- `from_token_account`: Source token account
+- `to_token_account`: Destination token account
+- `from_user_account`: Source user account
+- `to_user_account`: Destination user account
+
+### tokens
+
+Stores token metadata with columns:
+
+- `mint`: Token mint address (primary key)
+- `symbol`: Token symbol
+- `name`: Token name
+- `decimals`: Token decimal places
+
+## Security Notes
+
+- Never commit your `.env` file to version control
+- The `.gitignore` file is configured to exclude sensitive files
+- Keep your API keys secure and rotate them regularly
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test your changes
+5. Submit a pull request
+
+## License
+
+This project is open source and available under the [MIT License](https://claude.ai/chat/LICENSE).
