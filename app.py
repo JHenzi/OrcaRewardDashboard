@@ -170,46 +170,6 @@ def get_sol_price_data():
     response.raise_for_status()
     return response.json()
 
-@app.route('/')
-def index():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-
-    # Total SOL and USDC collected
-    c.execute('''
-        SELECT token_mint, SUM(token_amount)
-        FROM collect_fees
-        WHERE token_mint IN ('So11111111111111111111111111111111111111112', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')
-        GROUP BY token_mint
-    ''')
-    results = c.fetchall()
-
-    # Get global earliest timestamp
-    c.execute('SELECT MIN(timestamp) FROM collect_fees')
-    since_timestamp = c.fetchone()[0]
-
-    conn.close()
-
-    totals = {}
-    for mint, amount in results:
-        if mint == 'So11111111111111111111111111111111111111112':
-            totals['SOL'] = amount
-        elif mint == 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v':
-            totals['USDC'] = amount
-
-    since_date = datetime.utcfromtimestamp(since_timestamp).strftime('%Y-%m-%d') if since_timestamp else 'N/A'
-
-    sol_data = get_sol_price_data()
-
-    return render_template('index.html', 
-        sol=totals.get('SOL', 0),
-        usdc=totals.get('USDC', 0),
-        sol_price=sol_data['rate'],
-        sol_img=sol_data['png64'],
-        sol_deltas=sol_data['delta'],
-        total_usd=(totals.get('SOL', 0) * sol_data['rate']) + totals.get('USDC', 0),
-        since_date=since_date
-    )
 
 
 def fetch_newer_than(wallet, since_signature, max_pages=10, batch_size=100):
@@ -251,6 +211,137 @@ def backfill_newer():
             count += 1
 
     return jsonify({"status": "Backfill complete", "new_events": count})
+
+def get_redemption_frequency():
+    """Get days between each collection with redemption frequency data"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+    SELECT
+        signature,
+        timestamp,
+        LAG(timestamp) OVER (ORDER BY timestamp) as prev_timestamp,
+        (timestamp - LAG(timestamp) OVER (ORDER BY timestamp)) / 86400.0 as days_since_last_collection
+    FROM collect_fees
+    ORDER BY timestamp
+    ''')
+    results = c.fetchall()
+    conn.close()
+    return results
+
+def get_average_redemption_frequency():
+    """Get average days between collections"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+    SELECT 
+        signature,
+        timestamp
+    FROM collect_fees
+    ORDER BY signature, timestamp
+    ''')
+    results = c.fetchall()
+    conn.close()
+    
+    if len(results) < 2:
+        return 0
+    
+    total_days = 0
+    count = 0
+    
+    for i in range(1, len(results)):
+        if results[i][0] == results[i-1][0]:  # Same signature
+            days_diff = (results[i][1] - results[i-1][1]) / 86400.0
+            total_days += days_diff
+            count += 1
+    
+    return total_days / count if count > 0 else 0
+
+def get_daily_earning_rates():
+    """Get daily earning breakdown by date"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        SELECT 
+            DATE(datetime(timestamp, 'unixepoch')) as collection_date,
+            COUNT(*) as collections_per_day,
+            SUM(CASE WHEN token_mint = 'So11111111111111111111111111111111111111112' THEN token_amount ELSE 0 END) as sol_per_day,
+            SUM(CASE WHEN token_mint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' THEN token_amount ELSE 0 END) as usdc_per_day
+        FROM collect_fees 
+        GROUP BY DATE(datetime(timestamp, 'unixepoch'))
+        ORDER BY collection_date
+    ''')
+    results = c.fetchall()
+    conn.close()
+    return results
+
+def get_collection_patterns():
+    """Get collection patterns by hour of day"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        SELECT 
+            CAST(strftime('%H', datetime(timestamp, 'unixepoch')) AS INTEGER) as hour_of_day,
+            COUNT(*) as collections_count
+        FROM collect_fees 
+        GROUP BY hour_of_day
+        ORDER BY hour_of_day
+    ''')
+    results = c.fetchall()
+    conn.close()
+    return results
+
+@app.route('/')
+def index():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    # Existing code for totals...
+    c.execute('''
+        SELECT token_mint, SUM(token_amount)
+        FROM collect_fees
+        WHERE token_mint IN ('So11111111111111111111111111111111111111112', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')
+        GROUP BY token_mint
+    ''')
+    results = c.fetchall()
+
+    c.execute('SELECT MIN(timestamp) FROM collect_fees')
+    since_timestamp = c.fetchone()[0]
+
+    conn.close()
+
+    totals = {}
+    for mint, amount in results:
+        if mint == 'So11111111111111111111111111111111111111112':
+            totals['SOL'] = amount
+        elif mint == 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v':
+            totals['USDC'] = amount
+
+    since_date = datetime.utcfromtimestamp(since_timestamp).strftime('%Y-%m-%d') if since_timestamp else 'N/A'
+    sol_data = get_sol_price_data()
+
+    # Add analytics data
+    analytics = {
+        'avg_days_between_collections': get_average_redemption_frequency(),
+        'daily_earnings': get_daily_earning_rates(),
+        'collection_patterns': get_collection_patterns(),
+        'redemption_frequency': get_redemption_frequency()
+    }
+    # Debug prints
+    print("Analytics debug:")
+    for key, value in analytics.items():
+        print(f"{key}: {type(value)} - {value}")
+
+    return render_template('index.html', 
+        sol=totals.get('SOL', 0),
+        usdc=totals.get('USDC', 0),
+        sol_price=sol_data['rate'],
+        sol_img=sol_data['png64'],
+        sol_deltas=sol_data['delta'],
+        total_usd=(totals.get('SOL', 0) * sol_data['rate']) + totals.get('USDC', 0),
+        since_date=since_date,
+        analytics=analytics  # Pass analytics data to template
+    )
 
 
 def background_fetch_loop():

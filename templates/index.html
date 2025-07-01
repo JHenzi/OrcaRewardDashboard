@@ -104,6 +104,41 @@
         </div>
       </div>
     </div>
+    <!-- Collection Analytics -->
+    <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-blue-500">
+      <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-semibold text-gray-800">Collection Analytics</h2>
+          <span class="text-3xl">📊</span>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+          <div class="bg-gray-50 p-3 rounded-lg">
+              <p class="text-sm text-gray-600 mb-1">Avg Days Between Collections</p>
+              <p class="text-lg font-bold text-blue-600">{{ '%.1f'|format(analytics.avg_days_between_collections) }} days</p>
+          </div>
+          <div class="bg-gray-50 p-3 rounded-lg">
+              <p class="text-sm text-gray-600 mb-1">Total Collection Sessions</p>
+              <p class="text-lg font-bold text-blue-600">{{ analytics.redemption_frequency|length }}</p>
+          </div>
+          <div class="bg-gray-50 p-3 rounded-lg">
+              <p class="text-sm text-gray-600 mb-1">Daily Avg Earnings</p>
+              <p class="text-lg font-bold text-green-600">
+                  {% if analytics.daily_earnings %}
+                      {% set total_earnings = analytics.daily_earnings | sum(attribute=3) %}
+                      {% set days_count = analytics.daily_earnings | length %}
+                      ${{ '%.2f'|format(total_earnings / days_count) }}/day
+                  {% else %}
+                      $0.00/day
+                  {% endif %}
+              </p>
+          </div>
+          <div class="bg-gray-50 p-3 rounded-lg">
+              <p class="text-sm text-gray-600 mb-1">Collection Patterns</p>
+              <p class="text-lg font-bold text-purple-600">{{ analytics.collection_patterns|length }} patterns</p>
+          </div>
+      </div>
+  </div>
+</div>
+</div>
   </div>
 </body>
 </html>
