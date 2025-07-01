@@ -88,7 +88,7 @@ You can customize the application behavior through environment variables in the 
 - `FLASK_PORT`: Flask server port (default: 5030)
 - `FLASK_DEBUG`: Enable Flask debug mode (default: True)
 - `FETCH_INTERVAL_SECONDS`: Background fetch interval in seconds (default: 7200 = 2 hours)
-- `LAST_KNOWN_SIGNATURE`: Starting signature for backfill operations
+- `LAST_KNOWN_SIGNATURE`: Starting signature for backfill operations (this is the transaction ID from SolScan that you want to fetch since, i.e. the transaction you deposited your liquidity... this may eat into your API calls for the month - adjust fetch interval accordingly)
 
 ## Usage
 
