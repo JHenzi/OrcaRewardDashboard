@@ -8,6 +8,8 @@ import json
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+from sol_price_fetcher import SOLPriceFetcher
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -242,19 +244,19 @@ def get_average_redemption_frequency():
     ''')
     results = c.fetchall()
     conn.close()
-    
+
     if len(results) < 2:
         return 0
-    
+
     total_days = 0
     count = 0
-    
+
     for i in range(1, len(results)):
         if results[i][0] == results[i-1][0]:  # Same signature
             days_diff = (results[i][1] - results[i-1][1]) / 86400.0
             total_days += days_diff
             count += 1
-    
+
     return total_days / count if count > 0 else 0
 
 def get_daily_earning_rates():
@@ -343,11 +345,32 @@ def index():
         analytics=analytics  # Pass analytics data to template
     )
 
+@app.route("/sol-tracker")
+def sol_tracker():
+    fetcher = SOLPriceFetcher()
+
+    # Fetch all historical prices
+    all_data = fetcher.get_price_history(limit=288)  # Get last 288 records (24 hours at 5 minute intervals)
+
+    # Close DB connection
+    fetcher.close()
+
+    # Prepare data for chart (reverse so oldest data is first)
+    timestamps = []
+    prices = []
+
+    for row in reversed(all_data):
+        ts = row[1]  # timestamp
+        price = row[2]  # rate
+        timestamps.append(ts)
+        prices.append(price)
+
+    return render_template("sol_tracker.html", timestamps=timestamps, prices=prices)
 
 def background_fetch_loop():
     # Configurable fetch interval (in seconds)
     fetch_interval = int(os.getenv("FETCH_INTERVAL_SECONDS", "7200"))  # Default 2 hours
-    
+
     while True:
         try:
             transactions = fetch_helius_transactions(WALLET)
@@ -366,11 +389,11 @@ def start_background_fetch():
 
 if __name__ == "__main__":
     start_background_fetch()
-    
+
     # Flask configuration from environment variables
     host = os.getenv("FLASK_HOST", "0.0.0.0")
     port = int(os.getenv("FLASK_PORT", "5030"))
     debug = os.getenv("FLASK_DEBUG", "True").lower() == "true"
-    
+
     # Run Flask app
     app.run(host=host, port=port, debug=debug)
