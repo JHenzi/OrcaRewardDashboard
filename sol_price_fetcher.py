@@ -6,7 +6,12 @@ import logging
 from datetime import datetime
 from dotenv import load_dotenv
 import os
-# --- River imports ---
+# -- For Price Analysis Learning --
+import pickle
+from pathlib import Path
+import numpy as np
+from collections import deque
+
 from river import linear_model, preprocessing, metrics
 
 # Load environment variables
@@ -18,6 +23,70 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Handle loading the model
+MODEL_PATH = Path("sol_model.pkl")
+METRIC_PATH = Path("sol_metric.pkl")
+TRAIL = deque(maxlen=10)
+
+# Load or initialize model and metric
+if MODEL_PATH.exists() and METRIC_PATH.exists():
+    with open(MODEL_PATH, "rb") as f:
+        model = pickle.load(f)
+    with open(METRIC_PATH, "rb") as f:
+        metric = pickle.load(f)
+else:
+    model = preprocessing.StandardScaler() | linear_model.LinearRegression()
+    metric = metrics.MAE()
+
+def train_online_model(data):
+    # Todo: Clean up that we are creating these connections every time!
+    conn = sqlite3.connect("sol_prices.db")
+    cursor = conn.cursor()
+
+    """Feed new price data into the online learning model."""
+    global model, metric, TRAIL
+
+    TRAIL.append(data)
+
+    features = {
+        "volume": data["volume"],
+        "liquidity": data["liquidity"],
+        "market_cap": data["cap"],
+        "delta_hour": data["delta"]["hour"],
+        "delta_day": data["delta"]["day"],
+    }
+
+    # Add simple moving average if enough trailing data
+    if len(TRAIL) >= 3:
+        sma = np.mean([t["rate"] for t in TRAIL])
+        features["sma"] = sma
+
+    target = data["rate"]
+    y_pred = model.predict_one(features) or 0.0
+    model.learn_one(features, target)
+    metric.update(target, y_pred)
+
+    # Log the result
+    print(f"Online Learning => Predicted: {y_pred:.2f}, Actual: {target:.2f}, Error: {abs(y_pred - target):.4f}, MAE: {metric.get():.4f}")
+    cursor.execute('''
+        INSERT INTO sol_predictions (timestamp, predicted_rate, actual_rate, error, mae)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (
+        data["time"] if "time" in data else datetime.now().isoformat(),  # fallback if not present
+        y_pred,
+        target,
+        abs(y_pred - target),
+        metric.get()
+    ))
+    conn.commit()
+    conn.close()
+
+    # Persist model
+    with open(MODEL_PATH, "wb") as f:
+        pickle.dump(model, f)
+    with open(METRIC_PATH, "wb") as f:
+        pickle.dump(metric, f)
 
 class SOLPriceFetcher:
     def __init__(self):
@@ -134,8 +203,8 @@ class SOLPriceFetcher:
                 data['delta']['year']
             ))
             self.conn.commit()
-
             logger.info(f"SOL price: ${data['rate']:.2f} - Data stored successfully")
+            train_online_model(data)
             return data
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching SOL price: {e}")

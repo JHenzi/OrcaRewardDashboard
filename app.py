@@ -70,6 +70,22 @@ def init_db(db_path=DB_PATH):
             decimals INTEGER
         )
         ''')
+    # Init prediction DB
+    prediction_conn = sqlite3.connect("sol_prices.db")
+    prediction_cursor = prediction_conn.cursor()
+    prediction_cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sol_predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            predicted_rate REAL NOT NULL,
+            actual_rate REAL NOT NULL,
+            error REAL NOT NULL,
+            mae REAL NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    prediction_conn.commit()
+    prediction_conn.close()
 
     conn.commit()
     conn.close()
