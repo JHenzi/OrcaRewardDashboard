@@ -10,7 +10,54 @@
 
     <div class="container mx-auto p-6">
         <h1 class="text-3xl font-bold mb-4 text-center">SOL Price Tracker</h1>
-
+        <div class="mb-8 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-xl shadow-xl p-8 text-center">
+          {% if predictions and predictions|length > 0 %}
+            {% set p = predictions[0] %}
+            <div class="text-5xl font-extrabold mb-4">
+              {{ '$' ~ (p.predicted | round(2)) }}
+              {% if p.error < 0.5 %}
+                <span class="text-green-300 ml-4">✅</span>
+              {% elif p.actual > p.predicted %}
+                <span class="text-green-300 ml-4 animate-bounce">⬆️</span>
+              {% elif p.actual < p.predicted %}
+                <span class="text-red-400 ml-4 animate-pulse">⬇️</span>
+              {% else %}
+                <span class="text-yellow-300 ml-4">⏸️</span>
+              {% endif %}
+            </div>
+            <div class="text-lg mb-2 font-semibold">
+              Actual: <span class="inline-block px-2 py-1 bg-white bg-opacity-20 rounded">{{ '$' ~ (p.actual | round(2)) }}</span>
+            </div>
+            <div class="text-sm opacity-70 italic mb-4">
+              Error: ${{ p.error }} | MAE: ${{ p.mae }}
+            </div>
+        
+            {% if bandit_logs and bandit_logs|length > 0 %}
+              {% set b = bandit_logs[0] %}
+              <div class="text-2xl font-semibold">
+                Action:
+                {% if b.action == 'buy' %}
+                  <span class="text-green-400">Buy 🟢</span>
+                {% elif b.action == 'sell' %}
+                  <span class="text-red-400">Sell 🔴</span>
+                {% else %}
+                  <span class="text-yellow-400">Hold 🟡</span>
+                {% endif %}
+              </div>
+              <div class="text-sm opacity-70 italic">
+                Reward: {{ b.reward }} |
+                Buy: {{ b.prediction_buy | default('N/A') }} |
+                Sell: {{ b.prediction_sell | default('N/A') }} |
+                Hold: {{ b.prediction_hold | default('N/A') }}
+              </div>
+            {% endif %}
+          {% else %}
+            <div class="text-xl font-semibold">No predictions available</div>
+          {% endif %}
+        </div>
+        
+        
+        
         <div class="bg-white p-6 rounded-lg shadow-lg">
             <canvas id="solChart"></canvas>
         </div>
@@ -81,7 +128,36 @@
               </table>
             </div>
           </div>
-          
+          <div class="mt-8 bg-white p-6 rounded-lg shadow-lg">
+            <h2 class="text-xl font-semibold mb-4">🤖 Contextual Bandit Logs</h2>
+            <div class="overflow-x-auto">
+              <table class="min-w-full text-sm text-left text-gray-700 border">
+                <thead class="bg-gray-100 text-xs uppercase font-semibold text-gray-600">
+                  <tr>
+                    <th class="px-4 py-2 border-b">⏱️ Timestamp</th>
+                    <th class="px-4 py-2 border-b">🎯 Action</th>
+                    <th class="px-4 py-2 border-b">🎁 Reward</th>
+                    <th class="px-4 py-2 border-b">🔮 Buy Prediction</th>
+                    <th class="px-4 py-2 border-b">🔮 Sell Prediction</th>
+                    <th class="px-4 py-2 border-b">🔮 Hold Prediction</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for log in bandit_logs %}
+                  <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-2 border-b">{{ log.timestamp }}</td>
+                    <td class="px-4 py-2 border-b font-semibold text-indigo-700">{{ log.action | capitalize }}</td>
+                    <td class="px-4 py-2 border-b">{{ log.reward }}</td>
+                    <td class="px-4 py-2 border-b">{{ log.prediction_buy if log.prediction_buy is not none else 'N/A' }}</td>
+                    <td class="px-4 py-2 border-b">{{ log.prediction_sell if log.prediction_sell is not none else 'N/A' }}</td>
+                    <td class="px-4 py-2 border-b">{{ log.prediction_hold if log.prediction_hold is not none else 'N/A' }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
     </div>
 
 

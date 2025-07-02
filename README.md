@@ -27,11 +27,27 @@ This will count the API calls that remain for the day and ask you how often it s
 
 ![Chart.png](Chart.png)
 
-### Bonus SOL Price Prediction
+### Bonus SOL Price Prediction and Bandit Actions
 
-Messing around with online learning models we've implemented in `sol_price_fetcher.py` a Solana price prediction using ML / regression analysis. To start we're only considering the live data as it comes in and storing the predictions as they are made into the **hardcoded** SQLite database named `sol_prices.db` (Todo: abstract this into `.env` as a best practice)
+Messing around with online learning models, we've implemented SOL price prediction and contextual bandit-driven buy/sell/hold actions in `sol_price_fetcher.py`. Predictions and bandit logs are stored in the SQLite database `sol_prices.db`.
+
+Visit `http://localhost:5030/sol-tracker` to view:
+
+- Price chart with statistics
+- Recent price predictions vs actuals
+- Latest bandit decision with buy/sell/hold action and reward
 
 ![Predictions.png](Predictions.png)
+
+## Tech Stack
+
+- Python 3.10+
+- Flask
+- SQLite
+- Tailwind CSS for UI styling
+- Chart.js for charts
+- Helius API for Solana blockchain data
+- LiveCoinWatch API for SOL price data
 
 ## Setup
 
@@ -117,24 +133,24 @@ You can customize the application behavior through environment variables in the 
 
 ### Web Dashboard
 
-Visit `http://localhost:5030` to view your rewards dashboard showing:
+Visit `http://localhost:5030` to view:
 
-- Total SOL rewards collected
-- Total USDC rewards collected
-- Current SOL price
-- Total USD value of rewards
-- Data collection start date
+- Total SOL and USDC rewards collected
+- Current SOL price and USD value of rewards
+- Collection analytics (frequency, sessions, daily rate, patterns)
 
-**Collection Analytics:**
+### SOL Price & Predictions
 
-- **Average Days Between Collections**: Track how frequently you collect rewards
-- **Total Collection Sessions**: Count of all reward collection events
-- **Daily Earnings Rate**: Average earnings per day across your collection history
-- **Collection Patterns**: Number of distinct collection time patterns detected
+Visit `http://localhost:5030/sol-tracker` to view:
+
+- SOL price chart with recent 24-hour data
+- Statistical summaries (SMA, range, std dev, etc.)
+- Latest model price predictions vs actuals
+- Bandit buy/sell/hold actions and rewards
 
 ### Backfill Historical Data
 
-Visit `http://localhost:5030/backfill_newer` to manually trigger a backfill of newer transactions.
+Visit `http://localhost:5030/backfill_newer` to manually trigger fetching newer transactions.
 
 ## Database Schema
 
@@ -142,26 +158,36 @@ The application uses SQLite with two main tables:
 
 ### collect_fees
 
-Stores reward collection events with columns:
+Stores reward collection events:
 
 - `signature`: Transaction signature
-- `timestamp`: Transaction timestamp
+- `timestamp`: Timestamp
 - `fee_payer`: Fee payer address
 - `token_mint`: Token mint address
-- `token_amount`: Amount of tokens transferred
-- `from_token_account`: Source token account
-- `to_token_account`: Destination token account
-- `from_user_account`: Source user account
-- `to_user_account`: Destination user account
+- `token_amount`: Amount transferred
+- `from_token_account`, `to_token_account`: Token accounts
+- `from_user_account`, `to_user_account`: User accounts
 
 ### tokens
 
-Stores token metadata with columns:
+Stores token metadata:
 
 - `mint`: Token mint address (primary key)
 - `symbol`: Token symbol
 - `name`: Token name
-- `decimals`: Token decimal places
+- `decimals`: Token decimal precision
+
+### sol_predictions
+
+Stores model price predictions:
+
+- `timestamp`, `predicted_rate`, `actual_rate`, `error`, `mae`, `created_at`
+
+### bandit_logs
+
+Stores contextual bandit decision logs:
+
+- `timestamp`, `action`, `reward`, `prediction_buy`, `prediction_sell`, `prediction_hold`, `created_at`
 
 ## Security Notes
 

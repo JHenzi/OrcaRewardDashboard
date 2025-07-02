@@ -379,6 +379,15 @@ def sol_tracker():
         LIMIT 5
     """)
     prediction_rows = prediction_cursor.fetchall()
+    # Fetch bandit_logs (contextual bandit predictions and actions)
+    prediction_cursor.execute("""
+        SELECT timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold
+        FROM bandit_logs
+        ORDER BY created_at DESC
+        LIMIT 5
+    """)
+    bandit_rows = prediction_cursor.fetchall()
+
     prediction_conn.close()
 
     # Reformat for display
@@ -399,6 +408,20 @@ def sol_tracker():
         short_ts = dt.strftime("%b %d, %I:%M %p")
         timestamps.append(short_ts)
         prices.append(price)
+
+    # Reformat bandit_logs for display
+    bandit_logs = []
+    for row in bandit_rows:
+        log_ts = datetime.fromisoformat(row[0]).strftime("%b %d, %I:%M %p")
+        bandit_logs.append({
+            "timestamp": log_ts,
+            "action": row[1],
+            "reward": round(row[2], 4),
+            "prediction_buy": round(row[3], 4) if row[3] is not None else None,
+            "prediction_sell": round(row[4], 4) if row[4] is not None else None,
+            "prediction_hold": round(row[5], 4) if row[5] is not None else None
+        })
+
 
     # === Stats Calculations ===
     def simple_moving_average(prices, window):
@@ -435,7 +458,7 @@ def sol_tracker():
         "avg_delta": avg_price_delta
     }
 
-    return render_template("sol_tracker.html", timestamps=timestamps, prices=prices, stats=stats, predictions=predictions)
+    return render_template("sol_tracker.html", timestamps=timestamps, prices=prices, stats=stats, predictions=predictions, bandit_logs=bandit_logs)
 
 
 def background_fetch_loop():

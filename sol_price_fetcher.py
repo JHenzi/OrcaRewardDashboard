@@ -13,6 +13,7 @@ import numpy as np
 from collections import deque
 
 from river import linear_model, preprocessing, metrics
+import random
 
 # Load environment variables
 load_dotenv()
@@ -24,10 +25,119 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Handle loading the model
+# Handle loading the price prediction in time model
 MODEL_PATH = Path("sol_model.pkl")
 METRIC_PATH = Path("sol_metric.pkl")
 TRAIL = deque(maxlen=10)
+
+# Handle loading the price horizon model
+HORIZON_MODEL_PATH = Path("sol_horizon_model.pkl")
+HORIZON_METRIC_PATH = Path("sol_horizon_metric.pkl")
+
+actions = ["buy", "sell", "hold"]
+def model_factory():
+    return preprocessing.StandardScaler() | linear_model.LinearRegression()
+
+# This function flattens nested dictionary data for easier processing.
+# It converts keys like "delta_hour" into "delta_hour" and "delta_day"
+# to "delta_day" for easier access in the model.
+# This is useful for the Contextual Bandit model to handle nested data structures.
+# It allows us to create a flat representation of the data that can be easily used in machine learning models.
+# For example, if we have a dictionary like {"delta": {"hour": 0.01, "day": 0.02}},
+# it will be converted to {"delta_hour": 0.01, "delta_day": 0.02}.
+# This makes it easier to work with the data in models that expect flat input.
+def flatten_data(data: dict) -> dict:
+    """Flatten nested dictionary data for easier processing."""
+    flat_data = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            for sub_key, sub_value in value.items():
+                flat_data[f"{key}_{sub_key}"] = sub_value
+        else:
+            flat_data[key] = value
+    return flat_data
+
+# Contextual Bandit - Onling Learning from "data" (price updates)
+# This is a simple online learning model that updates with each new price data point.
+class ContextualBandit:
+    def __init__(self, actions, model_factory, epsilon=0.1):
+        self.actions = actions
+        self.models = {a: model_factory() for a in actions}
+        self.epsilon = epsilon
+
+    def pull(self, x):
+        # ε-greedy: random exploration vs best model
+        if random.random() < self.epsilon:
+            return random.choice(self.actions)
+        predictions = {a: self.models[a].predict_one(x) for a in self.actions}
+        return max(predictions.items(), key=lambda item: item[1])[0]
+
+    def update(self, x, action, reward):
+        self.models[action].learn_one(x, reward)
+
+    def reward_function(self, action, data):
+        # We'll use day delta (change from yesterday) as "truth"
+        delta = data.get("delta", {}).get("day", 1.0) - 1.0  # e.g. 0.0353 → +3.53%
+
+        if action == "buy" and delta > 0:
+            return 1
+        elif action == "sell" and delta < 0:
+            return 1
+        elif action == "hold" and abs(delta) < 0.002:
+            return 0.5
+        else:
+            return 0
+
+if HORIZON_MODEL_PATH.exists() and HORIZON_METRIC_PATH.exists():
+    with open(HORIZON_MODEL_PATH, "rb") as f:
+        agent = pickle.load(f)
+else:
+    agent = ContextualBandit(actions, model_factory)
+
+def process_bandit_step(data):
+    x = flatten_data(data)
+
+    # Get prediction scores per action (before choosing)
+    predictions = {a: agent.models[a].predict_one(x) for a in agent.actions}
+
+    # Choose action with epsilon-greedy
+    action = agent.pull(x)
+
+    # Compute reward
+    reward = agent.reward_function(action, data)
+
+    # Update bandit with feedback
+    agent.update(x, action, reward)
+
+    print(f"Chose action: {action}, Reward: {reward}")
+
+    # Save model state
+    with open(HORIZON_MODEL_PATH, "wb") as f:
+        pickle.dump(agent, f)
+
+    # Log to database
+    timestamp = data.get("time") or datetime.now().isoformat()
+    data_json = json.dumps(data)  # Save raw data for full traceability
+
+    # Insert into DB — you need to have DB connection and cursor accessible here!
+    agent_bandit_db_conn = sqlite3.connect("sol_prices.db")
+    agent_bandit_db_cursor = agent_bandit_db_conn.cursor()
+    agent_bandit_db_cursor.execute('''
+        INSERT INTO bandit_logs (
+            timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold, data_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        timestamp,
+        action,
+        reward,
+        predictions.get("buy"),
+        predictions.get("sell"),
+        predictions.get("hold"),
+        data_json
+    ))
+    agent_bandit_db_conn.commit()
+
+
 
 # Load or initialize model and metric
 if MODEL_PATH.exists() and METRIC_PATH.exists():
@@ -153,6 +263,21 @@ class SOLPriceFetcher:
             )
         ''')
 
+        # Create table for Contextual Bandit predictions
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bandit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                action TEXT NOT NULL,
+                reward REAL NOT NULL,
+                prediction_buy REAL,
+                prediction_sell REAL,
+                prediction_hold REAL,
+                data_json TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
         self.conn.commit()
         logger.info("Database initialized successfully")
 
@@ -219,7 +344,12 @@ class SOLPriceFetcher:
             ))
             self.conn.commit()
             logger.info(f"SOL price: ${data['rate']:.2f} - Data stored successfully")
+            # Here is the place in the loop where we execute other actions on the "data" variable, which is our dictionary of price data.
+            # Train the online model with the new data - it predicts the next price based on the current data.
             train_online_model(data)
+            # Train the contextual bandit model with the new data
+            # This will choose an action based on the current data and update the model with the reward
+            process_bandit_step(data)
             return data
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching SOL price: {e}")
