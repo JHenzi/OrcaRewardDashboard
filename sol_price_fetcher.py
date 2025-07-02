@@ -6,6 +6,8 @@ import logging
 from datetime import datetime
 from dotenv import load_dotenv
 import os
+# --- River imports ---
+from river import linear_model, preprocessing, metrics
 
 # Load environment variables
 load_dotenv()
