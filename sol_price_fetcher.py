@@ -76,27 +76,42 @@ class ContextualBandit:
         self.models[action].learn_one(x, reward)
 
     def reward_function(self, action, data):
-        # We'll use day delta (change from yesterday) as "truth"
-        delta = data.get("delta", {}).get("day", 1.0) - 1.0  # e.g. 0.0353 → +3.53%
+        delta = data.get("delta", {}).get("day", 1.0) - 1.0
+        volatility = data.get("recent_volatility", 0.02)  # You'll need to track this
 
-        if action == "buy" and delta > 0:
+        # Calculate risk-adjusted return (Sharpe-like signal)
+        if volatility > 0:
+            risk_adjusted_delta = delta / volatility
+        else:
+            risk_adjusted_delta = delta / 0.01  # Fallback
+
+        # Use Sharpe logic but return your original values
+        if action == "buy" and risk_adjusted_delta > 0.5:  # Good risk-adjusted gain
             return 1
-        elif action == "sell" and delta < 0:
+        elif action == "sell" and risk_adjusted_delta < -0.5:  # Good risk-adjusted decline
             return 1
-        elif action == "hold" and abs(delta) < 0.002:
+        elif action == "hold" and abs(risk_adjusted_delta) < 0.3:  # Low risk-adjusted movement
             return 0.5
         else:
             return 0
 
-if HORIZON_MODEL_PATH.exists() and HORIZON_METRIC_PATH.exists():
-    with open(HORIZON_MODEL_PATH, "rb") as f:
-        agent = pickle.load(f)
-else:
-    agent = ContextualBandit(actions, model_factory)
+def get_agent():
+    if HORIZON_MODEL_PATH.exists():
+        try:
+            with open(HORIZON_MODEL_PATH, "rb") as f:
+                agent = pickle.load(f)
+            logger.info("Loaded existing Contextual Bandit model from disk.")
+        except (AttributeError, ImportError):
+            logger.info("Could not load existing model, creating new one")
+            agent = ContextualBandit(actions, model_factory)
+    else:
+        agent = ContextualBandit(actions, model_factory)
+        logger.info("Initialized new Contextual Bandit model.")
+    return agent
 
 def process_bandit_step(data):
     x = flatten_data(data)
-
+    agent = get_agent()
     # Get prediction scores per action (before choosing)
     predictions = {a: agent.models[a].predict_one(x) for a in agent.actions}
 
@@ -136,15 +151,16 @@ def process_bandit_step(data):
         data_json
     ))
     agent_bandit_db_conn.commit()
-
-
+    agent_bandit_db_conn.close()
 
 # Load or initialize model and metric
 if MODEL_PATH.exists() and METRIC_PATH.exists():
     with open(MODEL_PATH, "rb") as f:
         model = pickle.load(f)
+    logger.info("Loaded existing online learning model from disk.")
     with open(METRIC_PATH, "rb") as f:
         metric = pickle.load(f)
+    logger.info("Loaded existing metric from disk.")
 else:
     model = preprocessing.StandardScaler() | linear_model.LinearRegression()
     metric = metrics.MAE()
@@ -212,7 +228,6 @@ def train_online_model(data):
         pickle.dump(model, f)
     with open(METRIC_PATH, "wb") as f:
         pickle.dump(metric, f)
-
 class SOLPriceFetcher:
     def __init__(self):
         self.api_key = os.getenv('LIVECOINWATCH_API_KEY')
