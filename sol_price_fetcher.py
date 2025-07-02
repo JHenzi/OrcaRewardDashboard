@@ -11,6 +11,8 @@ import pickle
 from pathlib import Path
 import numpy as np
 from collections import deque
+from statistics import mean, stdev
+
 
 from river import linear_model, preprocessing, metrics
 import random
@@ -37,6 +39,43 @@ HORIZON_METRIC_PATH = Path("sol_horizon_metric.pkl")
 actions = ["buy", "sell", "hold"]
 def model_factory():
     return preprocessing.StandardScaler() | linear_model.LinearRegression()
+
+def compute_price_features(prices):
+    if not prices or len(prices) < 2:
+        return {}
+
+    def simple_moving_average(prices, window):
+        if len(prices) < window:
+            return None
+        return round(mean(prices[-window:]), 4)
+
+    sma_1h = simple_moving_average(prices, 12)     # assuming 5-min intervals → 12*5 = 60 mins
+    sma_4h = simple_moving_average(prices, 48)     # 4 hours
+    sma_24h = simple_moving_average(prices, 288)   # 24 hours
+
+    current_price = prices[-1]
+    price_start = prices[0]
+    percent_change = round(((current_price - price_start) / price_start) * 100, 4)
+
+    high_price = round(max(prices), 4)
+    low_price = round(min(prices), 4)
+    price_range = round(high_price - low_price, 4)
+
+    price_stdev = round(stdev(prices), 4) if len(prices) > 1 else 0
+    avg_price_delta = round(mean([abs(prices[i] - prices[i - 1]) for i in range(1, len(prices))]), 4)
+
+    return {
+        "sma_1h": sma_1h,
+        "sma_4h": sma_4h,
+        "sma_24h": sma_24h,
+        "current_price": round(current_price, 4),
+        "percent_change": percent_change,
+        "high": high_price,
+        "low": low_price,
+        "range": price_range,
+        "std_dev": price_stdev,
+        "avg_delta": avg_price_delta,
+    }
 
 # This function flattens nested dictionary data for easier processing.
 # It converts keys like "delta_hour" into "delta_hour" and "delta_day"
@@ -198,41 +237,41 @@ else:
     metric = metrics.MAE()
 
 def train_online_model(data):
-    # Todo: Clean up that we are creating these connections every time!
     conn = sqlite3.connect("sol_prices.db")
     cursor = conn.cursor()
 
-    """Feed new price data into the online learning model."""
     global model, metric, TRAIL
 
     TRAIL.append(data)
 
+    # Base features from current data
     features = {
-    "rate": data["rate"],             # Current price itself as a feature (can help regression)
-    "volume": data["volume"],
-    "liquidity": data["liquidity"],
-    "market_cap": data["cap"],
-    "delta_hour": data["delta"]["hour"],
-    "delta_day": data["delta"]["day"],
-    "delta_week": data["delta"]["week"],
-    "delta_month": data["delta"]["month"],
-    "delta_quarter": data["delta"]["quarter"],
-    "delta_year": data["delta"]["year"],
+        "rate": data["rate"],
+        "volume": data["volume"],
+        "liquidity": data["liquidity"],
+        "market_cap": data["cap"],
+        "delta_hour": data["delta"]["hour"],
+        "delta_day": data["delta"]["day"],
+        "delta_week": data["delta"]["week"],
+        "delta_month": data["delta"]["month"],
+        "delta_quarter": data["delta"]["quarter"],
+        "delta_year": data["delta"]["year"],
     }
 
-    # Use entire trail if > maxlen, else use all current
+    # Extract recent prices from TRAIL
     prices = [t["rate"] for t in TRAIL]
+
+    # Compute extra features from price history
+    extra_features = compute_price_features(prices)
+
+    # Merge extra features into main features dict
+    # (Note: keys like 'sma_1h', 'std_dev', etc. are added)
+    features.update(extra_features)
+
+    # Optional: also add momentum and window size from your existing logic
     window_size = len(prices)
-
-    # Add simple moving average if enough trailing data
     if window_size >= 3:
-        sma = np.mean(prices)
-        stddev = np.std(prices)
-        momentum = prices[-1] - prices[0]  # price change over the window
-
-        features["sma"] = sma
-        features["stddev"] = stddev
-        features["momentum"] = momentum
+        features["momentum"] = prices[-1] - prices[0]
         features["window_size"] = window_size
 
     target = data["rate"]
@@ -240,26 +279,30 @@ def train_online_model(data):
     model.learn_one(features, target)
     metric.update(target, y_pred)
 
-    # Log the result
     print(f"Online Learning => Predicted: {y_pred:.2f}, Actual: {target:.2f}, Error: {abs(y_pred - target):.4f}, MAE: {metric.get():.4f}")
+
     cursor.execute('''
         INSERT INTO sol_predictions (timestamp, predicted_rate, actual_rate, error, mae)
         VALUES (?, ?, ?, ?, ?)
     ''', (
-        data["time"] if "time" in data else datetime.now().isoformat(),  # fallback if not present
+        data.get("time", datetime.now().isoformat()),
         y_pred,
         target,
         abs(y_pred - target),
         metric.get()
     ))
+
     conn.commit()
     conn.close()
 
-    # Persist model
+    # Persist model and metric
     with open(MODEL_PATH, "wb") as f:
         pickle.dump(model, f)
     with open(METRIC_PATH, "wb") as f:
         pickle.dump(metric, f)
+
+
+
 class SOLPriceFetcher:
     def __init__(self):
         self.api_key = os.getenv('LIVECOINWATCH_API_KEY')
