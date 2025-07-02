@@ -31,6 +31,8 @@ This will count the API calls that remain for the day and ask you how often it s
 
 Messing around with online learning models we've implemented in `sol_price_fetcher.py` a Solana price prediction using ML / regression analysis. To start we're only considering the live data as it comes in and storing the predictions as they are made into the **hardcoded** SQLite database named `sol_prices.db` (Todo: abstract this into `.env` as a best practice)
 
+![Predictions.png](Predictions.png)
+
 ## Setup
 
 ### 1\. Clone the repository
