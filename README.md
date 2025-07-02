@@ -27,6 +27,10 @@ This will count the API calls that remain for the day and ask you how often it s
 
 ![Chart.png](Chart.png)
 
+### Bonus SOL Price Prediction
+
+Messing around with online learning models we've implemented in `sol_price_fetcher.py` a Solana price prediction using ML / regression analysis. To start we're only considering the live data as it comes in and storing the predictions as they are made into the **hardcoded** SQLite database named `sol_prices.db` (Todo: abstract this into `.env` as a best practice)
+
 ## Setup
 
 ### 1\. Clone the repository
@@ -68,10 +72,13 @@ LIVECOINWATCH_API_KEY=your_livecoinwatch_api_key_here
 
 ### 4\. Run the application
 
-bash
+There are two scripts that must continously run. The Flask application on `app.py` and the price fetcher/predictor.
+
+We suggest running each of these on separate `screen` sessions.
 
 ```bash
 python app.py
+python sol_price_fetcher.py
 ```
 
 The application will be available at `http://localhost:5030`

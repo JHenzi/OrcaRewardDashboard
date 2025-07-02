@@ -62,10 +62,20 @@ def train_online_model(data):
     "delta_year": data["delta"]["year"],
     }
 
+    # Use entire trail if > maxlen, else use all current
+    prices = [t["rate"] for t in TRAIL]
+    window_size = len(prices)
+
     # Add simple moving average if enough trailing data
-    if len(TRAIL) >= 3:
-        sma = np.mean([t["rate"] for t in TRAIL])
+    if window_size >= 3:
+        sma = np.mean(prices)
+        stddev = np.std(prices)
+        momentum = prices[-1] - prices[0]  # price change over the window
+
         features["sma"] = sma
+        features["stddev"] = stddev
+        features["momentum"] = momentum
+        features["window_size"] = window_size
 
     target = data["rate"]
     y_pred = model.predict_one(features) or 0.0
