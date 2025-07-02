@@ -2,7 +2,7 @@ import requests
 import time
 import sqlite3
 from threading import Thread
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 import threading
 import json
 from datetime import datetime
@@ -363,15 +363,39 @@ def index():
 
 @app.route("/sol-tracker")
 def sol_tracker():
+    # Get selected time range from query param
+    selected_range = request.args.get("range", "day")  # Default to 1 day
+
+    # Define how many entries to fetch based on selected range (5-min intervals)
+    range_map = {
+        "hour": 12,
+        "day": 288,
+        "week": 2016,
+        "month": 8640,
+        "year": 105120,
+    }
+    limit = range_map.get(selected_range, 288)
+
+    # Fetch price data
     fetcher = SOLPriceFetcher()
-    all_data = fetcher.get_price_history(limit=288)  # 24 hours at 5-min intervals
+    all_data = fetcher.get_price_history(limit=limit)
     fetcher.close()
 
     timestamps = []
     prices = []
-    # Connect to sol_prices.db and get last 5 predictions
+
+    for row in reversed(all_data):  # oldest to newest
+        ts = row[1]  # ISO timestamp
+        price = row[2]
+        dt = datetime.fromisoformat(ts)
+        short_ts = dt.strftime("%b %d, %I:%M %p")
+        timestamps.append(short_ts)
+        prices.append(price)
+
+    # Fetch predictions and bandit logs from database
     prediction_conn = sqlite3.connect("sol_prices.db")
     prediction_cursor = prediction_conn.cursor()
+
     prediction_cursor.execute("""
         SELECT timestamp, predicted_rate, actual_rate, error, mae
         FROM sol_predictions
@@ -379,7 +403,7 @@ def sol_tracker():
         LIMIT 5
     """)
     prediction_rows = prediction_cursor.fetchall()
-    # Fetch bandit_logs (contextual bandit predictions and actions)
+
     prediction_cursor.execute("""
         SELECT timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold
         FROM bandit_logs
@@ -390,7 +414,7 @@ def sol_tracker():
 
     prediction_conn.close()
 
-    # Reformat for display
+    # Reformat prediction data
     predictions = []
     for row in prediction_rows:
         pred_ts = datetime.fromisoformat(row[0]).strftime("%b %d, %I:%M %p")
@@ -401,15 +425,8 @@ def sol_tracker():
             "error": round(row[3], 4),
             "mae": round(row[4], 4)
         })
-    for row in reversed(all_data):
-        ts = row[1]  # ISO timestamp
-        price = row[2]
-        dt = datetime.fromisoformat(ts)
-        short_ts = dt.strftime("%b %d, %I:%M %p")
-        timestamps.append(short_ts)
-        prices.append(price)
 
-    # Reformat bandit_logs for display
+    # Reformat bandit log data
     bandit_logs = []
     for row in bandit_rows:
         log_ts = datetime.fromisoformat(row[0]).strftime("%b %d, %I:%M %p")
@@ -422,35 +439,34 @@ def sol_tracker():
             "prediction_hold": round(row[5], 4) if row[5] is not None else None
         })
 
-
     # === Stats Calculations ===
     def simple_moving_average(prices, window):
         if len(prices) < window:
             return None
         return round(mean(prices[-window:]), 4)
 
-    sma_1h = simple_moving_average(prices, 12)
-    sma_4h = simple_moving_average(prices, 48)
-    sma_24h = simple_moving_average(prices, 288)
+    sma_1h = simple_moving_average(prices, 12) if len(prices) >= 12 else None
+    sma_4h = simple_moving_average(prices, 48) if len(prices) >= 48 else None
+    sma_24h = simple_moving_average(prices, 288) if len(prices) >= 288 else None
 
     current_price = prices[-1]
-    price_24h_ago = prices[0]
-    percent_change = round(((current_price - price_24h_ago) / price_24h_ago) * 100, 2)
+    price_start = prices[0]
+    percent_change = round(((current_price - price_start) / price_start) * 100, 2)
 
-    high_24h = round(max(prices), 4)
-    low_24h = round(min(prices), 4)
-    range_24h = round(high_24h - low_24h, 4)
+    high_price = round(max(prices), 4)
+    low_price = round(min(prices), 4)
+    price_range = round(high_price - low_price, 4)
 
     price_stdev = round(stdev(prices), 4) if len(prices) > 1 else 0
     avg_price_delta = round(mean([abs(prices[i] - prices[i - 1]) for i in range(1, len(prices))]), 4)
 
     stats = {
         "current_price": round(current_price, 4),
-        "price_24h_ago": round(price_24h_ago, 4),
+        "price_start": round(price_start, 4),
         "percent_change": percent_change,
-        "high_24h": high_24h,
-        "low_24h": low_24h,
-        "range_24h": range_24h,
+        "high": high_price,
+        "low": low_price,
+        "range": price_range,
         "sma_1h": sma_1h,
         "sma_4h": sma_4h,
         "sma_24h": sma_24h,
@@ -458,7 +474,15 @@ def sol_tracker():
         "avg_delta": avg_price_delta
     }
 
-    return render_template("sol_tracker.html", timestamps=timestamps, prices=prices, stats=stats, predictions=predictions, bandit_logs=bandit_logs)
+    return render_template(
+        "sol_tracker.html",
+        timestamps=timestamps,
+        prices=prices,
+        stats=stats,
+        predictions=predictions,
+        bandit_logs=bandit_logs,
+        selected_range=selected_range
+    )
 
 
 def background_fetch_loop():

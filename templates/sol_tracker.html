@@ -25,7 +25,7 @@
                 <span class="text-yellow-300 ml-4">⏸️</span>
               {% endif %}
             </div>
-            <div class="text-lg mb-2 font-semibold">
+            <div class="text-5xl font-extrabold mb-4">
               Actual: <span class="inline-block px-2 py-1 bg-white bg-opacity-20 rounded">{{ '$' ~ (p.actual | round(2)) }}</span>
             </div>
             <div class="text-sm opacity-70 italic mb-4">
@@ -56,7 +56,20 @@
           {% endif %}
         </div>
         
-        
+        <!-- Range Selector -->
+      <div class="flex justify-end items-center mb-4">
+        <form method="get" action="/sol-tracker" class="flex items-center space-x-2">
+          <label for="range" class="text-sm font-medium text-gray-700">🕒 Time Range:</label>
+          <select id="range" name="range" onchange="this.form.submit()" class="bg-white border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block px-3 py-1.5 shadow-sm">
+            <option value="hour" {% if selected_range == 'hour' %}selected{% endif %}>1 Hour</option>
+            <option value="day" {% if selected_range == 'day' %}selected{% endif %}>1 Day</option>
+            <option value="week" {% if selected_range == 'week' %}selected{% endif %}>1 Week</option>
+            <option value="month" {% if selected_range == 'month' %}selected{% endif %}>1 Month</option>
+            <option value="year" {% if selected_range == 'year' %}selected{% endif %}>1 Year</option>
+          </select>
+        </form>
+      </div>
+
         
         <div class="bg-white p-6 rounded-lg shadow-lg">
             <canvas id="solChart"></canvas>
