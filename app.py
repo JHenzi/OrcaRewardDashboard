@@ -190,8 +190,6 @@ def get_sol_price_data():
     response.raise_for_status()
     return response.json()
 
-
-
 def fetch_newer_than(wallet, since_signature, max_pages=10, batch_size=100):
     after = since_signature
     all_events = []
@@ -371,7 +369,29 @@ def sol_tracker():
 
     timestamps = []
     prices = []
+    # Connect to sol_prices.db and get last 5 predictions
+    prediction_conn = sqlite3.connect("sol_prices.db")
+    prediction_cursor = prediction_conn.cursor()
+    prediction_cursor.execute("""
+        SELECT timestamp, predicted_rate, actual_rate, error, mae
+        FROM sol_predictions
+        ORDER BY created_at DESC
+        LIMIT 5
+    """)
+    prediction_rows = prediction_cursor.fetchall()
+    prediction_conn.close()
 
+    # Reformat for display
+    predictions = []
+    for row in prediction_rows:
+        pred_ts = datetime.fromisoformat(row[0]).strftime("%b %d, %I:%M %p")
+        predictions.append({
+            "timestamp": pred_ts,
+            "predicted": round(row[1], 4),
+            "actual": round(row[2], 4),
+            "error": round(row[3], 4),
+            "mae": round(row[4], 4)
+        })
     for row in reversed(all_data):
         ts = row[1]  # ISO timestamp
         price = row[2]
@@ -415,7 +435,7 @@ def sol_tracker():
         "avg_delta": avg_price_delta
     }
 
-    return render_template("sol_tracker.html", timestamps=timestamps, prices=prices, stats=stats)
+    return render_template("sol_tracker.html", timestamps=timestamps, prices=prices, stats=stats, predictions=predictions)
 
 
 def background_fetch_loop():
