@@ -57,6 +57,38 @@ def flatten_data(data: dict) -> dict:
             flat_data[key] = value
     return flat_data
 
+def compute_recent_volatility(prices):
+    """
+    prices: List or array of recent price points (ordered oldest → newest)
+    returns: Standard deviation of % price changes
+    """
+    if len(prices) < 2:
+        return 0.01  # fallback if not enough data
+
+    # Use simple percent returns
+    returns = np.diff(prices) / prices[:-1]
+    volatility = np.std(returns)
+
+    return max(volatility, 0.0001)  # avoid divide-by-zero
+
+def fetch_recent_prices(db_path="sol_prices.db", limit=50):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Get the most recent `limit` prices, ordered by timestamp
+    cursor.execute("""
+        SELECT rate FROM sol_prices
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """, (limit,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    # We need oldest → newest order for volatility calc
+    prices = [row[0] for row in reversed(rows)]
+    return prices
+
 # Contextual Bandit - Onling Learning from "data" (price updates)
 # This is a simple online learning model that updates with each new price data point.
 class ContextualBandit:
@@ -75,9 +107,9 @@ class ContextualBandit:
     def update(self, x, action, reward):
         self.models[action].learn_one(x, reward)
 
-    def reward_function(self, action, data):
+    def reward_function(self, action, data, volatility):
         delta = data.get("delta", {}).get("day", 1.0) - 1.0
-        volatility = data.get("recent_volatility", 0.02)  # You'll need to track this
+        # volatility = data.get("recent_volatility", 0.02)  # You'll need to track this
 
         # Calculate risk-adjusted return (Sharpe-like signal)
         if volatility > 0:
@@ -109,7 +141,7 @@ def get_agent():
         logger.info("Initialized new Contextual Bandit model.")
     return agent
 
-def process_bandit_step(data):
+def process_bandit_step(data, volatility):
     x = flatten_data(data)
     agent = get_agent()
     # Get prediction scores per action (before choosing)
@@ -119,7 +151,7 @@ def process_bandit_step(data):
     action = agent.pull(x)
 
     # Compute reward
-    reward = agent.reward_function(action, data)
+    reward = agent.reward_function(action, data, volatility)
 
     # Update bandit with feedback
     agent.update(x, action, reward)
@@ -364,7 +396,8 @@ class SOLPriceFetcher:
             train_online_model(data)
             # Train the contextual bandit model with the new data
             # This will choose an action based on the current data and update the model with the reward
-            process_bandit_step(data)
+            volatility = compute_recent_volatility(fetch_recent_prices())
+            process_bandit_step(data, volatility)
             return data
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching SOL price: {e}")
