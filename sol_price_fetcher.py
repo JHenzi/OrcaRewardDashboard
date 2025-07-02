@@ -50,11 +50,16 @@ def train_online_model(data):
     TRAIL.append(data)
 
     features = {
-        "volume": data["volume"],
-        "liquidity": data["liquidity"],
-        "market_cap": data["cap"],
-        "delta_hour": data["delta"]["hour"],
-        "delta_day": data["delta"]["day"],
+    "rate": data["rate"],             # Current price itself as a feature (can help regression)
+    "volume": data["volume"],
+    "liquidity": data["liquidity"],
+    "market_cap": data["cap"],
+    "delta_hour": data["delta"]["hour"],
+    "delta_day": data["delta"]["day"],
+    "delta_week": data["delta"]["week"],
+    "delta_month": data["delta"]["month"],
+    "delta_quarter": data["delta"]["quarter"],
+    "delta_year": data["delta"]["year"],
     }
 
     # Add simple moving average if enough trailing data

@@ -48,6 +48,39 @@
               <div><strong>📉 Avg Δ / 5min:</strong> ${{ stats.avg_delta }}</div>
             </div>
           </div>
+          <div class="mt-8 bg-white p-6 rounded-lg shadow-lg">
+            <h2 class="text-xl font-semibold mb-4">🧠 Recent Predictions</h2>
+            <div class="overflow-x-auto">
+              <table class="min-w-full text-sm text-left text-gray-700 border">
+                <thead class="bg-gray-100 text-xs uppercase font-semibold text-gray-600">
+                  <tr>
+                    <th class="px-4 py-2 border-b">⏱️ Timestamp</th>
+                    <th class="px-4 py-2 border-b">🔮 Predicted</th>
+                    <th class="px-4 py-2 border-b">✅ Actual</th>
+                    <th class="px-4 py-2 border-b">📉 Error</th>
+                    <th class="px-4 py-2 border-b relative group">
+                        📊 MAE
+                        <span class="ml-1 text-gray-400 cursor-help">🛈</span>
+                        <div class="absolute z-10 hidden group-hover:block bg-white text-xs text-gray-800 border rounded shadow-md p-2 w-64 top-full left-1/2 transform -translate-x-1/2 mt-1">
+                          Mean Absolute Error (MAE) is the average difference between the predicted and actual SOL price. Lower is better.
+                        </div>
+                      </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for p in predictions %}
+                  <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-2 border-b">{{ p.timestamp }}</td>
+                    <td class="px-4 py-2 border-b">${{ p.predicted }}</td>
+                    <td class="px-4 py-2 border-b">${{ p.actual }}</td>
+                    <td class="px-4 py-2 border-b text-red-600">${{ p.error }}</td>
+                    <td class="px-4 py-2 border-b text-blue-600">${{ p.mae }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
           
     </div>
 
