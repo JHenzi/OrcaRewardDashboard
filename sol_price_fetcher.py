@@ -5,6 +5,7 @@ import time
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
+import sys
 import os
 # -- For Price Analysis Learning --
 import pickle
@@ -221,8 +222,12 @@ def get_agent():
             with open(HORIZON_MODEL_PATH, "rb") as f:
                 agent = pickle.load(f)
             logger.info("Loaded existing Contextual Bandit model from disk.")
-        except (AttributeError, ImportError):
-            logger.info("Could not load existing model, creating new one")
+        except (AttributeError, ImportError) as e:
+            logger.info(f"Could not load existing model due to: {e}")
+            logger.info("Creating new model")
+            agent = ContextualBandit(model_factory, actions)
+        except Exception as e:
+            logger.error(f"Unexpected error loading model: {e}")
             agent = ContextualBandit(model_factory, actions)
     else:
         agent = ContextualBandit(model_factory, actions)
@@ -619,9 +624,30 @@ class SOLPriceFetcher:
             self.conn.close()
             logger.info("Database connection closed")
 
+def check_flask_app_running(host="127.0.0.1", port=5030):
+    """Check if Flask app is running by trying to connect to it"""
+    try:
+        response = requests.get(f"http://{host}:{port}/", timeout=2)
+        return response.status_code == 200
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        return False
+
 def main():
     """Main function to run the price fetcher"""
     try:
+        # Check if app.py is running
+        flask_host = os.getenv("FLASK_HOST", "127.0.0.1")
+        flask_port = int(os.getenv("FLASK_PORT", "5030"))
+
+        if check_flask_app_running(flask_host, flask_port):
+            logger.info("Flask app (app.py) is already running!")
+            user_choice = input("The main Flask app is running. Exit this script? It's already executing this script! (y/n): ").lower().strip()
+            if user_choice == 'y':
+                logger.info("Exiting - use the Flask app for SOL price collection")
+                sys.exit(0)
+            else:
+                logger.info("Continuing with standalone mode...")
+
         fetcher = SOLPriceFetcher()
 
         # Check initial credits
@@ -660,6 +686,8 @@ def main():
 
     except Exception as e:
         logger.error(f"Error in main: {e}")
+    finally:
+        fetcher.close()
 
 if __name__ == "__main__":
     main()

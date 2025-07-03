@@ -10,32 +10,37 @@
 
     <div class="container mx-auto p-6">
         <h1 class="text-3xl font-bold mb-4 text-center">SOL Price Tracker</h1>
-        <div class="mb-8 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-xl shadow-xl p-8 text-center">
+        <div class="mb-8 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-xl shadow-xl p-8">
           {% if predictions and predictions|length > 0 %}
             {% set p = predictions[0] %}
-            <div class="text-5xl font-extrabold mb-4">
-              {{ '$' ~ (p.predicted | round(2)) }}
-              {% if p.error < 0.5 %}
-                <span class="text-green-300 ml-4">✅</span>
-              {% elif p.actual > p.predicted %}
-                <span class="text-green-300 ml-4 animate-bounce">⬆️</span>
-              {% elif p.actual < p.predicted %}
-                <span class="text-red-400 ml-4 animate-pulse">⬇️</span>
-              {% else %}
-                <span class="text-yellow-300 ml-4">⏸️</span>
-              {% endif %}
+            <div class="grid grid-cols-2 gap-6 text-center items-center">
+              <div>
+                <div class="text-4xl font-extrabold mb-2">Predicted Price</div>
+                <div class="text-5xl font-extrabold flex justify-center items-center space-x-4">
+                  <span>{{ '$' ~ (p.predicted | round(2)) }}</span>
+                  {% if p.error < 0.5 %}
+                    <span class="text-green-300">✅</span>
+                  {% elif p.actual > p.predicted %}
+                    <span class="text-green-300 animate-bounce">⬆️</span>
+                  {% elif p.actual < p.predicted %}
+                    <span class="text-red-400 animate-pulse">⬇️</span>
+                  {% else %}
+                    <span class="text-yellow-300">⏸️</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div>
+                <div class="text-4xl font-extrabold mb-2">Actual Price</div>
+                <div class="text-5xl font-extrabold">
+                  <span class="inline-block px-4 py-2 bg-white bg-opacity-20 rounded">{{ '$' ~ (p.actual | round(2)) }}</span>
+                </div>
+              </div>
             </div>
-            <div class="text-5xl font-extrabold mb-4">
-              Actual: <span class="inline-block px-2 py-1 bg-white bg-opacity-20 rounded">{{ '$' ~ (p.actual | round(2)) }}</span>
-            </div>
-            <div class="text-sm opacity-70 italic mb-4">
-              Error: ${{ p.error }} | MAE: ${{ p.mae }}
-            </div>
-
             {% if bandit_logs and bandit_logs|length > 0 %}
-              {% set b = bandit_logs[0] %}
-              <div class="text-2xl font-semibold">
-                Action:
+            {% set b = bandit_logs[0] %}
+            <div class="text-center mt-6">
+              <div class="text-5xl font-extrabold flex justify-center items-center space-x-3">
+                <span>Action:</span>
                 {% if b.action == 'buy' %}
                   <span class="text-green-400">Buy 🟢</span>
                 {% elif b.action == 'sell' %}
@@ -44,18 +49,18 @@
                   <span class="text-yellow-400">Hold 🟡</span>
                 {% endif %}
               </div>
-              <div class="text-sm opacity-70 italic">
+              <div class="text-sm opacity-70 italic mt-1">
                 Reward: {{ b.reward }} |
                 Buy: {{ b.prediction_buy | default('N/A') }} |
                 Sell: {{ b.prediction_sell | default('N/A') }} |
                 Hold: {{ b.prediction_hold | default('N/A') }}
               </div>
-            {% endif %}
-          {% else %}
-            <div class="text-xl font-semibold">No predictions available</div>
+            </div>
           {% endif %}
+        {% else %}
+          <div class="text-xl font-semibold text-center">No predictions available</div>
+        {% endif %}
         </div>
-
         <!-- Range Selector -->
       <div class="flex justify-end items-center mb-4">
         <form method="get" action="/sol-tracker" class="flex items-center space-x-2">
@@ -108,6 +113,7 @@
               <div><strong>📉 Avg Δ / 5min:</strong> ${{ stats.avg_delta }}</div>
             </div>
           </div>
+          <!-- Recent Predictions -->
           <div class="mt-8 bg-white p-6 rounded-lg shadow-lg">
             <h2 class="text-xl font-semibold mb-4">🧠 Recent Predictions</h2>
             <div class="overflow-x-auto">
@@ -129,18 +135,21 @@
                 </thead>
                 <tbody>
                   {% for p in predictions %}
-                  <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-2 border-b">{{ p.timestamp }}</td>
-                    <td class="px-4 py-2 border-b">${{ p.predicted }}</td>
-                    <td class="px-4 py-2 border-b">${{ p.actual }}</td>
-                    <td class="px-4 py-2 border-b text-red-600">${{ p.error }}</td>
-                    <td class="px-4 py-2 border-b text-blue-600">${{ p.mae }}</td>
-                  </tr>
+                    {% if loop.index <= 5 %}
+                      <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-2 border-b">{{ p.timestamp }}</td>
+                        <td class="px-4 py-2 border-b">${{ p.predicted }}</td>
+                        <td class="px-4 py-2 border-b">${{ p.actual }}</td>
+                        <td class="px-4 py-2 border-b text-red-600">${{ p.error }}</td>
+                        <td class="px-4 py-2 border-b text-blue-600">${{ p.mae }}</td>
+                      </tr>
+                    {% endif %}
                   {% endfor %}
                 </tbody>
               </table>
             </div>
           </div>
+          <!-- Contextual Bandit Logs -->
           <div class="mt-8 bg-white p-6 rounded-lg shadow-lg">
             <h2 class="text-xl font-semibold mb-4">🤖 Contextual Bandit Logs</h2>
             <div class="overflow-x-auto">
@@ -157,14 +166,16 @@
                 </thead>
                 <tbody>
                   {% for log in bandit_logs %}
-                  <tr class="hover:bg-gray-50">
-                    <td class="px-4 py-2 border-b">{{ log.timestamp }}</td>
-                    <td class="px-4 py-2 border-b font-semibold text-indigo-700">{{ log.action | capitalize }}</td>
-                    <td class="px-4 py-2 border-b">{{ log.reward }}</td>
-                    <td class="px-4 py-2 border-b">{{ log.prediction_buy if log.prediction_buy is not none else 'N/A' }}</td>
-                    <td class="px-4 py-2 border-b">{{ log.prediction_sell if log.prediction_sell is not none else 'N/A' }}</td>
-                    <td class="px-4 py-2 border-b">{{ log.prediction_hold if log.prediction_hold is not none else 'N/A' }}</td>
-                  </tr>
+                    {% if loop.index <= 5 %}
+                      <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-2 border-b">{{ log.timestamp }}</td>
+                        <td class="px-4 py-2 border-b font-semibold text-indigo-700">{{ log.action | capitalize }}</td>
+                        <td class="px-4 py-2 border-b">{{ log.reward }}</td>
+                        <td class="px-4 py-2 border-b">{{ log.prediction_buy if log.prediction_buy is not none else 'N/A' }}</td>
+                        <td class="px-4 py-2 border-b">{{ log.prediction_sell if log.prediction_sell is not none else 'N/A' }}</td>
+                        <td class="px-4 py-2 border-b">{{ log.prediction_hold if log.prediction_hold is not none else 'N/A' }}</td>
+                      </tr>
+                    {% endif %}
                   {% endfor %}
                 </tbody>
               </table>
