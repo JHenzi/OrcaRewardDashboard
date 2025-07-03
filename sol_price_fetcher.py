@@ -210,7 +210,7 @@ def process_bandit_step(data, volatility):
     # Update bandit with feedback
     agent.update(x, action, reward)
 
-    print(f"Chose action: {action}, Reward: {reward}")
+    logger.info(f"Chose action: {action}, Reward: {reward}")
 
     # Save model state
     with open(HORIZON_MODEL_PATH, "wb") as f:
@@ -294,7 +294,7 @@ def train_online_model(data):
     model.learn_one(features, target)
     metric.update(target, y_pred)
 
-    print(f"Online Learning => Predicted: {y_pred:.2f}, Actual: {target:.2f}, Error: {abs(y_pred - target):.4f}, MAE: {metric.get():.4f}")
+    logger.info(f"Online Learning => Predicted: {y_pred:.2f}, Actual: {target:.2f}, Error: {abs(y_pred - target):.4f}, MAE: {metric.get():.4f}")
 
     cursor.execute('''
         INSERT INTO sol_predictions (timestamp, predicted_rate, actual_rate, error, mae)
@@ -552,13 +552,13 @@ def main():
         # Check initial credits
         credits = fetcher.get_credits()
         if credits:
-            print(f"Initial credits: {credits['dailyCreditsRemaining']}/{credits['dailyCreditsLimit']}")
+            logger.info(f"Initial credits: {credits['dailyCreditsRemaining']}/{credits['dailyCreditsLimit']}")
 
         # Fetch one sample to test
-        print("\nFetching sample SOL price...")
+        logger.info("\nFetching sample SOL price...")
         price_data = fetcher.fetch_sol_price()
         if price_data:
-            print(f"Current SOL price: ${price_data['rate']:.2f}")
+            logger.info(f"Current SOL price: ${price_data['rate']:.2f}")
 
         # Ask user if they want to start continuous collection
         start_loop = input("\nStart continuous price collection? (y/n): ").lower().strip()
@@ -570,14 +570,14 @@ def main():
                 safe_requests = max(1, remaining_credits - 10)
                 # Calculate interval for 24 hours
                 interval_minutes = max(5, (24 * 60) // safe_requests)
-                print(f"Suggested interval: {interval_minutes} minutes (based on {safe_requests} remaining credits)")
+                logger.info(f"Suggested interval: {interval_minutes} minutes (based on {safe_requests} remaining credits)")
 
                 custom_interval = input(f"Enter interval in minutes (default {interval_minutes}): ").strip()
                 if custom_interval:
                     try:
                         interval_minutes = int(custom_interval)
                     except ValueError:
-                        print("Invalid input, using default interval")
+                        logger.info("Invalid input, using default interval")
             else:
                 interval_minutes = 30  # Default fallback
 
