@@ -5,6 +5,7 @@
     <title>SOL Price Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body class="bg-gray-100 text-gray-800">
 
@@ -114,7 +115,7 @@
             </div>
           </div>
           <!-- Recent Predictions -->
-          <div class="mt-8 bg-white p-6 rounded-lg shadow-lg">
+          <div x-data="{ showAll: false }" class="mt-8 bg-white p-6 rounded-lg shadow-lg">
             <h2 class="text-xl font-semibold mb-4">🧠 Recent Predictions</h2>
             <div class="overflow-x-auto">
               <table class="min-w-full text-sm text-left text-gray-700 border">
@@ -125,32 +126,38 @@
                     <th class="px-4 py-2 border-b">✅ Actual</th>
                     <th class="px-4 py-2 border-b">📉 Error</th>
                     <th class="px-4 py-2 border-b relative group">
-                        📊 MAE
-                        <span class="ml-1 text-gray-400 cursor-help">?</span>
-                        <div class="absolute z-10 hidden group-hover:block bg-white text-xs text-gray-800 border rounded shadow-md p-2 w-64 top-full left-1/2 transform -translate-x-1/2 mt-1">
-                          Mean Absolute Error (MAE) is the average difference between the predicted and actual SOL price. Lower is better.
-                        </div>
-                      </th>
+                      📊 MAE
+                      <span class="ml-1 text-gray-400 cursor-help">?</span>
+                      <div class="absolute z-10 hidden group-hover:block bg-white text-xs text-gray-800 border rounded shadow-md p-2 w-64 top-full left-1/2 transform -translate-x-1/2 mt-1">
+                        Mean Absolute Error (MAE) is the average difference between the predicted and actual SOL price. Lower is better.
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for p in predictions %}
-                    {% if loop.index <= 5 %}
-                      <tr class="hover:bg-gray-50">
-                        <td class="px-4 py-2 border-b">{{ p.timestamp }}</td>
-                        <td class="px-4 py-2 border-b">${{ p.predicted }}</td>
-                        <td class="px-4 py-2 border-b">${{ p.actual }}</td>
-                        <td class="px-4 py-2 border-b text-red-600">${{ p.error }}</td>
-                        <td class="px-4 py-2 border-b text-blue-600">${{ p.mae }}</td>
-                      </tr>
-                    {% endif %}
+                  <template x-if="showAll || {{ loop.index }} <= 5">
+                    <tr class="hover:bg-gray-50">
+                      <td class="px-4 py-2 border-b">{{ p.timestamp }}</td>
+                      <td class="px-4 py-2 border-b">${{ p.predicted }}</td>
+                      <td class="px-4 py-2 border-b">${{ p.actual }}</td>
+                      <td class="px-4 py-2 border-b text-red-600">${{ p.error }}</td>
+                      <td class="px-4 py-2 border-b text-blue-600">${{ p.mae }}</td>
+                    </tr>
+                  </template>
                   {% endfor %}
                 </tbody>
               </table>
             </div>
+            <div class="mt-4 text-center">
+              <button @click="showAll = !showAll" class="text-sm text-blue-600 hover:underline focus:outline-none">
+                <span x-text="showAll ? 'Show Less' : 'Show All'"></span>
+              </button>
+            </div>
           </div>
+
           <!-- Contextual Bandit Logs -->
-          <div class="mt-8 bg-white p-6 rounded-lg shadow-lg">
+          <div x-data="{ showAllLogs: false }" class="mt-8 bg-white p-6 rounded-lg shadow-lg">
             <h2 class="text-xl font-semibold mb-4">🤖 Contextual Bandit Logs</h2>
             <div class="overflow-x-auto">
               <table class="min-w-full text-sm text-left text-gray-700 border">
@@ -166,19 +173,24 @@
                 </thead>
                 <tbody>
                   {% for log in bandit_logs %}
-                    {% if loop.index <= 5 %}
-                      <tr class="hover:bg-gray-50">
-                        <td class="px-4 py-2 border-b">{{ log.timestamp }}</td>
-                        <td class="px-4 py-2 border-b font-semibold text-indigo-700">{{ log.action | capitalize }}</td>
-                        <td class="px-4 py-2 border-b">{{ log.reward }}</td>
-                        <td class="px-4 py-2 border-b">{{ log.prediction_buy if log.prediction_buy is not none else 'N/A' }}</td>
-                        <td class="px-4 py-2 border-b">{{ log.prediction_sell if log.prediction_sell is not none else 'N/A' }}</td>
-                        <td class="px-4 py-2 border-b">{{ log.prediction_hold if log.prediction_hold is not none else 'N/A' }}</td>
-                      </tr>
-                    {% endif %}
+                  <template x-if="showAllLogs || {{ loop.index }} <= 5">
+                    <tr class="hover:bg-gray-50">
+                      <td class="px-4 py-2 border-b">{{ log.timestamp }}</td>
+                      <td class="px-4 py-2 border-b font-semibold text-indigo-700">{{ log.action | capitalize }}</td>
+                      <td class="px-4 py-2 border-b">{{ log.reward }}</td>
+                      <td class="px-4 py-2 border-b">{{ log.prediction_buy if log.prediction_buy is not none else 'N/A' }}</td>
+                      <td class="px-4 py-2 border-b">{{ log.prediction_sell if log.prediction_sell is not none else 'N/A' }}</td>
+                      <td class="px-4 py-2 border-b">{{ log.prediction_hold if log.prediction_hold is not none else 'N/A' }}</td>
+                    </tr>
+                  </template>
                   {% endfor %}
                 </tbody>
               </table>
+            </div>
+            <div class="mt-4 text-center">
+              <button @click="showAllLogs = !showAllLogs" class="text-sm text-blue-600 hover:underline focus:outline-none">
+                <span x-text="showAllLogs ? 'Show Less' : 'Show All'"></span>
+              </button>
             </div>
           </div>
 
