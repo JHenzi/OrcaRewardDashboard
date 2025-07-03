@@ -361,62 +361,16 @@ def index():
         analytics=analytics  # Pass analytics data to template
     )
 
-@app.route("/sol-tracker")
-def sol_tracker():
-    # Get selected time range from query param
-    selected_range = request.args.get("range", "day")  # Default to 1 day
-
-    # Define how many entries to fetch based on selected range (5-min intervals)
-    range_map = {
-        "hour": 12,
-        "day": 288,
-        "week": 2016,
-        "month": 8640,
-        "year": 105120,
-    }
-    limit = range_map.get(selected_range, 288)
-
-    # Fetch price data
-    fetcher = SOLPriceFetcher()
-    all_data = fetcher.get_price_history(limit=limit)
-    fetcher.close()
-
-    timestamps = []
-    prices = []
-
-    for row in reversed(all_data):  # oldest to newest
-        ts = row[1]  # ISO timestamp
-        price = row[2]
-        dt = datetime.fromisoformat(ts)
-        short_ts = dt.strftime("%b %d, %I:%M %p")
-        timestamps.append(short_ts)
-        prices.append(price)
-
-    # Fetch predictions and bandit logs from database
-    prediction_conn = sqlite3.connect("sol_prices.db")
-    prediction_cursor = prediction_conn.cursor()
-
-    prediction_cursor.execute("""
+def get_predictions(cursor, limit=5):
+    cursor.execute(f"""
         SELECT timestamp, predicted_rate, actual_rate, error, mae
         FROM sol_predictions
         ORDER BY created_at DESC
-        LIMIT 5
+        LIMIT {limit}
     """)
-    prediction_rows = prediction_cursor.fetchall()
-
-    prediction_cursor.execute("""
-        SELECT timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold
-        FROM bandit_logs
-        ORDER BY created_at DESC
-        LIMIT 5
-    """)
-    bandit_rows = prediction_cursor.fetchall()
-
-    prediction_conn.close()
-
-    # Reformat prediction data
+    rows = cursor.fetchall()
     predictions = []
-    for row in prediction_rows:
+    for row in rows:
         pred_ts = datetime.fromisoformat(row[0]).strftime("%b %d, %I:%M %p")
         predictions.append({
             "timestamp": pred_ts,
@@ -425,10 +379,18 @@ def sol_tracker():
             "error": round(row[3], 4),
             "mae": round(row[4], 4)
         })
+    return predictions
 
-    # Reformat bandit log data
+def get_bandits(cursor, limit=5):
+    cursor.execute(f"""
+        SELECT timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold
+        FROM bandit_logs
+        ORDER BY created_at DESC
+        LIMIT {limit}
+    """)
+    rows = cursor.fetchall()
     bandit_logs = []
-    for row in bandit_rows:
+    for row in rows:
         log_ts = datetime.fromisoformat(row[0]).strftime("%b %d, %I:%M %p")
         bandit_logs.append({
             "timestamp": log_ts,
@@ -438,8 +400,43 @@ def sol_tracker():
             "prediction_sell": round(row[4], 4) if row[4] is not None else None,
             "prediction_hold": round(row[5], 4) if row[5] is not None else None
         })
+    return bandit_logs
 
-    # === Stats Calculations ===
+@app.route("/sol-tracker")
+def sol_tracker():
+    selected_range = request.args.get("range", "day")
+    range_map = {
+        "hour": 12,
+        "day": 288,
+        "week": 2016,
+        "month": 8640,
+        "year": 105120,
+    }
+    limit = range_map.get(selected_range, 288)
+
+    fetcher = SOLPriceFetcher()
+    all_data = fetcher.get_price_history(limit=limit)
+    fetcher.close()
+
+    timestamps = []
+    prices = []
+    for row in reversed(all_data):  # oldest to newest
+        ts = row[1]
+        price = row[2]
+        dt = datetime.fromisoformat(ts)
+        short_ts = dt.strftime("%b %d, %I:%M %p")
+        timestamps.append(short_ts)
+        prices.append(price)
+
+    conn = sqlite3.connect("sol_prices.db")
+    cursor = conn.cursor()
+
+    predictions = get_predictions(cursor, limit=limit)
+    bandit_logs = get_bandits(cursor, limit=limit)  # match bandits to price points for charting
+
+    conn.close()
+
+    # Stats calculations (unchanged)
     def simple_moving_average(prices, window):
         if len(prices) < window:
             return None
@@ -483,6 +480,7 @@ def sol_tracker():
         bandit_logs=bandit_logs,
         selected_range=selected_range
     )
+
 
 
 def background_fetch_loop():
