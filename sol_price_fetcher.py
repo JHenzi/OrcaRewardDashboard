@@ -196,34 +196,36 @@ def get_agent():
     return agent
 
 def process_bandit_step(data, volatility):
+    # Fetch last 24h prices from DB
+    prices_24h = fetch_last_24h_prices()
+
+    # Compute price-based features
+    price_features = compute_price_features(prices_24h)
+
+    # Flatten raw data and merge with price features
     x = flatten_data(data)
+    x.update(price_features)
+
+    # Add volatility if you want it explicitly as feature
+    x["recent_volatility"] = volatility
+
     agent = get_agent()
-    # Get prediction scores per action (before choosing)
     predictions = {a: agent.models[a].predict_one(x) for a in agent.actions}
-
-    # Choose action with epsilon-greedy
     action = agent.pull(x)
-
-    # Compute reward
     reward = agent.reward_function(action, data, volatility)
-
-    # Update bandit with feedback
     agent.update(x, action, reward)
 
     logger.info(f"Chose action: {action}, Reward: {reward}")
 
-    # Save model state
     with open(HORIZON_MODEL_PATH, "wb") as f:
         pickle.dump(agent, f)
 
-    # Log to database
     timestamp = data.get("time") or datetime.now().isoformat()
-    data_json = json.dumps(data)  # Save raw data for full traceability
+    data_json = json.dumps(data)
 
-    # Insert into DB — you need to have DB connection and cursor accessible here!
-    agent_bandit_db_conn = sqlite3.connect("sol_prices.db")
-    agent_bandit_db_cursor = agent_bandit_db_conn.cursor()
-    agent_bandit_db_cursor.execute('''
+    conn = sqlite3.connect("sol_prices.db")
+    cursor = conn.cursor()
+    cursor.execute('''
         INSERT INTO bandit_logs (
             timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold, data_json
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -236,8 +238,9 @@ def process_bandit_step(data, volatility):
         predictions.get("hold"),
         data_json
     ))
-    agent_bandit_db_conn.commit()
-    agent_bandit_db_conn.close()
+    conn.commit()
+    conn.close()
+
 
 # Load or initialize model and metric
 if MODEL_PATH.exists() and METRIC_PATH.exists():
