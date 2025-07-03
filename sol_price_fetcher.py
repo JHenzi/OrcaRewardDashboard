@@ -168,24 +168,52 @@ class ContextualBandit:
         self.models[action].learn_one(x, reward)
 
     def reward_function(self, action, data, volatility):
+        price = data.get("price_now")
+        price_high = data.get("price_24h_high")
+        price_low = data.get("price_24h_low")
+        returns = data.get("returns_last_n", [])  # e.g., last 3-5 hourly returns
+        rolling_mean = data.get("rolling_mean_price")
+
         delta = data.get("delta", {}).get("day", 1.0) - 1.0
-        # volatility = data.get("recent_volatility", 0.02)  # You'll need to track this
+        delta = max(min(delta, 0.2), -0.2)  # Clip to ±20%
 
-        # Calculate risk-adjusted return (Sharpe-like signal)
-        if volatility > 0:
-            risk_adjusted_delta = delta / volatility
-        else:
-            risk_adjusted_delta = delta / 0.01  # Fallback
+        # Normalize volatility to prevent division by zero
+        risk_adjusted = delta / max(volatility, 0.01)
 
-        # Use Sharpe logic but return your original values
-        if action == "buy" and risk_adjusted_delta > 0.5:  # Good risk-adjusted gain
-            return 1
-        elif action == "sell" and risk_adjusted_delta < -0.5:  # Good risk-adjusted decline
-            return 1
-        elif action == "hold" and abs(risk_adjusted_delta) < 0.3:  # Low risk-adjusted movement
-            return 0.5
+        # === Derived indicators ===
+        price_rank = 0.5
+        if price_high and price_low and price_high != price_low:
+            price_rank = (price - price_low) / (price_high - price_low)  # 0 = low, 1 = high
+
+        momentum = sum(returns) / len(returns) if returns else 0.0
+
+        mean_reversion_score = 0.0
+        if rolling_mean:
+            mean_reversion_score = (rolling_mean - price) / rolling_mean  # > 0 = below average (dip)
+
+        # === Decision logic ===
+        reward = -0.2  # Default penalty
+
+        if action == "sell" and price_rank > 0.85 and momentum > 0:
+            # Selling near peak during uptrend
+            reward = 1.0
+        elif action == "buy" and price_rank < 0.15 and momentum < 0 and mean_reversion_score > 0.01:
+            # Buying near low, mean-reverting conditions
+            reward = 1.0
+        elif action == "hold" and abs(delta) < 0.0025:
+            reward = 0.5  # Flat market
         else:
-            return 0
+            reward = -0.1  # Slight penalty for suboptimal moves
+
+        # Optional logging
+        logger.info(
+            f"[Reward] Action: {action}, Δ: {delta:.4f}, RAΔ: {risk_adjusted:.2f}, "
+            f"Rank: {price_rank:.2f}, Momentum: {momentum:.4f}, MeanRev: {mean_reversion_score:.4f}, "
+            f"Reward: {reward:.2f}"
+        )
+
+        return reward
+
 
 def get_agent():
     if HORIZON_MODEL_PATH.exists():
