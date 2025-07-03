@@ -146,17 +146,23 @@ def fetch_recent_prices(db_path="sol_prices.db", limit=50):
 # Contextual Bandit - Onling Learning from "data" (price updates)
 # This is a simple online learning model that updates with each new price data point.
 class ContextualBandit:
-    def __init__(self, actions, model_factory, epsilon=0.1):
-        self.actions = actions
+    def __init__(self, model_factory, actions, epsilon=0.3, min_epsilon=0.05, decay=0.999):
         self.models = {a: model_factory() for a in actions}
+        self.actions = actions
         self.epsilon = epsilon
+        self.min_epsilon = min_epsilon
+        self.decay = decay
+        self.step = 0
 
-    def pull(self, x):
-        # ε-greedy: random exploration vs best model
+    def pull(self, context):
+        self.step += 1
+        self.epsilon = max(self.min_epsilon, self.epsilon * self.decay)
+
         if random.random() < self.epsilon:
             return random.choice(self.actions)
-        predictions = {a: self.models[a].predict_one(x) for a in self.actions}
-        return max(predictions.items(), key=lambda item: item[1])[0]
+        else:
+            predictions = {a: self.models[a].predict_one(context) for a in self.actions}
+            return max(predictions.items(), key=lambda item: item[1])[0]
 
     def update(self, x, action, reward):
         self.models[action].learn_one(x, reward)
@@ -189,9 +195,9 @@ def get_agent():
             logger.info("Loaded existing Contextual Bandit model from disk.")
         except (AttributeError, ImportError):
             logger.info("Could not load existing model, creating new one")
-            agent = ContextualBandit(actions, model_factory)
+            agent = ContextualBandit(model_factory, actions)
     else:
-        agent = ContextualBandit(actions, model_factory)
+        agent = ContextualBandit(model_factory, actions)
         logger.info("Initialized new Contextual Bandit model.")
     return agent
 
@@ -212,6 +218,7 @@ def process_bandit_step(data, volatility):
     agent = get_agent()
     predictions = {a: agent.models[a].predict_one(x) for a in agent.actions}
     action = agent.pull(x)
+    logger.info(f"Predictions: {predictions}, Chosen action: {action}")
     reward = agent.reward_function(action, data, volatility)
     agent.update(x, action, reward)
 
