@@ -31,7 +31,7 @@
             <div class="text-sm opacity-70 italic mb-4">
               Error: ${{ p.error }} | MAE: ${{ p.mae }}
             </div>
-        
+
             {% if bandit_logs and bandit_logs|length > 0 %}
               {% set b = bandit_logs[0] %}
               <div class="text-2xl font-semibold">
@@ -55,7 +55,7 @@
             <div class="text-xl font-semibold">No predictions available</div>
           {% endif %}
         </div>
-        
+
         <!-- Range Selector -->
       <div class="flex justify-end items-center mb-4">
         <form method="get" action="/sol-tracker" class="flex items-center space-x-2">
@@ -70,17 +70,17 @@
         </form>
       </div>
 
-        
+
         <div class="bg-white p-6 rounded-lg shadow-lg">
             <canvas id="solChart"></canvas>
         </div>
         <div class="mt-8 bg-white p-6 rounded-lg shadow-lg">
             <h2 class="text-xl font-semibold mb-4">📊 24h Price Summary</h2>
             <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-gray-800">
-          
+
               <div><strong>💰 Current Price:</strong> ${{ stats.current_price }}</div>
               <div><strong>📅 24h Ago:</strong> ${{ stats.price_start }}</div>
-          
+
               <div>
                 <strong>📈 % Change:</strong>
                 <span class="{% if stats.percent_change > 0 %}text-green-600{% elif stats.percent_change < 0 %}text-red-600{% else %}text-gray-500{% endif %}">
@@ -88,15 +88,15 @@
                   {% if stats.percent_change > 0 %}⬆️{% elif stats.percent_change < 0 %}⬇️{% else %}⏸️{% endif %}
                 </span>
               </div>
-          
+
               <div><strong>📈 High (24h):</strong> ${{ stats.high }}</div>
               <div><strong>📉 Low (24h):</strong> ${{ stats.low }}</div>
               <div><strong>📊 Range:</strong> ${{ stats.range }}</div>
-          
+
               <div><strong>🕐 SMA (1h):</strong> ${{ stats.sma_1h }}</div>
               <div><strong>🕓 SMA (4h):</strong> ${{ stats.sma_4h }}</div>
               <div><strong>🕛 SMA (24h):</strong> ${{ stats.sma_24h }}</div>
-          
+
               <div>
                 <strong>🎯 Std Dev:</strong>
                 <span class="{% if stats.std_dev > 2 %}text-red-500 font-semibold{% elif stats.std_dev > 1 %}text-yellow-500{% else %}text-green-600{% endif %}">
@@ -104,7 +104,7 @@
                   {% if stats.std_dev > 2 %}⚠️{% elif stats.std_dev > 1 %}📉{% else %}👌{% endif %}
                 </span>
               </div>
-          
+
               <div><strong>📉 Avg Δ / 5min:</strong> ${{ stats.avg_delta }}</div>
             </div>
           </div>
@@ -175,35 +175,128 @@
 
 
     <script>
-        const ctx = document.getElementById('solChart').getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: {{ timestamps|tojson }},
-                datasets: [{
-                    label: 'SOL Price (USD)',
-                    data: {{ prices|tojson }},
-                    fill: true,
-                    borderColor: 'rgba(59, 130, 246, 1)',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    tension: 0.3
-                }]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    x: {
-                        ticks: {
-                            maxTicksLimit: 10
-                        }
-                    },
-                    y: {
-                        beginAtZero: false
-                    }
-                }
-            }
-        });
-    </script>
+      // Data from Flask
+      const timestamps = {{ timestamps|tojson }};
+      const prices = {{ prices|tojson }};
+      const banditLogs = {{ bandit_logs|tojson }};
 
+      // Create a map from timestamp -> price for quick lookup
+      const priceMap = {};
+      timestamps.forEach((ts, i) => {
+          priceMap[ts] = prices[i];
+      });
+
+      // Prepare scatter datasets for buy/sell/hold signals
+      const buyPoints = [];
+      const sellPoints = [];
+      const holdPoints = [];
+
+      banditLogs.forEach(log => {
+          // Align timestamp formatting — make sure banditLogs timestamps match chart labels format
+          const ts = log.timestamp;
+          const price = priceMap[ts];
+          if (price !== undefined) {
+              const point = { x: ts, y: price };
+              if (log.action === 'buy') {
+                  buyPoints.push(point);
+              } else if (log.action === 'sell') {
+                  sellPoints.push(point);
+              } else if (log.action === 'hold') {
+                  holdPoints.push(point);
+              }
+          }
+      });
+
+      // Create Chart.js datasets
+      const data = {
+          labels: timestamps,
+          datasets: [
+              {
+                  label: 'SOL Price (USD)',
+                  data: prices,
+                  fill: true,
+                  borderColor: 'rgba(59, 130, 246, 1)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  tension: 0.3,
+                  yAxisID: 'y',
+                  type: 'line',
+              },
+              {
+                  label: 'Buy 🟢',
+                  data: buyPoints,
+                  showLine: false,
+                  borderColor: 'green',
+                  backgroundColor: 'green',
+                  pointRadius: 8,
+                  pointHoverRadius: 10,
+                  yAxisID: 'y',
+                  type: 'scatter',
+              },
+              {
+                  label: 'Sell 🔴',
+                  data: sellPoints,
+                  showLine: false,
+                  borderColor: 'red',
+                  backgroundColor: 'red',
+                  pointRadius: 8,
+                  pointHoverRadius: 10,
+                  yAxisID: 'y',
+                  type: 'scatter',
+              },
+              {
+                  label: 'Hold 🟡',
+                  data: holdPoints,
+                  showLine: false,
+                  borderColor: 'goldenrod',
+                  backgroundColor: 'goldenrod',
+                  pointRadius: 8,
+                  pointHoverRadius: 10,
+                  yAxisID: 'y',
+                  type: 'scatter',
+              }
+          ]
+      };
+
+      const config = {
+          type: 'line', // Base chart type is line; scatter datasets override with 'type: scatter'
+          data: data,
+          options: {
+              responsive: true,
+              interaction: {
+                  mode: 'nearest',
+                  intersect: true
+              },
+              plugins: {
+                  tooltip: {
+                      callbacks: {
+                          label: function(context) {
+                              if (context.dataset.type === 'scatter') {
+                                  // Add emoji label on tooltip for buys/sells/holds
+                                  return `${context.dataset.label} at $${context.parsed.y}`;
+                              }
+                              return `Price: $${context.parsed.y}`;
+                          }
+                      }
+                  },
+                  legend: {
+                      position: 'top'
+                  }
+              },
+              scales: {
+                  x: {
+                      ticks: {
+                          maxTicksLimit: 10
+                      }
+                  },
+                  y: {
+                      beginAtZero: false
+                  }
+              }
+          }
+      };
+
+      const ctx = document.getElementById('solChart').getContext('2d');
+      new Chart(ctx, config);
+  </script>
 </body>
 </html>

@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 from collections import deque
 from statistics import mean, stdev
-
+import traceback
 
 from river import linear_model, preprocessing, metrics
 import random
@@ -167,14 +167,14 @@ class ContextualBandit:
     def update(self, x, action, reward):
         self.models[action].learn_one(x, reward)
 
-    def reward_function(self, action, data, volatility):
-        price = data.get("price_now")
-        price_high = data.get("price_24h_high")
-        price_low = data.get("price_24h_low")
-        returns = data.get("returns_last_n", [])  # e.g., last 3-5 hourly returns
-        rolling_mean = data.get("rolling_mean_price")
-
-        delta = data.get("delta", {}).get("day", 1.0) - 1.0
+    def reward_function(self, action, x, volatility):
+        price = x.get("price_now")
+        price_high = x.get("price_24h_high")
+        price_low = x.get("price_24h_low")
+        returns = x.get("returns_last_n", [])  # e.g., last 3-5 hourly returns
+        rolling_mean = x.get("rolling_mean_price")
+        logger.info(f"Price: {price}, High: {price_high}, Low: {price_low}, Returns: {returns}, Rolling Mean: {rolling_mean}")
+        delta = x.get("delta", {}).get("day", 1.0) - 1.0
         delta = max(min(delta, 0.2), -0.2)  # Clip to ±20%
 
         # Normalize volatility to prevent division by zero
@@ -236,18 +236,48 @@ def process_bandit_step(data, volatility):
     # Compute price-based features
     price_features = compute_price_features(prices_24h)
 
+    # Assuming prices_24h = list of (timestamp, price)
+
+
     # Flatten raw data and merge with price features
     x = flatten_data(data)
+
+    #prices = [p for (_, p) in prices_24h]
+    prices = prices_24h
+    price_now = prices[-1]
+    price_high = max(prices)
+    price_low = min(prices)
+    rolling_mean = sum(prices[-10:]) / min(len(prices), 10)
+    returns = [(prices[i+1] - prices[i]) / prices[i] for i in range(len(prices)-1)]
+
+    # Slice last 5 returns or fewer if not enough
+    returns_last_n = returns[-5:] if len(returns) >= 5 else returns
+
+    # Calculate aggregated stats safely
+    returns_mean = sum(returns_last_n) / len(returns_last_n) if returns_last_n else 0.0
+    returns_std = stdev(returns_last_n) if len(returns_last_n) > 1 else 0.0
+
+    # Update features without passing the list itself
+    x.update({
+        "price_now": price_now,
+        "price_24h_high": price_high,
+        "price_24h_low": price_low,
+        "rolling_mean_price": rolling_mean,
+        "returns_mean": returns_mean,
+        "returns_std": returns_std,
+    })
+
     x.update(price_features)
 
-    # Add volatility if you want it explicitly as feature
+    # Add volatility explicitly
     x["recent_volatility"] = volatility
+
 
     agent = get_agent()
     predictions = {a: agent.models[a].predict_one(x) for a in agent.actions}
     action = agent.pull(x)
     logger.info(f"Predictions: {predictions}, Chosen action: {action}")
-    reward = agent.reward_function(action, data, volatility)
+    reward = agent.reward_function(action, x, volatility)
     agent.update(x, action, reward)
 
     logger.info(f"Chose action: {action}, Reward: {reward}")
@@ -493,7 +523,14 @@ class SOLPriceFetcher:
             # Train the contextual bandit model with the new data
             # This will choose an action based on the current data and update the model with the reward
             volatility = compute_recent_volatility(fetch_recent_prices())
-            process_bandit_step(data, volatility)
+            #process_bandit_step(data, volatility)
+            # Debugging float vs. tuple error.
+            try:
+                process_bandit_step(data, volatility)
+            except Exception as e:
+                logger.error(f"Bandit step failed: {e}")
+                logger.error(traceback.format_exc())
+
             return data
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching SOL price: {e}")
