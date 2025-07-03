@@ -10,7 +10,24 @@ import os
 from dotenv import load_dotenv
 from sol_price_fetcher import SOLPriceFetcher
 from statistics import mean, stdev
+import logging
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+# Ensure the required environment variables are set
+if not os.path.exists('.env'):
+    raise FileNotFoundError("Missing .env file. Please create a .env file with the required environment variables.")
+# Ensure the required environment variables are set
+required_env_vars = ["HELIUS_API_KEY", "SOLANA_WALLET_ADDRESS", "LIVECOINWATCH_API_KEY", "DATABASE_PATH"]
+for var in required_env_vars:
+    if var not in os.environ:
+        raise EnvironmentError(f"Missing required environment variable: {var}")
+
+# Global variables to control the price fetching
+price_fetcher = None
+price_fetch_thread = None
+price_fetch_active = False
 
 
 # Load environment variables from .env file
@@ -120,23 +137,23 @@ def parse_collect_fees_event(event):
     """
     Print COLLECT_FEES event details.
     """
-    print(f"Transaction Signature: {event['signature']}")
-    print(f"Timestamp: {event['timestamp']}")
-    print(f"Fee Payer: {event['feePayer']}")
-    print(f"Type: {event['type']}")
+    logger.info(f"Transaction Signature: {event['signature']}")
+    logger.info(f"Timestamp: {event['timestamp']}")
+    logger.info(f"Fee Payer: {event['feePayer']}")
+    logger.info(f"Type: {event['type']}")
 
     if 'tokenTransfers' in event:
-        print("Token Transfers (Rewards Claimed):")
+        logger.info("Token Transfers (Rewards Claimed):")
         for t in event['tokenTransfers']:
             amount = t.get('tokenAmount')
             mint = t.get('mint')
             from_account = t.get('fromTokenAccount')
             to_account = t.get('toTokenAccount')
-            print(f"  - {amount} tokens of mint {mint}")
-            print(f"    From: {from_account} → To: {to_account}")
+            logger.info(f"  - {amount} tokens of mint {mint}")
+            logger.info(f"    From: {from_account} → To: {to_account}")
     else:
-        print("No token transfers found.")
-    print("-" * 40)
+        logger.info("No token transfers found.")
+    logger.info("-" * 40)
 
 
 def insert_collect_fee(event):
@@ -171,7 +188,7 @@ def insert_collect_fee(event):
                 to_user_account
             ))
         except Exception as e:
-            print(f"DB insert error: {e}")
+            logger.info(f"DB insert error: {e}")
     conn.commit()
     conn.close()
 
@@ -202,7 +219,7 @@ def fetch_newer_than(wallet, since_signature, max_pages=10, batch_size=100):
             "until": after
         }
 
-        print(f"Fetching transactions newer than {after}...")
+        logger.info(f"Fetching transactions newer than {after}...")
         response = requests.get(url, params=params)
         response.raise_for_status()
         txns = response.json()
@@ -481,9 +498,105 @@ def sol_tracker():
         selected_range=selected_range
     )
 
+def setup_sol_price_fetcher():
+    """Setup SOL price fetcher with interactive configuration"""
+    global price_fetcher, price_fetch_active
+
+    try:
+        price_fetcher = SOLPriceFetcher()
+
+        # Check initial credits
+        credits = price_fetcher.get_credits()
+        if credits:
+            logger.info(f"Initial credits: {credits['dailyCreditsRemaining']}/{credits['dailyCreditsLimit']}")
+
+        # Fetch one sample to test
+        logger.info("Fetching sample SOL price...")
+        price_data = price_fetcher.fetch_sol_price()
+        if price_data:
+            logger.info(f"Current SOL price: ${price_data['rate']:.2f}")
+
+        # Environment variable to control auto-start (for production)
+        auto_start = os.getenv("AUTO_START_SOL_FETCHER", "false").lower() == "true"
+
+        if auto_start:
+            # Production mode - start automatically
+            interval_minutes = int(os.getenv("SOL_FETCH_INTERVAL_MINUTES", "30"))
+            logger.info(f"Auto-starting SOL price collection with {interval_minutes} minute interval")
+            start_sol_price_collection(interval_minutes)
+        else:
+            # Development mode - interactive setup
+            # start_loop = input("\nStart continuous SOL price collection? (y/n): ").lower().strip()
+            start_loop = 'y'  # Default to 'yes' for continuous collection
+            logger.info("Starting SOL price collection...")
+            if start_loop == 'y':
+                # Calculate safe interval based on available credits
+                if credits:
+                    remaining_credits = credits['dailyCreditsRemaining']
+                    safe_requests = max(1, remaining_credits - 10)
+                    interval_minutes = max(5, (24 * 60) // safe_requests)
+                    logger.info(f"Suggested interval: {interval_minutes} minutes (based on {safe_requests} remaining credits)")
+
+                    # custom_interval = input(f"Enter interval in minutes (default {interval_minutes}): ").strip()
+                    custom_interval = 5  # Default to 5 minutes for development - TODO: Make this dynamic based on credit availability
+                    logger.info(f"Using custom interval: {custom_interval} minutes")
+                    if custom_interval:
+                        try:
+                            interval_minutes = int(custom_interval)
+                        except ValueError:
+                            logger.info("Invalid input, using default interval")
+                else:
+                    interval_minutes = 30  # Default fallback
+
+                start_sol_price_collection(interval_minutes)
+            else:
+                logger.info("SOL price collection not started")
+
+    except Exception as e:
+        logger.error(f"Error setting up SOL price fetcher: {e}")
+
+def start_sol_price_collection(interval_minutes):
+    """Start the SOL price collection in a separate thread"""
+    global price_fetch_thread, price_fetch_active
+
+    if price_fetch_active:
+        logger.info("SOL price collection already active")
+        return
+
+    price_fetch_active = True
+    price_fetch_thread = threading.Thread(
+        target=sol_price_fetch_loop, 
+        args=(interval_minutes,), 
+        daemon=True
+    )
+    price_fetch_thread.start()
+    logger.info(f"Started SOL price collection with {interval_minutes} minute interval")
+
+def sol_price_fetch_loop(interval_minutes):
+    """Main loop for SOL price fetching"""
+    global price_fetcher, price_fetch_active
+
+    interval_seconds = interval_minutes * 60
+
+    while price_fetch_active:
+        try:
+            if price_fetcher:
+                price_data = price_fetcher.fetch_sol_price()
+                if price_data:
+                    logger.info(f"SOL price: ${price_data['rate']:.2f}")
+                else:
+                    logger.warning("Failed to fetch SOL price")
+
+            # Sleep for the specified interval
+            time.sleep(interval_seconds)
+
+        except Exception as e:
+            logger.error(f"Error in SOL price fetch loop: {e}")
+            time.sleep(60)  # Wait 1 minute before retrying
 
 
 def background_fetch_loop():
+    # Background loop to fetch transactions and insert COLLECT_FEES events
     # Configurable fetch interval (in seconds)
     fetch_interval = int(os.getenv("FETCH_INTERVAL_SECONDS", "7200"))  # Default 2 hours
 
@@ -494,17 +607,26 @@ def background_fetch_loop():
                 if event['type'] == 'COLLECT_FEES':
                     insert_collect_fee(event)
         except requests.RequestException as e:
-            print(f"Error fetching transactions: {e}")
+            logger.info(f"Error fetching transactions: {e}")
+
         time.sleep(fetch_interval)
 
 def start_background_fetch():
+    # Initialize the database and seed tokens
+    logger.info("Initializing database and seeding tokens...")
     init_db()
     seed_tokens()
     fetch_thread = threading.Thread(target=background_fetch_loop, daemon=True)
     fetch_thread.start()
 
 if __name__ == "__main__":
+    # Initialize the database and seed tokens
+    logger.info("Starting background fetch thread...")
     start_background_fetch()
+
+    # Setup SOL price fetcher (new functionality)
+    logger.info("Setting up SOL price fetcher...")
+    setup_sol_price_fetcher()
 
     # Flask configuration from environment variables
     host = os.getenv("FLASK_HOST", "0.0.0.0")
