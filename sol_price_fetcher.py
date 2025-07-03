@@ -40,6 +40,21 @@ actions = ["buy", "sell", "hold"]
 def model_factory():
     return preprocessing.StandardScaler() | linear_model.LinearRegression()
 
+def fetch_last_24h_prices(db_path="sol_prices.db"):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    # Assuming your data is recorded every ~5 minutes, get last 288 entries
+    cursor.execute("""
+        SELECT rate FROM sol_prices
+        ORDER BY timestamp DESC
+        LIMIT 288
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    prices = [row[0] for row in reversed(rows)]  # Oldest → newest order
+    return prices
+
+
 def compute_price_features(prices):
     if not prices or len(prices) < 2:
         return {}
@@ -261,12 +276,12 @@ def train_online_model(data):
     # Extract recent prices from TRAIL
     prices = [t["rate"] for t in TRAIL]
 
-    # Compute extra features from price history
-    extra_features = compute_price_features(prices)
+    # Fetch last 24h prices from DB and compute features
+    prices_24h = fetch_last_24h_prices()
+    price_features = compute_price_features(prices_24h)
 
-    # Merge extra features into main features dict
-    # (Note: keys like 'sma_1h', 'std_dev', etc. are added)
-    features.update(extra_features)
+    # Merge computed price features into your features dict
+    features.update(price_features)
 
     # Optional: also add momentum and window size from your existing logic
     window_size = len(prices)
