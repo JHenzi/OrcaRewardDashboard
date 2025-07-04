@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from sol_price_fetcher import SOLPriceFetcher
 from statistics import mean, stdev
 import logging
+import traceback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -554,6 +555,8 @@ def setup_sol_price_fetcher():
 
     except Exception as e:
         logger.error(f"Error setting up SOL price fetcher: {e}")
+        logger.error(traceback.format_exc())
+
 
 def start_sol_price_collection(interval_minutes):
     """Start the SOL price collection in a separate thread"""

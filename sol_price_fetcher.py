@@ -2,6 +2,7 @@ import requests
 import sqlite3
 import json
 import time
+from datetime import timedelta
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
@@ -44,16 +45,23 @@ def model_factory():
 def fetch_last_24h_prices(db_path="sol_prices.db"):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    # Assuming your data is recorded every ~5 minutes, get last 288 entries
+
+    # Calculate cutoff datetime 24 hours ago in ISO format
+    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+
+    # Select prices where timestamp is within last 24 hours
     cursor.execute("""
         SELECT rate FROM sol_prices
-        ORDER BY timestamp DESC
-        LIMIT 288
-    """)
+        WHERE timestamp >= ?
+        ORDER BY timestamp ASC
+    """, (cutoff,))
+
     rows = cursor.fetchall()
     conn.close()
-    prices = [row[0] for row in reversed(rows)]  # Oldest → newest order
+
+    prices = [row[0] for row in rows]  # Already oldest → newest due to ASC order
     return prices
+
 
 
 def compute_price_features(prices):
@@ -67,7 +75,8 @@ def compute_price_features(prices):
 
     sma_1h = simple_moving_average(prices, 12)     # assuming 5-min intervals → 12*5 = 60 mins
     sma_4h = simple_moving_average(prices, 48)     # 4 hours
-    sma_24h = simple_moving_average(prices, 288)   # 24 hours
+    sma_24h = sum(prices) / len(prices) if prices else 0.0
+   # 24 hours
 
     current_price = prices[-1]
     price_start = prices[0]
@@ -234,7 +243,14 @@ def get_agent():
         logger.info("Initialized new Contextual Bandit model.")
     return agent
 
+last_action = "hold"
+entry_price = None
+position_open = False
+FEE = 0.001  # realistic trading fee (0.1%)
+
+
 def process_bandit_step(data, volatility):
+    global last_action, last_price, entry_price, position_open, FEE
     # Fetch last 24h prices from DB
     prices_24h = fetch_last_24h_prices()
 
@@ -273,6 +289,10 @@ def process_bandit_step(data, volatility):
     })
 
     x.update(price_features)
+    if volatility is None:
+        volatility = compute_recent_volatility(prices)
+    else:
+        volatility = max(volatility, 0.0001)  # avoid divide-by-zero
 
     # Add volatility explicitly
     x["recent_volatility"] = volatility
@@ -282,7 +302,35 @@ def process_bandit_step(data, volatility):
     predictions = {a: agent.models[a].predict_one(x) for a in agent.actions}
     action = agent.pull(x)
     logger.info(f"Predictions: {predictions}, Chosen action: {action}")
-    reward = agent.reward_function(action, x, volatility)
+    #reward = agent.reward_function(action, x, volatility)
+    # Reward calculation based on position tracking and P&L
+    reward = 0.0
+
+    if position_open:
+        unrealized_pnl = (price_now - entry_price) / entry_price
+
+        if action == "sell":
+            # Closing position — realize P&L
+            reward = unrealized_pnl
+            position_open = False
+            entry_price = None
+            logger.info(f"Closed position: reward={reward:.4f}")
+        else:
+            # Still holding — maybe small penalty or zero
+            reward = -0.00000001 if unrealized_pnl < 0 else 0.0
+            # discourage holding forever
+            logger.info(f"Holding position: unrealized_pnl={unrealized_pnl:.4f}, reward={reward:.4f}")
+    else:
+        if action == "buy":
+            position_open = True
+            entry_price = price_now
+            reward = 0.0  # no gain/loss yet
+            logger.info(f"Opened position at {entry_price:.2f}")
+        else:
+            # Not in a position and not buying — slight penalty for inactivity
+            reward = -0.00000001
+            logger.info("No position open, chose not to buy")
+
     agent.update(x, action, reward)
 
     logger.info(f"Chose action: {action}, Reward: {reward}")
@@ -310,6 +358,7 @@ def process_bandit_step(data, volatility):
     ))
     conn.commit()
     conn.close()
+
 
 
 # Load or initialize model and metric
@@ -363,6 +412,14 @@ def train_online_model(data):
         features["window_size"] = window_size
 
     target = data["rate"]
+    logger.info("Training model with features:")
+    for k, v in features.items():
+        logger.info(f"{k}: {v} ({type(v)})")
+        if v is None:
+            logger.warning(f"Feature '{k}' is None!")
+        elif isinstance(v, float) and (v != v):  # NaN
+            logger.warning(f"Feature '{k}' is NaN!")
+
     y_pred = model.predict_one(features) or 0.0
     model.learn_one(features, target)
     metric.update(target, y_pred)
