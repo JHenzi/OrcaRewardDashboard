@@ -177,6 +177,7 @@ class ContextualBandit:
     def update(self, x, action, reward):
         self.models[action].learn_one(x, reward)
 
+    # Original reward function based on price changes and indicators - not used.
     def reward_function(self, action, x, volatility):
         price = x.get("price_now")
         price_high = x.get("price_24h_high")
@@ -225,6 +226,46 @@ class ContextualBandit:
         return reward
 
 
+def calculate_reward(action, price_now, portfolio, fee=0.0001):
+    reward = 0.0
+    cost_with_fee = price_now * (1 + fee)
+    sell_price_after_fee = price_now * (1 - fee)
+
+    if action == "buy":
+        if portfolio["usd_balance"] >= cost_with_fee:
+            # Buy 1 SOL
+            portfolio["sol_balance"] += 1
+            portfolio["usd_balance"] -= cost_with_fee
+            portfolio["total_cost_basis"] += price_now
+            reward = 0.0
+        else:
+            # Not enough USD — penalize or return zero reward
+            reward = -0.5
+
+    elif action == "sell":
+        if portfolio["sol_balance"] > 0:
+            avg_entry_price = portfolio["total_cost_basis"] / portfolio["sol_balance"]
+            gross_pnl = price_now - avg_entry_price
+            net_pnl = gross_pnl - (2 * fee * price_now)
+
+            reward = net_pnl
+            portfolio["realized_pnl"] += net_pnl
+
+            # Sell 1 SOL
+            portfolio["sol_balance"] -= 1
+            portfolio["usd_balance"] += sell_price_after_fee
+            portfolio["total_cost_basis"] -= avg_entry_price
+        else:
+            # Can't sell if you don't own SOL
+            reward = -1.0
+
+    elif action == "hold":
+        reward = 0.0  # or -0.001 for inactivity
+
+    return reward
+
+
+
 def get_agent():
     if HORIZON_MODEL_PATH.exists():
         try:
@@ -244,13 +285,20 @@ def get_agent():
     return agent
 
 last_action = "hold"
-entry_price = None
+entry_price = 0.0
 position_open = False
-FEE = 0.001  # realistic trading fee (0.1%)
+fee = 0.001  # realistic trading fee (0.1%)
+
+portfolio = {
+    "sol_balance": 0.0,
+    "usd_balance": 1000.0,          # Starting budget
+    "total_cost_basis": 0.0,        # Cost of SOL held
+    "realized_pnl": 0.0
+}
 
 
 def process_bandit_step(data, volatility):
-    global last_action, last_price, entry_price, position_open, FEE
+    global last_action, last_price, entry_price, position_open, fee
     # Fetch last 24h prices from DB
     prices_24h = fetch_last_24h_prices()
 
@@ -297,6 +345,22 @@ def process_bandit_step(data, volatility):
     # Add volatility explicitly
     x["recent_volatility"] = volatility
 
+    if portfolio["sol_balance"] > 0:
+        avg_entry = portfolio["total_cost_basis"] / portfolio["sol_balance"]
+        unrealized_pnl = (price_now - avg_entry) * portfolio["sol_balance"]
+    else:
+        avg_entry = 0.0
+        unrealized_pnl = 0.0
+
+    x.update({
+        "portfolio_sol_balance": portfolio["sol_balance"],
+        "portfolio_usd_balance": portfolio["usd_balance"],
+        "portfolio_total_cost_basis": portfolio["total_cost_basis"],
+        "portfolio_avg_entry_price": avg_entry,
+        "portfolio_unrealized_pnl": unrealized_pnl,
+        "portfolio_equity": portfolio["usd_balance"] + portfolio["sol_balance"] * price_now,
+    })
+
 
     agent = get_agent()
     predictions = {a: agent.models[a].predict_one(x) for a in agent.actions}
@@ -304,32 +368,34 @@ def process_bandit_step(data, volatility):
     logger.info(f"Predictions: {predictions}, Chosen action: {action}")
     #reward = agent.reward_function(action, x, volatility)
     # Reward calculation based on position tracking and P&L
-    reward = 0.0
+    # reward = 0.0
 
-    if position_open:
-        unrealized_pnl = (price_now - entry_price) / entry_price
+    # if position_open:
+    #     unrealized_pnl = (price_now - entry_price) / entry_price
 
-        if action == "sell":
-            # Closing position — realize P&L
-            reward = unrealized_pnl
-            position_open = False
-            entry_price = None
-            logger.info(f"Closed position: reward={reward:.4f}")
-        else:
-            # Still holding — maybe small penalty or zero
-            reward = -0.00000001 if unrealized_pnl < 0 else 0.0
-            # discourage holding forever
-            logger.info(f"Holding position: unrealized_pnl={unrealized_pnl:.4f}, reward={reward:.4f}")
-    else:
-        if action == "buy":
-            position_open = True
-            entry_price = price_now
-            reward = 0.0  # no gain/loss yet
-            logger.info(f"Opened position at {entry_price:.2f}")
-        else:
-            # Not in a position and not buying — slight penalty for inactivity
-            reward = -0.00000001
-            logger.info("No position open, chose not to buy")
+    #     if action == "sell":
+    #         # Closing position — realize P&L
+    #         reward = unrealized_pnl
+    #         position_open = False
+    #         entry_price = None
+    #         logger.info(f"Closed position: reward={reward:.4f}")
+    #     else:
+    #         # Still holding — maybe small penalty or zero
+    #         reward = -0.00000001 if unrealized_pnl < 0 else 0.0
+    #         # discourage holding forever
+    #         logger.info(f"Holding position: unrealized_pnl={unrealized_pnl:.4f}, reward={reward:.4f}")
+    # else:
+    #     if action == "buy":
+    #         position_open = True
+    #         entry_price = price_now
+    #         reward = 0.0  # no gain/loss yet
+    #         logger.info(f"Opened position at {entry_price:.2f}")
+    #     else:
+    #         # Not in a position and not buying — slight penalty for inactivity
+    #         reward = -0.00000001
+    #         logger.info("No position open, chose not to buy")
+
+    reward = calculate_reward(action, price_now, portfolio, fee)
 
     agent.update(x, action, reward)
 
