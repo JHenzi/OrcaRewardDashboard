@@ -12,6 +12,8 @@ from sol_price_fetcher import SOLPriceFetcher
 from statistics import mean, stdev
 import logging
 import traceback
+import pytz
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,6 +31,12 @@ for var in required_env_vars:
 price_fetcher = None
 price_fetch_thread = None
 price_fetch_active = False
+
+# For timezones - which suck.
+utc = pytz.utc
+#eastern = pytz.timezone("US/Eastern")  # or use tzlocal()
+# We should use tzlocal or something better for local timezone, but for now...
+eastern = pytz.timezone("America/New_York")  # or use tzlocal()
 
 
 # Load environment variables from .env file
@@ -408,6 +416,11 @@ def get_bandits(cursor, limit=5):
     """)
     rows = cursor.fetchall()
     bandit_logs = []
+    # Initially did this but reverted, keeping the code for reference.
+    # Problem is in the chart.js module it somehow is mapping these to the wrong date.
+    # utc = pytz.utc  # Use UTC for consistent timestamps
+    #local_tz = pytz.timezone("America/New_York")  # Use local timezone for display - TODO: Make this dynamic, use tzlocal.get_localzone() or similar!
+    # Convert timestamps to local timezone for display
     for row in rows:
         log_ts = datetime.fromisoformat(row[0]).strftime("%b %d, %I:%M %p")
         bandit_logs.append({
@@ -419,6 +432,41 @@ def get_bandits(cursor, limit=5):
             "prediction_hold": round(row[5], 4) if row[5] is not None else None
         })
     return bandit_logs
+
+def load_bandit_state():
+    try:
+        with open("bandit_state.json", "r") as f:
+            state = json.load(f)
+        return state
+    except FileNotFoundError:
+        print("bandit_state.json not found. Using default values.")
+        return {
+            "last_action": "unknown",
+            "entry_price": 0.0,
+            "position_open": False,
+            "fee": 0.001,
+            "portfolio": {
+                "sol_balance": 0.0,
+                "usd_balance": 0.0,
+                "total_cost_basis": 0.0,
+                "realized_pnl": 0.0
+            }
+        }
+    except json.JSONDecodeError:
+        print("bandit_state.json is malformed. Check the file.")
+        return {
+            "last_action": "error",
+            "entry_price": 0.0,
+            "position_open": False,
+            "fee": 0.001,
+            "portfolio": {
+                "sol_balance": 0.0,
+                "usd_balance": 0.0,
+                "total_cost_basis": 0.0,
+                "realized_pnl": 0.0
+            }
+        }
+
 
 @app.route("/sol-tracker")
 def sol_tracker():
@@ -489,6 +537,9 @@ def sol_tracker():
         "avg_delta": avg_price_delta
     }
 
+    # Load bandit state
+    bandit_state = load_bandit_state()
+
     return render_template(
         "sol_tracker.html",
         timestamps=timestamps,
@@ -496,7 +547,8 @@ def sol_tracker():
         stats=stats,
         predictions=predictions,
         bandit_logs=bandit_logs,
-        selected_range=selected_range
+        selected_range=selected_range,
+        bandit_state=bandit_state
     )
 
 def setup_sol_price_fetcher():

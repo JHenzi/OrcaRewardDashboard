@@ -225,8 +225,59 @@ class ContextualBandit:
 
         return reward
 
+# Add to your global or saved state:
+last_trade_action = None  # "buy" or "sell"
+last_trade_price = 0.0
+position_open = False
+
+last_action = "hold"
+entry_price = 0.0
+# position_open = False
+fee = 0.001  # realistic trading fee (0.1%)
+
+portfolio = {
+    "sol_balance": 0.0,
+    "usd_balance": 1000.0,          # Starting budget
+    "total_cost_basis": 0.0,        # Cost of SOL held
+    "realized_pnl": 0.0
+}
+
+STATE_FILE = "bandit_state.json"
+
+def save_state():
+    state = {
+        "last_action": last_action,
+        "entry_price": entry_price,
+        "position_open": position_open,
+        "fee": fee,
+        "portfolio": portfolio,
+    }
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
+
+def load_state():
+    global last_action, entry_price, position_open, fee, portfolio
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            state = json.load(f)
+            last_action = state.get("last_action", "hold")
+            entry_price = state.get("entry_price", 0.0)
+            position_open = state.get("position_open", False)
+            fee = state.get("fee", 0.001)
+            portfolio = state.get("portfolio", {
+                "sol_balance": 0.0,
+                "usd_balance": 1000.0,
+                "total_cost_basis": 0.0,
+                "realized_pnl": 0.0
+            })
+    else:
+        print("No saved state found, using defaults.")
+
+load_state()
+
 
 def calculate_reward(action, price_now, portfolio, fee=0.0001):
+    global last_trade_action, last_trade_price, position_open
     reward = 0.0
     cost_with_fee = price_now * (1 + fee)
     sell_price_after_fee = price_now * (1 - fee)
@@ -238,29 +289,40 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
             portfolio["usd_balance"] -= cost_with_fee
             portfolio["total_cost_basis"] += price_now
             reward = 0.0
+            last_trade_action = "buy"
+            last_trade_price = price_now
+            position_open = True
         else:
             # Not enough USD — penalize or return zero reward
             reward = -0.5
 
     elif action == "sell":
-        if portfolio["sol_balance"] > 0:
-            avg_entry_price = portfolio["total_cost_basis"] / portfolio["sol_balance"]
-            gross_pnl = price_now - avg_entry_price
-            net_pnl = gross_pnl - (2 * fee * price_now)
+        sol_to_sell = portfolio["sol_balance"]
+        if sol_to_sell > 0:
+            avg_entry_price = portfolio["total_cost_basis"] / sol_to_sell
+            gross_pnl = (price_now - avg_entry_price) * sol_to_sell
+            total_fee = 2 * fee * price_now * sol_to_sell  # fee on buy + sell sides
+            net_pnl = gross_pnl - total_fee
 
             reward = net_pnl
             portfolio["realized_pnl"] += net_pnl
 
-            # Sell 1 SOL
-            portfolio["sol_balance"] -= 1
-            portfolio["usd_balance"] += sell_price_after_fee
-            portfolio["total_cost_basis"] -= avg_entry_price
+            # Sell ALL SOL
+            portfolio["sol_balance"] = 0
+            portfolio["usd_balance"] += price_now * sol_to_sell * (1 - fee)  # apply sell fee here
+            portfolio["total_cost_basis"] = 0
+
+            last_trade_action = "sell"
+            last_trade_price = price_now
+            position_open = False
         else:
             # Can't sell if you don't own SOL
             reward = -1.0
 
     elif action == "hold":
         reward = 0.0  # or -0.001 for inactivity
+
+
 
     return reward
 
@@ -284,17 +346,6 @@ def get_agent():
         logger.info("Initialized new Contextual Bandit model.")
     return agent
 
-last_action = "hold"
-entry_price = 0.0
-position_open = False
-fee = 0.001  # realistic trading fee (0.1%)
-
-portfolio = {
-    "sol_balance": 0.0,
-    "usd_balance": 1000.0,          # Starting budget
-    "total_cost_basis": 0.0,        # Cost of SOL held
-    "realized_pnl": 0.0
-}
 
 
 def process_bandit_step(data, volatility):
@@ -401,11 +452,15 @@ def process_bandit_step(data, volatility):
 
     logger.info(f"Chose action: {action}, Reward: {reward}")
 
+    # Save the model.
     with open(HORIZON_MODEL_PATH, "wb") as f:
         pickle.dump(agent, f)
 
+    # Save the states to a JSON file
+    save_state()
+
     timestamp = data.get("time") or datetime.now().isoformat()
-    data_json = json.dumps(data)
+    data_json = json.dumps(x)
 
     conn = sqlite3.connect("sol_prices.db")
     cursor = conn.cursor()
