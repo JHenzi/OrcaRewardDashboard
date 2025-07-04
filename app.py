@@ -552,58 +552,23 @@ def sol_tracker():
     )
 
 def setup_sol_price_fetcher():
-    """Setup SOL price fetcher with interactive configuration"""
     global price_fetcher, price_fetch_active
 
     try:
         price_fetcher = SOLPriceFetcher()
 
-        # Check initial credits
         credits = price_fetcher.get_credits()
         if credits:
             logger.info(f"Initial credits: {credits['dailyCreditsRemaining']}/{credits['dailyCreditsLimit']}")
 
-        # Fetch one sample to test
-        logger.info("Fetching sample SOL price...")
-        price_data = price_fetcher.fetch_sol_price()
-        if price_data:
-            logger.info(f"Current SOL price: ${price_data['rate']:.2f}")
+        # price_data = price_fetcher.fetch_sol_price()
+        #if price_data:
+        #    logger.info(f"Current SOL price: ${price_data['rate']:.2f}")
 
-        # Environment variable to control auto-start (for production)
-        auto_start = os.getenv("AUTO_START_SOL_FETCHER", "false").lower() == "true"
-
-        if auto_start:
-            # Production mode - start automatically
-            interval_minutes = int(os.getenv("SOL_FETCH_INTERVAL_MINUTES", "30"))
-            logger.info(f"Auto-starting SOL price collection with {interval_minutes} minute interval")
-            start_sol_price_collection(interval_minutes)
-        else:
-            # Development mode - interactive setup
-            # start_loop = input("\nStart continuous SOL price collection? (y/n): ").lower().strip()
-            start_loop = 'y'  # Default to 'yes' for continuous collection
-            logger.info("Starting SOL price collection...")
-            if start_loop == 'y':
-                # Calculate safe interval based on available credits
-                if credits:
-                    remaining_credits = credits['dailyCreditsRemaining']
-                    safe_requests = max(1, remaining_credits - 10)
-                    interval_minutes = max(5, (24 * 60) // safe_requests)
-                    logger.info(f"Suggested interval: {interval_minutes} minutes (based on {safe_requests} remaining credits)")
-
-                    # custom_interval = input(f"Enter interval in minutes (default {interval_minutes}): ").strip()
-                    custom_interval = 5  # Default to 5 minutes for development - TODO: Make this dynamic based on credit availability
-                    logger.info(f"Using custom interval: {custom_interval} minutes")
-                    if custom_interval:
-                        try:
-                            interval_minutes = int(custom_interval)
-                        except ValueError:
-                            logger.info("Invalid input, using default interval")
-                else:
-                    interval_minutes = 30  # Default fallback
-
-                start_sol_price_collection(interval_minutes)
-            else:
-                logger.info("SOL price collection not started")
+        # Just always start price collection immediately with a safe default interval
+        interval_minutes = 5
+        logger.info(f"Starting SOL price collection immediately with {interval_minutes} minute interval")
+        start_sol_price_collection(interval_minutes)
 
     except Exception as e:
         logger.error(f"Error setting up SOL price fetcher: {e}")
@@ -675,18 +640,18 @@ def start_background_fetch():
     fetch_thread.start()
 
 if __name__ == "__main__":
-    # Initialize the database and seed tokens
-    logger.info("Starting background fetch thread...")
-    start_background_fetch()
+    # Only run startup tasks if we're in the actual Flask process (not the reloader parent)
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        logger.info("Starting background fetch thread...")
+        start_background_fetch()
 
-    # Setup SOL price fetcher (new functionality)
-    logger.info("Setting up SOL price fetcher...")
-    setup_sol_price_fetcher()
+        logger.info("Setting up SOL price fetcher...")
+        setup_sol_price_fetcher()
+    else:
+        logger.info("Skipping background tasks in parent process")
 
-    # Flask configuration from environment variables
     host = os.getenv("FLASK_HOST", "0.0.0.0")
     port = int(os.getenv("FLASK_PORT", "5030"))
     debug = os.getenv("FLASK_DEBUG", "True").lower() == "true"
 
-    # Run Flask app
     app.run(host=host, port=port, debug=debug)
