@@ -312,7 +312,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
             portfolio["usd_balance"] -= price_now  # ignoring fee
             portfolio["entry_price"] = price_now
 
-            reward = 0.0
+            reward = 0.1
             last_trade_action = "buy"
             last_trade_price = price_now
             position_open = True
@@ -328,6 +328,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
             net_pnl = gross_pnl - total_fee
 
             reward = net_pnl
+
             portfolio["realized_pnl"] += net_pnl
 
             # Sell ALL SOL
@@ -345,9 +346,38 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
             # reward = -1.0 # Old
             reward = -last_trade_price
 
-
+    # We need to brainstorm here some values for holding at different times.
+    # What if we rewarded the bot a small tick like 0.001 when it holds a balance.
+    # And we penalize 0.001 when it doesn't hold a balance
+    # However, holding without a balance, while prices are declining isn't helpful.
+    # We would need to measure momentum of prices (we don't have the price history here to do that...)
     elif action == "hold":
-        reward = 0.0  # or -0.001 for inactivity
+        if position_open and portfolio["sol_balance"] > 0:
+            avg_entry_price = portfolio["total_cost_basis"] / portfolio["sol_balance"]
+            pct_change = (price_now - avg_entry_price) / avg_entry_price
+
+            if pct_change >= 0.10:
+                reward = -0.5  # you really blew it, buddy
+            elif pct_change >= 0.05:
+                reward = -0.05
+            elif pct_change >= 0.002:
+                reward = -0.0005
+            else:
+                #reward = max(min(pct_change, 0.000005), -0.000005)
+                reward = 0.1
+        else:
+            if "total_cost_basis" in portfolio:
+                avg_entry_price = portfolio["total_cost_basis"] / portfolio["sol_balance"]
+                pct_change = (price_now - avg_entry_price) / avg_entry_price
+                if pct_change > 0.05:
+                    reward = -0.01
+                elif pct_change < -0.03:
+                    reward = 0.002
+                else:
+                    reward = -0.0005
+            else:
+                reward = -0.0001
+
 
     last_action = action
 
