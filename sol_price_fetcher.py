@@ -277,7 +277,7 @@ load_state()
 
 
 def calculate_reward(action, price_now, portfolio, fee=0.0001):
-    global last_trade_action, last_trade_price, position_open
+    global last_trade_action, last_trade_price, position_open, last_action
     reward = 0.0
     cost_with_fee = price_now * (1 + fee)
     sell_price_after_fee = price_now * (1 - fee)
@@ -322,6 +322,11 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
     elif action == "hold":
         reward = 0.0  # or -0.001 for inactivity
 
+    last_action = action
+
+
+    # Save the states to a JSON file
+    save_state()
 
 
     return reward
@@ -457,7 +462,7 @@ def process_bandit_step(data, volatility):
         pickle.dump(agent, f)
 
     # Save the states to a JSON file
-    save_state()
+    #save_state()
 
     timestamp = data.get("time") or datetime.now().isoformat()
     data_json = json.dumps(x)
