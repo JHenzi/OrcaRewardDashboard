@@ -3,3 +3,4 @@ numpy==1.23.0
 python-dotenv==1.1.1
 Requests==2.32.4
 river==0.22.0
+pytz

@@ -135,7 +135,7 @@
                     </tr>
                     <tr class="border-t">
                       <td class="px-4 py-2 font-medium">💵 Entry Price</td>
-                      <td class="px-4 py-2">${{ bandit_state.entry_price }}</td>
+                      <td class="px-4 py-2">${{ "%.2f" | format(bandit_state.portfolio.entry_price | float) }}</td>
                     </tr>
                     <tr class="border-t">
                       <td class="px-4 py-2 font-medium">📍 Position Open</td>
@@ -143,7 +143,7 @@
                     </tr>
                     <tr class="border-t">
                       <td class="px-4 py-2 font-medium">📉 Fee</td>
-                      <td class="px-4 py-2">{{ bandit_state.fee }}</td>
+                      <td class="px-4 py-2">{{ "%.2f" | format(bandit_state.fee) }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -159,19 +159,19 @@
                   <tbody>
                     <tr class="border-t">
                       <td class="px-4 py-2 font-medium">🪙 SOL Balance</td>
-                      <td class="px-4 py-2">{{ bandit_state.portfolio.sol_balance }}</td>
+                      <td class="px-4 py-2">{{ "%2.f" | format(bandit_state.portfolio.sol_balance) }}</td>
                     </tr>
                     <tr class="border-t">
                       <td class="px-4 py-2 font-medium">💰 USD Balance</td>
-                      <td class="px-4 py-2">${{ bandit_state.portfolio.usd_balance }}</td>
+                      <td class="px-4 py-2">${{ "%.2f" | format(bandit_state.portfolio.usd_balance) }}</td>
                     </tr>
                     <tr class="border-t">
                       <td class="px-4 py-2 font-medium">🧾 Cost Basis</td>
-                      <td class="px-4 py-2">${{ bandit_state.portfolio.total_cost_basis }}</td>
+                      <td class="px-4 py-2">${{ "%.2f" | format(bandit_state.portfolio.total_cost_basis) }}</td>
                     </tr>
                     <tr class="border-t">
                       <td class="px-4 py-2 font-medium">📈 Realized PnL</td>
-                      <td class="px-4 py-2 text-green-600">${{ bandit_state.portfolio.realized_pnl }}</td>
+                      <td class="px-4 py-2 text-green-600">${{ "%.2f" | format(bandit_state.portfolio.realized_pnl) }}</td>
                     </tr>
                   </tbody>
                 </table>

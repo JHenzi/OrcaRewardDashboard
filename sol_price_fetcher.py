@@ -177,53 +177,53 @@ class ContextualBandit:
     def update(self, x, action, reward):
         self.models[action].learn_one(x, reward)
 
-    # Original reward function based on price changes and indicators - not used.
-    def reward_function(self, action, x, volatility):
-        price = x.get("price_now")
-        price_high = x.get("price_24h_high")
-        price_low = x.get("price_24h_low")
-        returns = x.get("returns_last_n", [])  # e.g., last 3-5 hourly returns
-        rolling_mean = x.get("rolling_mean_price")
-        logger.info(f"Price: {price}, High: {price_high}, Low: {price_low}, Returns: {returns}, Rolling Mean: {rolling_mean}")
-        delta = x.get("delta", {}).get("day", 1.0) - 1.0
-        delta = max(min(delta, 0.2), -0.2)  # Clip to ±20%
+    # # Original reward function based on price changes and indicators - not used.
+    # def reward_function(self, action, x, volatility):
+    #     price = x.get("price_now")
+    #     price_high = x.get("price_24h_high")
+    #     price_low = x.get("price_24h_low")
+    #     returns = x.get("returns_last_n", [])  # e.g., last 3-5 hourly returns
+    #     rolling_mean = x.get("rolling_mean_price")
+    #     logger.info(f"Price: {price}, High: {price_high}, Low: {price_low}, Returns: {returns}, Rolling Mean: {rolling_mean}")
+    #     delta = x.get("delta", {}).get("day", 1.0) - 1.0
+    #     delta = max(min(delta, 0.2), -0.2)  # Clip to ±20%
 
-        # Normalize volatility to prevent division by zero
-        risk_adjusted = delta / max(volatility, 0.01)
+    #     # Normalize volatility to prevent division by zero
+    #     risk_adjusted = delta / max(volatility, 0.01)
 
-        # === Derived indicators ===
-        price_rank = 0.5
-        if price_high and price_low and price_high != price_low:
-            price_rank = (price - price_low) / (price_high - price_low)  # 0 = low, 1 = high
+    #     # === Derived indicators ===
+    #     price_rank = 0.5
+    #     if price_high and price_low and price_high != price_low:
+    #         price_rank = (price - price_low) / (price_high - price_low)  # 0 = low, 1 = high
 
-        momentum = sum(returns) / len(returns) if returns else 0.0
+    #     momentum = sum(returns) / len(returns) if returns else 0.0
 
-        mean_reversion_score = 0.0
-        if rolling_mean:
-            mean_reversion_score = (rolling_mean - price) / rolling_mean  # > 0 = below average (dip)
+    #     mean_reversion_score = 0.0
+    #     if rolling_mean:
+    #         mean_reversion_score = (rolling_mean - price) / rolling_mean  # > 0 = below average (dip)
 
-        # === Decision logic ===
-        reward = -0.2  # Default penalty
+    #     # === Decision logic ===
+    #     reward = -0.2  # Default penalty
 
-        if action == "sell" and price_rank > 0.85 and momentum > 0:
-            # Selling near peak during uptrend
-            reward = 1.0
-        elif action == "buy" and price_rank < 0.15 and momentum < 0 and mean_reversion_score > 0.01:
-            # Buying near low, mean-reverting conditions
-            reward = 1.0
-        elif action == "hold" and abs(delta) < 0.0025:
-            reward = 0.5  # Flat market
-        else:
-            reward = -0.1  # Slight penalty for suboptimal moves
+    #     if action == "sell" and price_rank > 0.85 and momentum > 0:
+    #         # Selling near peak during uptrend
+    #         reward = 1.0
+    #     elif action == "buy" and price_rank < 0.15 and momentum < 0 and mean_reversion_score > 0.01:
+    #         # Buying near low, mean-reverting conditions
+    #         reward = 1.0
+    #     elif action == "hold" and abs(delta) < 0.0025:
+    #         reward = 0.5  # Flat market
+    #     else:
+    #         reward = -0.1  # Slight penalty for suboptimal moves
 
-        # Optional logging
-        logger.info(
-            f"[Reward] Action: {action}, Δ: {delta:.4f}, RAΔ: {risk_adjusted:.2f}, "
-            f"Rank: {price_rank:.2f}, Momentum: {momentum:.4f}, MeanRev: {mean_reversion_score:.4f}, "
-            f"Reward: {reward:.2f}"
-        )
+    #     # Optional logging
+    #     logger.info(
+    #         f"[Reward] Action: {action}, Δ: {delta:.4f}, RAΔ: {risk_adjusted:.2f}, "
+    #         f"Rank: {price_rank:.2f}, Momentum: {momentum:.4f}, MeanRev: {mean_reversion_score:.4f}, "
+    #         f"Reward: {reward:.2f}"
+    #     )
 
-        return reward
+    #     return reward
 
 # Add to your global or saved state:
 last_trade_action = None  # "buy" or "sell"
@@ -277,6 +277,21 @@ load_state()
 
 
 def calculate_reward(action, price_now, portfolio, fee=0.0001):
+    """
+    This Python function calculates the reward for a given trading action (buy, sell, or hold) based on
+    the current price, portfolio holdings, and fees.
+
+    :param action: The `action` parameter in the `calculate_reward` function represents the action to be
+    taken for a given trading scenario. It can be one of the following three values:
+    :param price_now: Price of the asset at the current time
+    :param portfolio: The `portfolio` parameter is a dictionary that contains information about the
+    current state of the trading portfolio. It typically includes the following key-value pairs:
+    :param fee: The `fee` parameter in the `calculate_reward` function represents the transaction fee
+    percentage applied to each trade. In this case, the fee is set to 0.01% (0.0001 as a decimal). This
+    fee is deducted from the transaction amount when buying or selling assets in the
+    :return: The function `calculate_reward` is returning the reward value calculated based on the given
+    action, current price, and portfolio state.
+    """
     global last_trade_action, last_trade_price, position_open, last_action
     reward = 0.0
     cost_with_fee = price_now * (1 + fee)
@@ -325,7 +340,11 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
             position_open = False
         else:
             # Can't sell if you don't own SOL
-            reward = -1.0
+            # This penalty isn't strong enough. For example, if we sell at a loss of $4 the reward is -4
+            # We should do something better like, return the negative of the last price as a penalty.
+            # reward = -1.0 # Old
+            reward = -last_trade_price
+
 
     elif action == "hold":
         reward = 0.0  # or -0.001 for inactivity
@@ -362,7 +381,7 @@ def get_agent():
 
 
 def process_bandit_step(data, volatility):
-    global last_action, last_price, entry_price, position_open, fee
+    global last_action, last_price, entry_price, position_open, fee, portfolio
     # Fetch last 24h prices from DB
     prices_24h = fetch_last_24h_prices()
 
@@ -430,34 +449,7 @@ def process_bandit_step(data, volatility):
     predictions = {a: agent.models[a].predict_one(x) for a in agent.actions}
     action = agent.pull(x)
     logger.info(f"Predictions: {predictions}, Chosen action: {action}")
-    #reward = agent.reward_function(action, x, volatility)
-    # Reward calculation based on position tracking and P&L
-    # reward = 0.0
 
-    # if position_open:
-    #     unrealized_pnl = (price_now - entry_price) / entry_price
-
-    #     if action == "sell":
-    #         # Closing position — realize P&L
-    #         reward = unrealized_pnl
-    #         position_open = False
-    #         entry_price = None
-    #         logger.info(f"Closed position: reward={reward:.4f}")
-    #     else:
-    #         # Still holding — maybe small penalty or zero
-    #         reward = -0.00000001 if unrealized_pnl < 0 else 0.0
-    #         # discourage holding forever
-    #         logger.info(f"Holding position: unrealized_pnl={unrealized_pnl:.4f}, reward={reward:.4f}")
-    # else:
-    #     if action == "buy":
-    #         position_open = True
-    #         entry_price = price_now
-    #         reward = 0.0  # no gain/loss yet
-    #         logger.info(f"Opened position at {entry_price:.2f}")
-    #     else:
-    #         # Not in a position and not buying — slight penalty for inactivity
-    #         reward = -0.00000001
-    #         logger.info("No position open, chose not to buy")
 
     reward = calculate_reward(action, price_now, portfolio, fee)
 
@@ -546,13 +538,13 @@ def train_online_model(data):
         features["window_size"] = window_size
 
     target = data["rate"]
-    logger.info("Training model with features:")
-    for k, v in features.items():
-        logger.info(f"{k}: {v} ({type(v)})")
-        if v is None:
-            logger.warning(f"Feature '{k}' is None!")
-        elif isinstance(v, float) and (v != v):  # NaN
-            logger.warning(f"Feature '{k}' is NaN!")
+    #logger.info("Training model with features:")
+    # for k, v in features.items():
+    #     logger.info(f"{k}: {v} ({type(v)})")
+    #     if v is None:
+    #         logger.warning(f"Feature '{k}' is None!")
+    #     elif isinstance(v, float) and (v != v):  # NaN
+    #         logger.warning(f"Feature '{k}' is NaN!")
 
     y_pred = model.predict_one(features) or 0.0
     model.learn_one(features, target)

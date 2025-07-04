@@ -29,7 +29,13 @@ This will count the API calls that remain for the day and ask you how often it s
 
 ### Bonus SOL Price Prediction and Bandit Actions
 
-Messing around with online learning models, we've implemented SOL price prediction and contextual bandit-driven buy/sell/hold actions in `sol_price_fetcher.py`. Predictions and bandit logs are stored in the SQLite database `sol_prices.db`.
+![Bandits.png](Bandits.png)
+
+The `sol_price_fetcher.py` script incorporates machine learning models for experimental SOL price prediction and automated action suggestions:
+
+- **Online Price Prediction**: Utilizes the `river` library for online machine learning. A linear regression model (`river.linear_model.LinearRegression`) combined with a standard scaler (`river.preprocessing.StandardScaler`) is trained incrementally with new price data. This model predicts the next SOL price point.
+- **Contextual Bandit for Actions**: A contextual bandit algorithm is implemented to suggest "buy", "sell", or "hold" actions. It uses separate online learning models (again, typically linear regression) for each potential action, learning to predict the expected reward based on the current market context (price features, volatility, etc.). The action with the highest predicted reward is chosen, with some randomness (epsilon-greedy strategy) to encourage exploration.
+  Predictions, model metrics (like Mean Absolute Error for price prediction), and bandit action logs (including chosen action, predicted rewards, and context) are stored in the `sol_prices.db` SQLite database.
 
 Visit `http://localhost:5030/sol-tracker` to view:
 
@@ -38,6 +44,16 @@ Visit `http://localhost:5030/sol-tracker` to view:
 - Latest bandit decision with buy/sell/hold action and reward
 
 ![Predictions.png](Predictions.png)
+
+## Roadmap & Issues
+
+We are accidentially not just an Orca redemption calculator... unless that's the source of our trading income.
+
+[Note this strategy: _Deposit a large amount into an [Orca.so](https;//orca.so "Orca - Solana Trading and Liquidity Provider Platform") SOL/USDC pool. They are popular and pay out good returns. Use this application to track returns and instead of reinvesting them into your liquidity position, invest them into SOL using this application as the trading bot._]
+
+I'd like to measure the models over time and build guard rails around acting on their advice and do some simulated trading to test.
+
+We're not yet doing things like collecting the sum total of all the fees. But the model doesn't really need this information as it learns
 
 ## Tech Stack
 
@@ -128,6 +144,20 @@ You can customize the application behavior through environment variables in the 
 - `FLASK_DEBUG`: Enable Flask debug mode (default: True)
 - `FETCH_INTERVAL_SECONDS`: Background fetch interval in seconds (default: 7200 = 2 hours)
 - `LAST_KNOWN_SIGNATURE`: Starting signature for backfill operations (this is the transaction ID from SolScan that you want to fetch since, i.e. the transaction you deposited your liquidity... this may eat into your API calls for the month - adjust fetch interval accordingly)
+
+## Project Layout
+
+A brief overview of the project structure:
+
+- `app.py`: The main Flask web application. Handles HTTP requests, interacts with the `rewards.db` database, and renders HTML templates. This is the core controller for the rewards tracking dashboard.
+- `sol_price_fetcher.py`: A script responsible for fetching SOL price data from the LiveCoinWatch API, storing it in `sol_prices.db`, and running the machine learning models for price prediction and bandit actions. It can be run independently or is triggered by `app.py`.
+- `requirements.txt`: Lists the Python dependencies for the project.
+- `.env.example`: A template for the environment variables file (`.env`). You need to copy this to `.env` and fill in your API keys and other configurations.
+- `templates/`: Contains the HTML templates used by Flask to render the web pages (e.g., `index.html`, `sol_tracker.html`).
+- `rewards.db`: (Created at runtime) SQLite database for storing Solana reward transaction data.
+- `sol_prices.db`: (Created at runtime) SQLite database for storing SOL price history, predictions, and bandit logs.
+- `sol_model.pkl`, `sol_metric.pkl`, `sol_horizon_model.pkl`: (Created at runtime) Saved machine learning models and metrics.
+- `bandit_state.json`: (Created at runtime) Stores the state of the bandit portfolio simulation.
 
 ## Usage
 
