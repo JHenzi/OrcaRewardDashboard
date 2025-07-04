@@ -299,25 +299,32 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
 
     if action == "buy":
         if portfolio["usd_balance"] >= price_now:
-            # Buy 1 SOL (ignoring fee for now)
             current_balance = portfolio["sol_balance"]
             current_cost_basis = portfolio["total_cost_basis"]
 
             new_balance = current_balance + 1
-            # Compute new total cost basis (weighted average * new quantity)
             new_total_cost_basis = current_cost_basis + price_now
 
             portfolio["sol_balance"] = new_balance
             portfolio["total_cost_basis"] = new_total_cost_basis
-            portfolio["usd_balance"] -= price_now  # ignoring fee
+            portfolio["usd_balance"] -= price_now
             portfolio["entry_price"] = price_now
 
-            reward = 0.1
+            # Calculate average entry price BEFORE this buy
+            if current_balance > 0:
+                avg_entry_price = current_cost_basis / current_balance
+                deviation = (avg_entry_price - price_now) / avg_entry_price
+                # Reward more for buying below avg, penalize above
+                reward = max(min(deviation, 0.05), -0.05)  # cap between -0.05 and +0.05
+            else:
+                # First buy — fixed positive reward
+                reward = 0.01
+
             last_trade_action = "buy"
             last_trade_price = price_now
             position_open = True
         else:
-            reward = -0.5
+            reward = -0.05 # If buy and can't afford, penalize? Does this make sense long term?
 
     elif action == "sell":
         sol_to_sell = portfolio["sol_balance"]
@@ -352,8 +359,11 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
     # However, holding without a balance, while prices are declining isn't helpful.
     # We would need to measure momentum of prices (we don't have the price history here to do that...)
     elif action == "hold":
-        if position_open and portfolio["sol_balance"] > 0:
-            avg_entry_price = portfolio["total_cost_basis"] / portfolio["sol_balance"]
+        sol_balance = portfolio.get("sol_balance", 0)
+        total_cost_basis = portfolio.get("total_cost_basis", 0)
+
+        if position_open and sol_balance > 0:
+            avg_entry_price = total_cost_basis / sol_balance if sol_balance != 0 else price_now
             pct_change = (price_now - avg_entry_price) / avg_entry_price
 
             if pct_change >= 0.10:
@@ -363,12 +373,12 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
             elif pct_change >= 0.002:
                 reward = -0.0005
             else:
-                #reward = max(min(pct_change, 0.000005), -0.000005)
                 reward = 0.1
         else:
-            if "total_cost_basis" in portfolio:
-                avg_entry_price = portfolio["total_cost_basis"] / portfolio["sol_balance"]
+            if sol_balance > 0:
+                avg_entry_price = total_cost_basis / sol_balance if sol_balance != 0 else price_now
                 pct_change = (price_now - avg_entry_price) / avg_entry_price
+
                 if pct_change > 0.05:
                     reward = -0.01
                 elif pct_change < -0.03:
@@ -377,6 +387,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
                     reward = -0.0005
             else:
                 reward = -0.0001
+
 
 
     last_action = action

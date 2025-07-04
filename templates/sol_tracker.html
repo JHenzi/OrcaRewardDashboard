@@ -167,7 +167,10 @@
                     </tr>
                     <tr class="border-t">
                       <td class="px-4 py-2 font-medium">🧾 Cost Basis</td>
-                      <td class="px-4 py-2">${{ "%.2f" | format(bandit_state.portfolio.total_cost_basis) }}</td>
+                      <td class="px-4 py-2">${{ "%.2f" | format(bandit_state.portfolio.total_cost_basis) }}
+                        {% if bandit_state.portfolio.sol_balance > 0 %}
+                          (${{ "%.2f"|format(bandit_state.portfolio.total_cost_basis / bandit_state.portfolio.sol_balance) }})
+                        {% endif %}</td>
                     </tr>
                     <tr class="border-t">
                       <td class="px-4 py-2 font-medium">📈 Realized PnL</td>
