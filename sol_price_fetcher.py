@@ -283,17 +283,25 @@ def calculate_reward(action, price_now, portfolio, fee=0.0001):
     sell_price_after_fee = price_now * (1 - fee)
 
     if action == "buy":
-        if portfolio["usd_balance"] >= cost_with_fee:
-            # Buy 1 SOL
-            portfolio["sol_balance"] += 1
-            portfolio["usd_balance"] -= cost_with_fee
-            portfolio["total_cost_basis"] += price_now
+        if portfolio["usd_balance"] >= price_now:
+            # Buy 1 SOL (ignoring fee for now)
+            current_balance = portfolio["sol_balance"]
+            current_cost_basis = portfolio["total_cost_basis"]
+
+            new_balance = current_balance + 1
+            # Compute new total cost basis (weighted average * new quantity)
+            new_total_cost_basis = current_cost_basis + price_now
+
+            portfolio["sol_balance"] = new_balance
+            portfolio["total_cost_basis"] = new_total_cost_basis
+            portfolio["usd_balance"] -= price_now  # ignoring fee
+            portfolio["entry_price"] = price_now
+
             reward = 0.0
             last_trade_action = "buy"
             last_trade_price = price_now
             position_open = True
         else:
-            # Not enough USD — penalize or return zero reward
             reward = -0.5
 
     elif action == "sell":
