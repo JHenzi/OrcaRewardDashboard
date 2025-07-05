@@ -8,6 +8,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import sys
 import os
+import random
 # -- For Price Analysis Learning --
 import pickle
 from pathlib import Path
@@ -15,10 +16,8 @@ import numpy as np
 from collections import deque
 from statistics import mean, stdev
 import traceback
-
-
 from river import linear_model, preprocessing, metrics
-import random
+
 
 # Load environment variables
 load_dotenv()
@@ -35,14 +34,17 @@ MODEL_PATH = Path("sol_model.pkl")
 METRIC_PATH = Path("sol_metric.pkl")
 TRAIL = deque(maxlen=10)
 
-# Handle loading the price horizon model
+# Handle loading the Contextual Bandit Model Files - Function below to init these or create new.
 HORIZON_MODEL_PATH = Path("sol_horizon_model.pkl")
 HORIZON_METRIC_PATH = Path("sol_horizon_metric.pkl")
 
+# Handle basic setup of the Contexual Bandit & It's Actions
 actions = ["buy", "sell", "hold"]
 def model_factory():
     return preprocessing.StandardScaler() | linear_model.LinearRegression()
 
+# Critical function for price analysis, what has it done over 24 hours.
+# TODO - Abstract db_path into environment variable, default to sol_price.db if missing from .env
 def fetch_last_24h_prices(db_path="sol_prices.db"):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -63,8 +65,10 @@ def fetch_last_24h_prices(db_path="sol_prices.db"):
     prices = [row[0] for row in rows]  # Already oldest → newest due to ASC order
     return prices
 
-
-
+#########################################################################
+#                    COMPUTE PRICE FEATURES, SMA ETC.                   #
+#                    FOR PREDICTION ENGINES                             #
+#########################################################################
 def compute_price_features(prices):
     if not prices or len(prices) < 2:
         return {}
@@ -206,6 +210,10 @@ portfolio = {
 # Important file, however we are leaving it out of the repo. What do we do when it's missing? (We default - but should we look to .env?)
 STATE_FILE = "bandit_state.json"
 
+
+#########################################################################
+#                    STATE HANDLING                                     #
+#########################################################################
 def save_state():
     state = {
         "last_action": last_action,
@@ -279,6 +287,10 @@ def log_trade_to_db(action, price_now, portfolio, fee,
     finally:
         conn.close()
 
+
+#########################################################################
+#                    HELPER CALCULATIONS                                #
+#########################################################################
 def calculate_enhanced_timing_bonus(price_pct_from_low, pnl_percentage):
         """Enhanced timing bonus that scales with profitability"""
         # Base timing bonus (0-10 range)
@@ -323,14 +335,18 @@ def calculate_dynamic_hold_penalty(unrealized_pct, sharpe_ratio, margin_opportun
 
         return penalty
 
+
+#########################################################################
+#                    REWARD FUNCTION FOR BANDIT                         #
+#########################################################################
 def calculate_reward(action, price_now, portfolio, fee=0.001,
                         price_24h_high=None, price_24h_low=None,
                         rolling_mean_price=None, returns_mean=None,
                         returns_std=None, prices_24h=None):
     global last_trade_action, last_trade_price, position_open, last_action
     reward = 0.0
-    cost_with_fee = price_now * (1 + fee)
-    sell_price_after_fee = price_now * (1 - fee)
+    cost_with_fee = price_now * (1 + fee) # This is a good idea, it's unused - TODO
+    sell_price_after_fee = price_now * (1 - fee) # This is a good idea, it's unused - TODO
 
     # Contextual indicators
     price_pct_from_low = (price_now - price_24h_low) / (price_24h_high - price_24h_low + 1e-9) if price_24h_low and price_24h_high else 0.01
@@ -412,7 +428,19 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
                         price_24h_high, price_24h_low,
                         rolling_mean_price, returns_mean, returns_std)
         else:
-            reward = -0.05  # invalid sell
+            # Market momentum (e.g., price_now vs. past N values)
+            # Assume this is passed in as `price_momentum` or computed earlier
+            # You can also use `returns_mean` if cleaner
+            momentum_factor = price_momentum if price_momentum is not None else 0
+            # Normalize momentum to a reasonable range
+            normalized_momentum = max(min(momentum_factor / price_now, 0.05), -0.05)
+            # Base penalty
+            base_penalty = -0.2
+            # Reward modifier: if momentum is strongly positive, reduce penalty
+            momentum_modifier = 0.5 * normalized_momentum  # half strength
+            # Final reward: still negative, but less so in uptrends
+            reward = base_penalty + momentum_modifier
+
 
     ###################
     # Hold Logic - MAJOR IMPROVEMENTS
@@ -672,7 +700,6 @@ def train_online_model(data):
         pickle.dump(metric, f)
 
 
-
 class SOLPriceFetcher:
     def __init__(self):
         self.api_key = os.getenv('LIVECOINWATCH_API_KEY')
@@ -839,6 +866,9 @@ class SOLPriceFetcher:
             ))
             self.conn.commit()
             logger.info(f"SOL price: ${data['rate']:.2f} - Data stored successfully")
+            #########################################################################
+            #                    LOOP                                               #
+            #########################################################################
             # Here is the place in the loop where we execute other actions on the "data" variable, which is our dictionary of price data.
             # Train the online model with the new data - it predicts the next price based on the current data.
             train_online_model(data)
