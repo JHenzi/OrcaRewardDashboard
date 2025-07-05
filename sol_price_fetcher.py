@@ -382,7 +382,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             # Reward more if we sold near 24h high
             sell_bonus = price_pct_from_low  # higher is better
 
-            reward = net_pnl / 10 + sell_bonus  # normalize pnl and bonus
+            reward = net_pnl + sell_bonus  # pnl and bonus
             portfolio["realized_pnl"] += net_pnl
             portfolio["usd_balance"] += sol_balance * price_now * (1 - fee)
             portfolio["sol_balance"] = 0
