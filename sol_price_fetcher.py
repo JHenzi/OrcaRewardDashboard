@@ -331,7 +331,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
     sell_price_after_fee = price_now * (1 - fee)
 
     # Contextual indicators
-    price_pct_from_low = (price_now - price_24h_low) / (price_24h_high - price_24h_low + 1e-9) if price_24h_low and price_24h_high else 0.5
+    price_pct_from_low = (price_now - price_24h_low) / (price_24h_high - price_24h_low + 1e-9) if price_24h_low and price_24h_high else 0.01
     price_pct_from_mean = (price_now - rolling_mean_price) / rolling_mean_price if rolling_mean_price else 0
     sharpe_ratio = (returns_mean / returns_std) if returns_std else 0
     price_momentum = price_now - prices_24h[-5] if prices_24h and len(prices_24h) >= 5 else 0
@@ -345,17 +345,21 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
     ###################
     if action == "buy":
         if usd_balance >= price_now:
-            # Buying when price is near the low, with negative Sharpe is encouraged
+            # Signal strength encourages dip buying
             buy_signal_strength = (1 - price_pct_from_low) - price_pct_from_mean - sharpe_ratio
-
-            # Bonus for catching dip
             dip_reward = max(min(buy_signal_strength, 0.05), -0.05)
+
+            # Pseudo "profit potential" — buy low relative to average or recent momentum
+            potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
+            margin_reward = max(min(potential_margin, 0.02), 0)
+
 
             portfolio["sol_balance"] += 1
             portfolio["usd_balance"] -= price_now
             portfolio["total_cost_basis"] += price_now
 
-            reward = dip_reward + 0.005  # encourage buying dips
+            reward = dip_reward + margin_reward + 0.005  # combine both
+
             last_trade_action = "buy"
             last_trade_price = price_now
             position_open = True
