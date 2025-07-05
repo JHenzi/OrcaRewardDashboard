@@ -2,7 +2,7 @@
 
 A Flask web application that tracks and displays Solana rewards from Orca liquidity pools using the Helius API.
 
-![Screenshot](Screenshot.png)
+![Screenshot](images/Screenshot.png)
 
 ## Features
 
@@ -25,11 +25,11 @@ python sol_price_fetcher.py
 
 This will count the API calls that remain for the day and ask you how often it should fetch prices based on the math it does. I have it fetching the price of SOL every five minutes. You can then see a chart of the last 288 price fetches (24 hours @ 5 minutes between fetches), the standard deviation, 24 hour range, low, high and so forth at `http://localhost:5030/sol-tracker`.
 
-![Chart.png](Chart.png)
+![Chart.png](images/Chart.png)
 
 ### Bonus SOL Price Prediction and Bandit Actions
 
-![Bandits.png](Bandits.png)
+![Bandits.png](images/Bandits.png)
 
 The `sol_price_fetcher.py` script incorporates machine learning models for experimental SOL price prediction and automated action suggestions:
 
@@ -43,7 +43,7 @@ Visit `http://localhost:5030/sol-tracker` to view:
 - Recent price predictions vs actuals
 - Latest bandit decision with buy/sell/hold action and reward
 
-![Predictions.png](Predictions.png)
+![Predictions.png](images/Predictions.png)
 
 ## Roadmap & Issues
 
@@ -53,7 +53,9 @@ We are accidentially not just an Orca redemption calculator... unless that's the
 
 I'd like to measure the models over time and build guard rails around acting on their advice and do some simulated trading to test.
 
-We're not yet doing things like collecting the sum total of all the fees. But the model doesn't really need this information as it learns
+We're not yet doing things like collecting the sum total of all the fees. But the model doesn't really need this information as it learns.
+
+- [ ] Should we implement: "Predictions as a service"?
 
 ## Tech Stack
 
@@ -184,7 +186,7 @@ Visit `http://localhost:5030/backfill_newer` to manually trigger fetching newer 
 
 ## Database Schema
 
-The application uses SQLite with two main tables:
+The application uses SQLite, with new tables being added (i.e. right now it is missing the "trades" schema from bandit trading.):
 
 ### collect_fees
 
