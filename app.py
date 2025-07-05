@@ -551,6 +551,84 @@ def sol_tracker():
         bandit_state=bandit_state
     )
 
+@app.route('/api/latest-prediction', methods=['GET'])
+def get_latest_prediction():
+    try:
+        conn = sqlite3.connect("sol_prices.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT timestamp, predicted_rate, actual_rate, error, mae, created_at
+            FROM sol_predictions
+            ORDER BY created_at DESC
+            LIMIT 1
+        """)
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            prediction = {
+                "timestamp": row[0],
+                "predicted_rate": row[1],
+                "actual_rate": row[2],
+                "error": row[3],
+                "mae": row[4],
+                "created_at": row[5]
+            }
+            return jsonify(prediction)
+        else:
+            return jsonify({"error": "No predictions found"}), 404
+    except sqlite3.Error as e:
+        logger.error(f"Database error fetching latest prediction: {e}")
+        return jsonify({"error": "Database error"}), 500
+    except Exception as e:
+        logger.error(f"Unexpected error fetching latest prediction: {e}")
+        return jsonify({"error": "An unexpected error occurred"}), 500
+
+
+@app.route('/api/latest-bandit-action', methods=['GET'])
+def get_latest_bandit_action():
+    try:
+        conn = sqlite3.connect("sol_prices.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold, data_json, created_at
+            FROM bandit_logs
+            ORDER BY created_at DESC
+            LIMIT 1
+        """)
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            # Attempt to parse data_json, but allow it to be None if missing or invalid
+            parsed_data_json = None
+            if row[6]:
+                try:
+                    parsed_data_json = json.loads(row[6])
+                except json.JSONDecodeError as json_err:
+                    logger.warning(f"Could not parse data_json for bandit log created at {row[7]}: {json_err}")
+                    # Keep parsed_data_json as None
+
+            bandit_action = {
+                "timestamp": row[0],
+                "action": row[1],
+                "reward": row[2],
+                "prediction_buy": row[3],
+                "prediction_sell": row[4],
+                "prediction_hold": row[5],
+                "data_json": parsed_data_json,
+                "created_at": row[7]
+            }
+            return jsonify(bandit_action)
+        else:
+            return jsonify({"error": "No bandit actions found"}), 404
+    except sqlite3.Error as e:
+        logger.error(f"Database error fetching latest bandit action: {e}")
+        return jsonify({"error": "Database error"}), 500
+    except Exception as e:
+        logger.error(f"Unexpected error fetching latest bandit action: {e}")
+        return jsonify({"error": "An unexpected error occurred"}), 500
+
 def setup_sol_price_fetcher():
     global price_fetcher, price_fetch_active
 

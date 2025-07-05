@@ -178,59 +178,18 @@ class ContextualBandit:
     def update(self, x, action, reward):
         self.models[action].learn_one(x, reward)
 
-    # # Original reward function based on price changes and indicators - not used.
-    # # Note: This model worked well, it bought low and sold high using SHARPE RATIO!
-    # def reward_function(self, action, x, volatility):
-    #     price = x.get("price_now")
-    #     price_high = x.get("price_24h_high")
-    #     price_low = x.get("price_24h_low")
-    #     returns = x.get("returns_last_n", [])  # e.g., last 3-5 hourly returns
-    #     rolling_mean = x.get("rolling_mean_price")
-    #     logger.info(f"Price: {price}, High: {price_high}, Low: {price_low}, Returns: {returns}, Rolling Mean: {rolling_mean}")
-    #     delta = x.get("delta", {}).get("day", 1.0) - 1.0
-    #     delta = max(min(delta, 0.2), -0.2)  # Clip to ±20%
 
-    #     # Normalize volatility to prevent division by zero
-    #     risk_adjusted = delta / max(volatility, 0.01)
-
-    #     # === Derived indicators ===
-    #     price_rank = 0.5
-    #     if price_high and price_low and price_high != price_low:
-    #         price_rank = (price - price_low) / (price_high - price_low)  # 0 = low, 1 = high
-
-    #     momentum = sum(returns) / len(returns) if returns else 0.0
-
-    #     mean_reversion_score = 0.0
-    #     if rolling_mean:
-    #         mean_reversion_score = (rolling_mean - price) / rolling_mean  # > 0 = below average (dip)
-
-    #     # === Decision logic ===
-    #     reward = -0.2  # Default penalty
-
-    #     if action == "sell" and price_rank > 0.85 and momentum > 0:
-    #         # Selling near peak during uptrend
-    #         reward = 1.0
-    #     elif action == "buy" and price_rank < 0.15 and momentum < 0 and mean_reversion_score > 0.01:
-    #         # Buying near low, mean-reverting conditions
-    #         reward = 1.0
-    #     elif action == "hold" and abs(delta) < 0.0025:
-    #         reward = 0.5  # Flat market
-    #     else:
-    #         reward = -0.1  # Slight penalty for suboptimal moves
-
-    #     # Optional logging
-    #     logger.info(
-    #         f"[Reward] Action: {action}, Δ: {delta:.4f}, RAΔ: {risk_adjusted:.2f}, "
-    #         f"Rank: {price_rank:.2f}, Momentum: {momentum:.4f}, MeanRev: {mean_reversion_score:.4f}, "
-    #         f"Reward: {reward:.2f}"
-    #     )
-
-    #     return reward
-
-# Add to your global or saved state:
+# Globals for portfolio tracking - needs better handling, we may want to include
+# the bandit_state.json in the repo as an example and direct the user to update it to
+# match the starting information. Then we can load the file and evaluate if it has defautls
+# or handle defaulting a better way than in the code here.
+# We may want to do different things too like start the model with different amounts of money
+# to invest in, like a random amount between $650 and $1,500?
 last_trade_action = None  # "buy" or "sell"
 last_trade_price = 0.0
 position_open = False
+
+starting_cash = 1000
 
 last_action = "hold"
 entry_price = 0.0
@@ -244,6 +203,7 @@ portfolio = {
     "realized_pnl": 0.0
 }
 
+# Important file, however we are leaving it out of the repo. What do we do when it's missing? (We default - but should we look to .env?)
 STATE_FILE = "bandit_state.json"
 
 def save_state():
@@ -262,13 +222,13 @@ def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
             state = json.load(f)
-            last_action = state.get("last_action", "hold")
-            entry_price = state.get("entry_price", 0.0)
-            position_open = state.get("position_open", False)
+            last_action = state.get("last_action", last_action)
+            entry_price = state.get("entry_price", entry_price)
+            position_open = state.get("position_open", position_open)
             fee = state.get("fee", 0.001)
             portfolio = state.get("portfolio", {
                 "sol_balance": 0.0,
-                "usd_balance": 1000.0,
+                "usd_balance": starting_cash,
                 "total_cost_basis": 0.0,
                 "realized_pnl": 0.0
             })
