@@ -414,7 +414,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             if sharpe_ratio < -0.3 and price_momentum < 0:
                 reward = 0.005
             else:
-                reward = -0.001
+                reward = -0.00
 
     last_action = action
     save_state()
