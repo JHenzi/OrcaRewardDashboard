@@ -319,7 +319,49 @@ def log_trade_to_db(action, price_now, portfolio, fee,
     finally:
         conn.close()
 
+def calculate_enhanced_timing_bonus(price_pct_from_low, pnl_percentage):
+        """Enhanced timing bonus that scales with profitability"""
+        # Base timing bonus (0-10 range)
+        timing_bonus = (price_pct_from_low ** 2) * 10
 
+        # Multiplicative bonus for profitable exits near highs
+        if pnl_percentage > 0 and price_pct_from_low > 0.7:
+            timing_bonus *= (1 + pnl_percentage * 2)
+
+        return timing_bonus
+
+def calculate_percentage_pnl_reward(net_pnl, position_value):
+        """Scale rewards based on percentage returns, not absolute dollars"""
+        if position_value == 0:
+            return 0
+
+        pnl_percentage = net_pnl / position_value
+
+        if pnl_percentage > 0:
+            # Exponential scaling for profits - reward big wins heavily
+            return (pnl_percentage * 100) ** 1.3 * 5
+        else:
+            # Linear scaling for losses - less harsh punishment
+            return pnl_percentage * 100
+
+def calculate_dynamic_hold_penalty(unrealized_pct, sharpe_ratio, margin_opportunity):
+        """Dynamic penalties based on missed opportunities"""
+        penalty = 0
+
+        # Exponential penalty for not taking large profits
+        if unrealized_pct > 0.05:  # 5%+ unrealized gains
+            penalty += (unrealized_pct * 100) ** 1.2 * -0.1
+
+        # Penalty for holding in strong downtrend
+        if sharpe_ratio < -0.5 and unrealized_pct < -0.03:
+            penalty += (abs(unrealized_pct) * 100) ** 1.1 * -0.1
+
+        # Penalty for missing new buying opportunities while holding
+        if margin_opportunity > 0.02:
+            missed_opportunity_reward = ((margin_opportunity - 0.01) * 100) ** 1.5
+            penalty += missed_opportunity_reward * -0.5  # Half the missed opportunity
+
+        return penalty
 
 def calculate_reward(action, price_now, portfolio, fee=0.001,
                         price_24h_high=None, price_24h_low=None,
@@ -349,9 +391,12 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             buy_signal_strength = (1 - price_pct_from_low) - price_pct_from_mean - sharpe_ratio
             dip_reward = max(min(buy_signal_strength, 0.05), -0.05)
 
-            # Pseudo "profit potential" — buy low relative to average or recent momentum
             potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
-            margin_reward = max(min(potential_margin, 0.02), 0)
+            if potential_margin >= 0.01:  # Only reward if 1%+ opportunity
+                # Scale and shift so 1% = small reward, grows exponentially from there
+                margin_reward = ((potential_margin - 0.01) * 100) ** 1.5
+            else:
+                margin_reward = 0
 
 
             portfolio["sol_balance"] += 1
@@ -377,12 +422,23 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
         if sol_balance > 0:
             avg_entry = total_cost_basis / sol_balance
             gross_pnl = (price_now - avg_entry) * sol_balance
-            net_pnl = gross_pnl - 2 * fee * price_now * sol_balance
+            net_pnl = gross_pnl - fee # TODO: Make this better
 
             # Reward more if we sold near 24h high
             sell_bonus = price_pct_from_low  # higher is better
 
-            reward = net_pnl + sell_bonus  # pnl and bonus
+            # IMPROVED: Calculate position value for percentage-based rewards
+            position_value = total_cost_basis  # Original investment amount
+
+            # IMPROVED: Percentage-based PnL scaling instead of linear
+            pnl_reward = calculate_percentage_pnl_reward(net_pnl, position_value)
+            # IMPROVED: Enhanced timing bonus that scales with profitability
+            pnl_percentage = net_pnl / position_value if position_value > 0 else 0
+            timing_bonus = calculate_enhanced_timing_bonus(price_pct_from_low, pnl_percentage)
+
+            reward = pnl_reward + sell_bonus + timing_bonus
+
+            # reward = net_pnl * (1 * sell_bonus)  # pnl and bonus
             portfolio["realized_pnl"] += net_pnl
             portfolio["usd_balance"] += sol_balance * price_now * (1 - fee)
             portfolio["sol_balance"] = 0
@@ -399,26 +455,37 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             reward = -0.05  # invalid sell
 
     ###################
-    # Hold Logic
+    # Hold Logic - MAJOR IMPROVEMENTS
     ###################
     elif action == "hold":
         if sol_balance > 0:
             avg_entry = total_cost_basis / sol_balance
             unrealized_pct = (price_now - avg_entry) / avg_entry
 
-            # Penalize holding in uptrend if missing profit
-            if unrealized_pct > 0.05 and sharpe_ratio > 0.2:
-                reward = -0.01  # should have sold
-            elif unrealized_pct < -0.05 and sharpe_ratio < -0.2:
-                reward = -0.01  # should have sold
+            # IMPROVED: Calculate current margin opportunity
+            potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
+
+            # IMPROVED: Dynamic penalties based on missed opportunities
+            penalty = calculate_dynamic_hold_penalty(unrealized_pct, sharpe_ratio, potential_margin)
+
+            if penalty < -0.01:  # Significant penalty
+                reward = penalty
             else:
-                reward = 0.001  # mild hold bonus
+                reward = 0.0001  # Small hold bonus when appropriate
         else:
-            # Bonus if correctly not holding in downtrend
+            # IMPROVED: Better logic for cash holding
+            potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
+
+            # Reward for correctly staying in cash during downtrend
             if sharpe_ratio < -0.3 and price_momentum < 0:
-                reward = 0.005
+                reward = 0.01
+            # Penalty for missing buying opportunities
+            elif potential_margin > 0.02:
+                missed_opportunity = ((potential_margin - 0.01) * 100) ** 1.5
+                reward = missed_opportunity * -0.3  # Penalty for missing good entries
             else:
-                reward = -0.00
+                reward = 0.0
+
 
     last_action = action
     save_state()
