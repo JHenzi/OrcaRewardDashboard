@@ -1,6 +1,18 @@
-# Solana Rewards Tracker
+### 🧠 Solana Rewards Tracker
 
-A Flask web application that tracks and displays Solana rewards from Orca liquidity pools using the Helius API.
+A Flask web application that tracks and displays Solana rewards from Orca liquidity pools using the Helius API. In addition to passive liquidity tracking, the app now includes:
+
+- 💸 **Real-time SOL/USDC Liquidity Pool Monitoring** – Tracks token redemptions and rewards from Orca.
+- 📈 **SOL Price Forecasting** – Uses historical price data to predict short-term Solana price movements.
+- 🎯 **Contextual Bandit Trading Agent** – A reinforcement learning agent that learns to buy, sell, or hold SOL based on:
+
+  - Momentum and trend signals
+  - Statistical features like Sharpe ratio, rolling mean, and price deviations
+  - Profit and loss outcomes from past trades
+
+- 📊 **Interactive Web Dashboard** – Visualizes price trends, agent decisions, portfolio state, and trade logs.
+
+This project blends DeFi analytics with intelligent trading automation.
 
 ![Screenshot](images/Screenshot.png)
 
@@ -17,7 +29,7 @@ A Flask web application that tracks and displays Solana rewards from Orca liquid
 
 We are using the LiveCoinWatch API to grab the price of SOL and stashing in a SQLite database for long term analysis and statistical display.
 
-You can start the price fetcher, on a `screen` session, by executing this command:
+You can start the price fetcher, on a `screen` session, by executing this command(Note, this is NOT NEEDED if you are running app.py, it will dispatch the predictions and combined the logged output so you only have one script to run!):
 
 ```bash
 python sol_price_fetcher.py
@@ -47,15 +59,23 @@ Visit `http://localhost:5030/sol-tracker` to view:
 
 ## Roadmap & Issues
 
-We are accidentially not just an Orca redemption calculator... unless that's the source of our trading income.
+This project began as a simple Orca rewards tracker, but has since evolved into something more complex: a Solana trading assistant, price predictor, and contextual bandit strategy simulator.
 
-[Note this strategy: _Deposit a large amount into an [Orca.so](https;//orca.so "Orca - Solana Trading and Liquidity Provider Platform") SOL/USDC pool. They are popular and pay out good returns. Use this application to track returns and instead of reinvesting them into your liquidity position, invest them into SOL using this application as the trading bot._]
+While we're still focused on tracking Orca liquidity pool redemptions, the application now includes intelligent trade decisions based on market signals. That brings new opportunities—and responsibilities—for improving the reliability, safety, and interpretability of the trading logic.
 
-I'd like to measure the models over time and build guard rails around acting on their advice and do some simulated trading to test.
+We're currently not collecting certain data points like the total sum of all fees, but for now the model is performing adequately without this information. Eventually, richer logging may improve transparency and downstream analytics.
 
-We're not yet doing things like collecting the sum total of all the fees. But the model doesn't really need this information as it learns.
+---
 
-- [ ] Should we implement: "Predictions as a service"?
+### Example Strategy in Scope
+
+_“Deposit a large amount into an [Orca.so](https://orca.so/ "Orca - Solana Trading and Liquidity Provider Platform") SOL/USDC pool. These pools are popular and generally pay consistent rewards. Use this application to track returns, and instead of reinvesting those rewards into the pool, allow the contextual bandit to reinvest them into SOL when conditions are favorable. For example, a liquidity range of $130 to $280 may be appropriate for 2024-2025. When SOL trades within that range, liquidity fees are generated, and this app helps determine whether to hold, buy, or exit into USDC.”_
+
+This strategy illustrates how both passive income and machine-assisted trading can coexist in a portfolio.
+
+---
+
+### In Progress / Open Questions
 
 ## Tech Stack
 
@@ -220,6 +240,31 @@ Stores model price predictions:
 Stores contextual bandit decision logs:
 
 - `timestamp`, `action`, `reward`, `prediction_buy`, `prediction_sell`, `prediction_hold`, `created_at`
+
+### trades
+
+Stores each buy, sell, or hold decision made by the contextual bandit, along with market context and portfolio state:
+
+- `id`: Auto-incrementing primary key
+- `timestamp`: ISO 8601 timestamp of the trade
+- `action`: `"buy"`, `"sell"`, or `"hold"`
+- `price`: SOL price at time of action
+- `amount`: Quantity of SOL traded (typically 1.0)
+- `fee_pct`: Trade fee as a decimal (e.g., 0.001)
+- `fee_usd`: Fee amount in USD
+- `net_value_usd`: Net USD value after fee
+- `portfolio_usd_balance`: USD balance after trade
+- `portfolio_sol_balance`: SOL balance after trade
+- `portfolio_equity`: Total portfolio value in USD
+- `avg_entry_price`: Average entry price for SOL position
+- `realized_pnl`: Realized profit/loss from trade in USD
+- `price_24h_high`: 24-hour high price of SOL
+- `price_24h_low`: 24-hour low price of SOL
+- `rolling_mean_price`: Rolling mean of recent prices
+- `returns_mean`: Mean of recent returns
+- `returns_std`: Standard deviation of recent returns
+
+---
 
 ## Security Notes
 
