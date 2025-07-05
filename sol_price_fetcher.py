@@ -16,6 +16,7 @@ from collections import deque
 from statistics import mean, stdev
 import traceback
 
+
 from river import linear_model, preprocessing, metrics
 import random
 
@@ -76,7 +77,7 @@ def compute_price_features(prices):
     sma_1h = simple_moving_average(prices, 12)     # assuming 5-min intervals → 12*5 = 60 mins
     sma_4h = simple_moving_average(prices, 48)     # 4 hours
     sma_24h = sum(prices) / len(prices) if prices else 0.0
-   # 24 hours
+    # 24 hours
 
     current_price = prices[-1]
     price_start = prices[0]
@@ -178,6 +179,7 @@ class ContextualBandit:
         self.models[action].learn_one(x, reward)
 
     # # Original reward function based on price changes and indicators - not used.
+    # # Note: This model worked well, it bought low and sold high using SHARPE RATIO!
     # def reward_function(self, action, x, volatility):
     #     price = x.get("price_now")
     #     price_high = x.get("price_24h_high")
@@ -271,135 +273,152 @@ def load_state():
                 "realized_pnl": 0.0
             })
     else:
-        print("No saved state found, using defaults.")
+        logger.info("No saved state found, using defaults.")
 
 load_state()
 
+def log_trade_to_db(action, price_now, portfolio, fee,
+                    price_24h_high, price_24h_low,
+                    rolling_mean_price, returns_mean, returns_std, db_path="sol_prices.db"):
 
-def calculate_reward(action, price_now, portfolio, fee=0.0001):
-    """
-    This Python function calculates the reward for a given trading action (buy, sell, or hold) based on
-    the current price, portfolio holdings, and fees.
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
-    :param action: The `action` parameter in the `calculate_reward` function represents the action to be
-    taken for a given trading scenario. It can be one of the following three values:
-    :param price_now: Price of the asset at the current time
-    :param portfolio: The `portfolio` parameter is a dictionary that contains information about the
-    current state of the trading portfolio. It typically includes the following key-value pairs:
-    :param fee: The `fee` parameter in the `calculate_reward` function represents the transaction fee
-    percentage applied to each trade. In this case, the fee is set to 0.01% (0.0001 as a decimal). This
-    fee is deducted from the transaction amount when buying or selling assets in the
-    :return: The function `calculate_reward` is returning the reward value calculated based on the given
-    action, current price, and portfolio state.
-    """
+    timestamp = datetime.now().isoformat()
+
+    sol_balance = portfolio["sol_balance"]
+    usd_balance = portfolio["usd_balance"]
+    total_cost_basis = portfolio["total_cost_basis"]
+    realized_pnl = portfolio.get("realized_pnl", 0.0)
+    portfolio_equity = usd_balance + sol_balance * price_now
+    avg_entry_price = total_cost_basis / sol_balance if sol_balance > 0 else 0.0
+
+    # Should these be added to the db?
+    # price_pct_from_low = (price_now - price_24h_low) / (price_24h_high - price_24h_low + 1e-9) if price_24h_low and price_24h_high else 0.5
+    # sharpe_ratio = (returns_mean / returns_std) if returns_std else 0
+
+    # Fees in USD for 1 unit trade (simplify here for example)
+    fee_usd = fee * price_now
+
+    try:
+        cursor.execute('''
+            INSERT INTO trades (
+                timestamp, action, price, amount, fee_pct, fee_usd, net_value_usd,
+                portfolio_usd_balance, portfolio_sol_balance, portfolio_equity, avg_entry_price,
+                realized_pnl, price_24h_high, price_24h_low, rolling_mean_price, returns_mean, returns_std
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            timestamp, action, price_now, 1, fee, fee_usd, price_now * (1 - fee),
+            usd_balance, sol_balance, portfolio_equity, avg_entry_price,
+            realized_pnl, price_24h_high, price_24h_low, rolling_mean_price, returns_mean, returns_std
+        ))
+        conn.commit()
+        logger.info("Successfully logged trade to database.")
+    except Exception as e:
+        logger.error(f"Error logging trade to database: {e}")
+    finally:
+        conn.close()
+
+
+
+def calculate_reward(action, price_now, portfolio, fee=0.001,
+                        price_24h_high=None, price_24h_low=None,
+                        rolling_mean_price=None, returns_mean=None,
+                        returns_std=None, prices_24h=None):
     global last_trade_action, last_trade_price, position_open, last_action
     reward = 0.0
     cost_with_fee = price_now * (1 + fee)
     sell_price_after_fee = price_now * (1 - fee)
 
+    # Contextual indicators
+    price_pct_from_low = (price_now - price_24h_low) / (price_24h_high - price_24h_low + 1e-9) if price_24h_low and price_24h_high else 0.5
+    price_pct_from_mean = (price_now - rolling_mean_price) / rolling_mean_price if rolling_mean_price else 0
+    sharpe_ratio = (returns_mean / returns_std) if returns_std else 0
+    price_momentum = price_now - prices_24h[-5] if prices_24h and len(prices_24h) >= 5 else 0
+
+    sol_balance = portfolio["sol_balance"]
+    usd_balance = portfolio["usd_balance"]
+    total_cost_basis = portfolio["total_cost_basis"]
+
+    ###################
+    # Buy Logic
+    ###################
     if action == "buy":
-        if portfolio["usd_balance"] >= price_now:
-            current_balance = portfolio["sol_balance"]
-            current_cost_basis = portfolio["total_cost_basis"]
+        if usd_balance >= price_now:
+            # Buying when price is near the low, with negative Sharpe is encouraged
+            buy_signal_strength = (1 - price_pct_from_low) - price_pct_from_mean - sharpe_ratio
 
-            new_balance = current_balance + 1
-            new_total_cost_basis = current_cost_basis + price_now
+            # Bonus for catching dip
+            dip_reward = max(min(buy_signal_strength, 0.05), -0.05)
 
-            portfolio["sol_balance"] = new_balance
-            portfolio["total_cost_basis"] = new_total_cost_basis
+            portfolio["sol_balance"] += 1
             portfolio["usd_balance"] -= price_now
-            portfolio["entry_price"] = price_now
+            portfolio["total_cost_basis"] += price_now
 
-            # Calculate average entry price BEFORE this buy
-            if current_balance > 0:
-                avg_entry_price = current_cost_basis / current_balance
-                deviation = (avg_entry_price - price_now) / avg_entry_price
-                # Reward more for buying below avg, penalize above
-                reward = max(min(deviation, 0.05), -0.05)  # cap between -0.05 and +0.05
-            else:
-                # First buy — fixed positive reward
-                reward = 0.01
-
+            reward = dip_reward + 0.005  # encourage buying dips
             last_trade_action = "buy"
             last_trade_price = price_now
             position_open = True
+            # log the trade
+            log_trade_to_db(action, price_now, portfolio, fee,
+                        price_24h_high, price_24h_low,
+                        rolling_mean_price, returns_mean, returns_std)
         else:
-            reward = -0.05 # If buy and can't afford, penalize? Does this make sense long term?
+            reward = -0.02  # can't afford
 
+    ###################
+    # Sell Logic
+    ###################
     elif action == "sell":
-        sol_to_sell = portfolio["sol_balance"]
-        if sol_to_sell > 0:
-            avg_entry_price = portfolio["total_cost_basis"] / sol_to_sell
-            gross_pnl = (price_now - avg_entry_price) * sol_to_sell
-            total_fee = 2 * fee * price_now * sol_to_sell  # fee on buy + sell sides
-            net_pnl = gross_pnl - total_fee
+        if sol_balance > 0:
+            avg_entry = total_cost_basis / sol_balance
+            gross_pnl = (price_now - avg_entry) * sol_balance
+            net_pnl = gross_pnl - 2 * fee * price_now * sol_balance
 
-            reward = net_pnl
+            # Reward more if we sold near 24h high
+            sell_bonus = price_pct_from_low  # higher is better
 
+            reward = net_pnl / 10 + sell_bonus  # normalize pnl and bonus
             portfolio["realized_pnl"] += net_pnl
-
-            # Sell ALL SOL
+            portfolio["usd_balance"] += sol_balance * price_now * (1 - fee)
             portfolio["sol_balance"] = 0
-            portfolio["usd_balance"] += price_now * sol_to_sell * (1 - fee)  # apply sell fee here
             portfolio["total_cost_basis"] = 0
 
             last_trade_action = "sell"
             last_trade_price = price_now
             position_open = False
+            # log the trade
+            log_trade_to_db(action, price_now, portfolio, fee,
+                        price_24h_high, price_24h_low,
+                        rolling_mean_price, returns_mean, returns_std)
         else:
-            # Can't sell if you don't own SOL
-            # This penalty isn't strong enough. For example, if we sell at a loss of $4 the reward is -4
-            # We should do something better like, return the negative of the last price as a penalty.
-            # reward = -1.0 # Old
-            reward = -last_trade_price
+            reward = -0.05  # invalid sell
 
-    # We need to brainstorm here some values for holding at different times.
-    # What if we rewarded the bot a small tick like 0.001 when it holds a balance.
-    # And we penalize 0.001 when it doesn't hold a balance
-    # However, holding without a balance, while prices are declining isn't helpful.
-    # We would need to measure momentum of prices (we don't have the price history here to do that...)
+    ###################
+    # Hold Logic
+    ###################
     elif action == "hold":
-        sol_balance = portfolio.get("sol_balance", 0)
-        total_cost_basis = portfolio.get("total_cost_basis", 0)
+        if sol_balance > 0:
+            avg_entry = total_cost_basis / sol_balance
+            unrealized_pct = (price_now - avg_entry) / avg_entry
 
-        if position_open and sol_balance > 0:
-            avg_entry_price = total_cost_basis / sol_balance if sol_balance != 0 else price_now
-            pct_change = (price_now - avg_entry_price) / avg_entry_price
-
-            if pct_change >= 0.10:
-                reward = -0.5  # you really blew it, buddy
-            elif pct_change >= 0.05:
-                reward = -0.05
-            elif pct_change >= 0.002:
-                reward = -0.0005
+            # Penalize holding in uptrend if missing profit
+            if unrealized_pct > 0.05 and sharpe_ratio > 0.2:
+                reward = -0.01  # should have sold
+            elif unrealized_pct < -0.05 and sharpe_ratio < -0.2:
+                reward = -0.01  # should have sold
             else:
-                reward = 0.1
+                reward = 0.001  # mild hold bonus
         else:
-            if sol_balance > 0:
-                avg_entry_price = total_cost_basis / sol_balance if sol_balance != 0 else price_now
-                pct_change = (price_now - avg_entry_price) / avg_entry_price
-
-                if pct_change > 0.05:
-                    reward = -0.01
-                elif pct_change < -0.03:
-                    reward = 0.002
-                else:
-                    reward = -0.0005
+            # Bonus if correctly not holding in downtrend
+            if sharpe_ratio < -0.3 and price_momentum < 0:
+                reward = 0.005
             else:
-                reward = -0.0001
-
-
+                reward = -0.001
 
     last_action = action
-
-
-    # Save the states to a JSON file
     save_state()
-
-
     return reward
-
-
 
 def get_agent():
     if HORIZON_MODEL_PATH.exists():
@@ -418,8 +437,6 @@ def get_agent():
         agent = ContextualBandit(model_factory, actions)
         logger.info("Initialized new Contextual Bandit model.")
     return agent
-
-
 
 def process_bandit_step(data, volatility):
     global last_action, last_price, entry_price, position_open, fee, portfolio
@@ -492,7 +509,18 @@ def process_bandit_step(data, volatility):
     logger.info(f"Predictions: {predictions}, Chosen action: {action}")
 
 
-    reward = calculate_reward(action, price_now, portfolio, fee)
+    reward = calculate_reward(
+        action=action,
+        price_now=price_now,
+        portfolio=portfolio,
+        fee=fee,
+        price_24h_high=price_high,
+        price_24h_low=price_low,
+        rolling_mean_price=rolling_mean,
+        returns_mean=returns_mean,
+        returns_std=returns_std,
+        prices_24h=prices
+    )
 
     agent.update(x, action, reward)
 
@@ -525,7 +553,6 @@ def process_bandit_step(data, volatility):
     ))
     conn.commit()
     conn.close()
-
 
 
 # Load or initialize model and metric
@@ -678,6 +705,41 @@ class SOLPriceFetcher:
                 data_json TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
+        ''')
+        self.cursor.execute('''
+        CREATE TABLE IF NOT EXISTS trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            action TEXT NOT NULL,
+            price REAL NOT NULL,
+            amount REAL NOT NULL,
+            fee_pct REAL,
+            fee_usd REAL,
+            net_value_usd REAL,
+            portfolio_usd_balance REAL,
+            portfolio_sol_balance REAL,
+            portfolio_equity REAL,
+            avg_entry_price REAL,
+            realized_pnl REAL,
+            price_24h_high REAL,
+            price_24h_low REAL,
+            rolling_mean_price REAL,
+            returns_mean REAL,
+            returns_std REAL
+        )
+        ''')
+
+        self.cursor.execute('''
+        CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            sol_balance REAL,
+            usd_balance REAL,
+            total_cost_basis REAL,
+            realized_pnl REAL,
+            portfolio_equity REAL,
+            price_now REAL
+        )
         ''')
 
         self.conn.commit()
