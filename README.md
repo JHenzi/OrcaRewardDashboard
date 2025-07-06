@@ -2,9 +2,9 @@
 
 A Flask web application that tracks and displays Solana rewards from [**Orca** liquidity pools](https://docs.orca.so/) using the [Helius API](https://docs.helius.dev/). **Now featuring an experimental automated trading bot for SOL/USDC swaps via the [Jupiter Ultra API](https://dev.jup.ag/docs/ultra-api/)!** In addition to passive liquidity tracking, the app now includes:
 
-- 💸 **Real‑time SOL/USDC Liquidity Pool Monitoring** - Tracks token redemptions and rewards from Orca’s concentrated liquidity pools using CLMM tech [github.com+15docs.orca.so+15dev.jup.ag+15](https://docs.orca.so/?utm_source=chatgpt.com).
-- 🤖 **Automated SOL/USDC Trading Bot (Experimental)** - Framework for live trading and execution using the Jupiter Ultra API , with contextual bandit‑driven buy/sell/hold decisions.
-- 📈 **SOL Price Forecasting** - Uses historical price data to predict short‑term Solana price movements.
+- 💸 **Real-time SOL/USDC Liquidity Pool Monitoring** - Tracks token redemptions and rewards from Orca's concentrated liquidity pools using CLMM tech [at Orca.so](https://docs.orca.so/).
+- 🤖 **Automated SOL/USDC Trading Bot (Experimental)** - Framework for live trading and execution using the Jupiter Ultra API , with contextual bandit-driven buy/sell/hold decisions.
+- 📈 **SOL Price Forecasting** - Uses historical price data to predict short-term Solana price movements.
 - 🎯 **Contextual Bandit Trading Agent** - A reinforcement learning agent that learns to buy, sell, or hold SOL based on:
   - Momentum and trend signals
   - Statistical features (Sharpe ratio, rolling mean, price deviations)
@@ -17,7 +17,8 @@ This project blends DeFi analytics, machine learning, and intelligent trading au
 
 ## Features
 
-- ~~Real-time tracking of COLLECT_FEES events from your Solana wallet~~ Using the free API tier we refresh every 2 hours!
+- ~~Real-time tracking of COLLECT_FEES events from your Solana wallet~~
+  - Using the free API tier we refresh every 2 hours!
 - SQLite database storage for transaction history
 - Web dashboard displaying total SOL and USDC rewards
 - Live SOL price data from LiveCoinWatch
