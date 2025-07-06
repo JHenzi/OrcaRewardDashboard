@@ -5,7 +5,7 @@ from threading import Thread
 from flask import Flask, jsonify, render_template, request
 import threading
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 from sol_price_fetcher import SOLPriceFetcher
@@ -629,6 +629,12 @@ def get_latest_bandit_action():
         logger.error(f"Unexpected error fetching latest bandit action: {e}")
         return jsonify({"error": "An unexpected error occurred"}), 500
 
+def seconds_until_midnight():
+    now = datetime.utcnow()
+    tomorrow = now + timedelta(days=1)
+    midnight = datetime.combine(tomorrow.date(), datetime.min.time())
+    return (midnight - now).total_seconds()
+
 def setup_sol_price_fetcher():
     global price_fetcher, price_fetch_active
 
@@ -637,20 +643,32 @@ def setup_sol_price_fetcher():
 
         credits = price_fetcher.get_credits()
         if credits:
-            logger.info(f"Initial credits: {credits['dailyCreditsRemaining']}/{credits['dailyCreditsLimit']}")
+            remaining = credits["dailyCreditsRemaining"]
+            limit = credits["dailyCreditsLimit"]
+            logger.info(f"Initial credits: {remaining}/{limit}")
 
-        # price_data = price_fetcher.fetch_sol_price()
-        #if price_data:
-        #    logger.info(f"Current SOL price: ${price_data['rate']:.2f}")
+            # Determine optimal interval
+            seconds_remaining_today = seconds_until_midnight()
+            safe_buffer = 0.85  # Leave 15% of credits unused to avoid risk
+            safe_credits = int(remaining * safe_buffer)
 
-        # Just always start price collection immediately with a safe default interval
-        interval_minutes = 5
-        logger.info(f"Starting SOL price collection immediately with {interval_minutes} minute interval")
+            if safe_credits > 0:
+                interval_seconds = max(seconds_remaining_today / safe_credits, 15)  # minimum 15 seconds
+                interval_minutes = round(interval_seconds / 60, 2)
+                logger.info(f"The fetch interval is {interval_minutes}")
+            else:
+                interval_minutes = 10  # fallback if no credits left
+
+        else:
+            interval_minutes = 5  # fallback
+
+        logger.info(f"Starting SOL price collection with dynamic interval: {interval_minutes} minutes")
         start_sol_price_collection(interval_minutes)
 
     except Exception as e:
         logger.error(f"Error setting up SOL price fetcher: {e}")
         logger.error(traceback.format_exc())
+
 
 
 def start_sol_price_collection(interval_minutes):
@@ -670,11 +688,12 @@ def start_sol_price_collection(interval_minutes):
     price_fetch_thread.start()
     logger.info(f"Started SOL price collection with {interval_minutes} minute interval")
 
-def sol_price_fetch_loop(interval_minutes):
-    """Main loop for SOL price fetching"""
+def sol_price_fetch_loop(initial_interval_minutes):
     global price_fetcher, price_fetch_active
 
-    interval_seconds = interval_minutes * 60
+    interval_seconds = initial_interval_minutes * 60
+    cycle_count = 0
+    check_credits_every = 1000  # check credits every 100 cycles
 
     while price_fetch_active:
         try:
@@ -685,13 +704,34 @@ def sol_price_fetch_loop(interval_minutes):
                 else:
                     logger.warning("Failed to fetch SOL price")
 
-            # Sleep for the specified interval
+            cycle_count += 1
+
+            # Every N cycles, check credits and adjust interval
+            if cycle_count % check_credits_every == 0:
+                if price_fetcher is not None:
+                    credits = price_fetcher.get_credits()
+                    if credits:
+                        remaining = credits.get("dailyCreditsRemaining", 0)
+                        limit = credits.get("dailyCreditsLimit", 10000)
+                        seconds_remaining = seconds_until_midnight()
+                        safe_buffer = 0.85
+                        safe_credits = int(remaining * safe_buffer)
+                        if safe_credits > 0:
+                            new_interval = max(seconds_remaining / safe_credits, 15)  # min 15 sec
+                            interval_seconds = new_interval
+                            logger.info(f"Adjusted interval to {interval_seconds/60:.2f} minutes based on credits {remaining}/{limit}")
+                        else:
+                            interval_seconds = 600  # fallback 10 min if no credits left
+                            logger.warning("No safe credits left, setting interval to 10 minutes")
+                else:
+                    logger.warning("price_fetcher is None, cannot check credits.")
+                cycle_count = 0  # reset cycle count after check
+            logger.info(f"Sleeping for {interval_seconds:.2f} seconds before next fetch")
             time.sleep(interval_seconds)
 
         except Exception as e:
             logger.error(f"Error in SOL price fetch loop: {e}")
             time.sleep(60)  # Wait 1 minute before retrying
-
 
 def background_fetch_loop():
     # Background loop to fetch transactions and insert COLLECT_FEES events
