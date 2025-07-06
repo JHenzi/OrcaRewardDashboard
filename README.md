@@ -1,18 +1,17 @@
-### 🧠 Solana Rewards Tracker
+# 🧠 Solana Rewards & Trading Bot Tracker
 
-A Flask web application that tracks and displays Solana rewards from Orca liquidity pools using the Helius API. In addition to passive liquidity tracking, the app now includes:
+A Flask web application that tracks and displays Solana rewards from [**Orca** liquidity pools](https://docs.orca.so/) using the [Helius API](https://docs.helius.dev/). **Now featuring an experimental automated trading bot for SOL/USDC swaps via the [Jupiter Ultra API](https://dev.jup.ag/docs/ultra-api/)!** In addition to passive liquidity tracking, the app now includes:
 
-- 💸 **Real-time SOL/USDC Liquidity Pool Monitoring** – Tracks token redemptions and rewards from Orca.
-- 📈 **SOL Price Forecasting** – Uses historical price data to predict short-term Solana price movements.
-- 🎯 **Contextual Bandit Trading Agent** – A reinforcement learning agent that learns to buy, sell, or hold SOL based on:
-
+- 💸 **Real‑time SOL/USDC Liquidity Pool Monitoring** - Tracks token redemptions and rewards from Orca’s concentrated liquidity pools using CLMM tech [github.com+15docs.orca.so+15dev.jup.ag+15](https://docs.orca.so/?utm_source=chatgpt.com).
+- 🤖 **Automated SOL/USDC Trading Bot (Experimental)** - Framework for live trading and execution using the Jupiter Ultra API , with contextual bandit‑driven buy/sell/hold decisions.
+- 📈 **SOL Price Forecasting** - Uses historical price data to predict short‑term Solana price movements.
+- 🎯 **Contextual Bandit Trading Agent** - A reinforcement learning agent that learns to buy, sell, or hold SOL based on:
   - Momentum and trend signals
-  - Statistical features like Sharpe ratio, rolling mean, and price deviations
-  - Profit and loss outcomes from past trades
+  - Statistical features (Sharpe ratio, rolling mean, price deviations)
+  - Profit and loss from past trades
+- 📊 **Interactive Web Dashboard** - Visualizes price trends, agent decisions, portfolio state, and trade logs.
 
-- 📊 **Interactive Web Dashboard** – Visualizes price trends, agent decisions, portfolio state, and trade logs.
-
-This project blends DeFi analytics with intelligent trading automation.
+This project blends DeFi analytics, machine learning, and intelligent trading automation for Solana.
 
 ![Screenshot](images/Screenshot.png)
 
@@ -289,6 +288,7 @@ The application provides the following API endpoints for programmatic access to 
     ```
 
 - **Get Latest Bandit Action:**
+
   - **URL:** `/api/latest-bandit-action`
   - **Method:** `GET`
   - **Description:** Retrieves the most recent action (buy/sell/hold) decided by the contextual bandit.
