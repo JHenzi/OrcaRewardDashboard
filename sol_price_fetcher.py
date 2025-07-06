@@ -302,19 +302,21 @@ def calculate_enhanced_timing_bonus(price_pct_from_low, pnl_percentage):
 
         return timing_bonus
 
-def calculate_percentage_pnl_reward(net_pnl, position_value):
-        """Scale rewards based on percentage returns, not absolute dollars"""
-        if position_value == 0:
-            return 0
+def calculate_percentage_pnl_reward(net_pnl, position_value, max_reward=1.0):
+    """Scale rewards based on percentage returns with dampened growth for small profits"""
+    if position_value == 0:
+        return 0
 
-        pnl_percentage = net_pnl / position_value
+    pnl_percentage = net_pnl / position_value
 
-        if pnl_percentage > 0:
-            # Exponential scaling for profits - reward big wins heavily
-            return (pnl_percentage * 100) ** 1.3 * 5
-        else:
-            # Linear scaling for losses - less harsh punishment
-            return pnl_percentage * 100
+    if pnl_percentage > 0:
+        # Scaled exponential curve with diminishing returns
+        scaled = min((pnl_percentage * 100) ** 0.7 / 5, max_reward)
+        return scaled
+    else:
+        # Penalize losses linearly, capped
+        return max(pnl_percentage * 10, -1.0)
+
 
 def calculate_dynamic_hold_penalty(unrealized_pct, sharpe_ratio, margin_opportunity):
         """Dynamic penalties based on missed opportunities"""
