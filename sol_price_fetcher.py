@@ -460,7 +460,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
 
 
     ###################
-    # Hold Logic - MAJOR IMPROVEMENTS
+    # Hold Logic
     ###################
     elif action == "hold":
         if sol_balance > 0:
@@ -476,7 +476,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             if penalty < -0.01:  # Significant penalty
                 reward = penalty
             else:
-                reward = 0.0001  # Small hold bonus when appropriate
+                reward = 0.1  # Small hold bonus when appropriate
         else:
             # IMPROVED: Better logic for cash holding
             potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
@@ -489,7 +489,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
                 missed_opportunity = ((potential_margin - 0.01) * 100) ** 1.5
                 reward = missed_opportunity * -0.3  # Penalty for missing good entries
             else:
-                reward = 0.0
+                reward = 0.01
 
 
     last_action = action
