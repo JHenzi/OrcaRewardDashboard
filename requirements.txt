@@ -4,3 +4,4 @@ python-dotenv==1.1.1
 pytz==2025.2
 Requests==2.32.4
 river==0.22.0
+solders==0.26.0

@@ -230,6 +230,7 @@ A brief overview of the project structure:
 - `sol_prices.db`: (Created at runtime) SQLite database for storing SOL price history, predictions, and bandit logs.
 - `sol_model.pkl`, `sol_metric.pkl`, `sol_horizon_model.pkl`: (Created at runtime) Saved machine learning models and metrics.
 - `bandit_state.json`: (Created at runtime) Stores the state of the bandit portfolio simulation.
+- `trading_bot.py`: Jupiter ULTRA Trading API function class. Executes orders (quotes) and transactions on Jupiter's swap API. Goal being capital appreciation.
 
 ## Usage
 
