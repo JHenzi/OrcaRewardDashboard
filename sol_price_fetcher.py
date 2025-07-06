@@ -18,6 +18,19 @@ from statistics import mean, stdev
 import traceback
 from river import linear_model, preprocessing, metrics
 
+# # Load Jupiter Ultra Trading Bot!
+# from trading_bot import JupiterTradingBot
+
+# # Load bot
+# bot = JupiterTradingBot()
+
+if os.getenv("SOL_PRIVATE_KEY"):
+    from trading_bot import JupiterTradingBot
+    bot = JupiterTradingBot()
+    trading_enabled = True
+else:
+    bot = None
+    trading_enabled = False
 
 # Load environment variables
 load_dotenv()
@@ -501,6 +514,9 @@ def get_agent():
         logger.info("Initialized new Contextual Bandit model.")
     return agent
 
+#########################################################################
+#                    BANDIT STEP EXECUTION                              #
+#########################################################################
 def process_bandit_step(data, volatility):
     global last_action, last_price, entry_price, position_open, fee, portfolio
     # Fetch last 24h prices from DB
@@ -601,21 +617,57 @@ def process_bandit_step(data, volatility):
 
     conn = sqlite3.connect("sol_prices.db")
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO bandit_logs (
-            timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold, data_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        timestamp,
-        action,
-        reward,
-        predictions.get("buy"),
-        predictions.get("sell"),
-        predictions.get("hold"),
-        data_json
-    ))
+    try:
+        cursor.execute('''
+            INSERT INTO bandit_logs (
+                timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold, data_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            timestamp,
+            action,
+            reward,
+            predictions.get("buy"),
+            predictions.get("sell"),
+            predictions.get("hold"),
+            data_json
+        ))
+    except Exception as e:
+        logger.error(f"Error logging to database: {e}")
     conn.commit()
     conn.close()
+    # --- Order Execution Logic ---
+    enable_live_trading = os.getenv("ENABLE_LIVE_TRADING", "N").upper() == "Y"
+    if bot is not None:
+        if enable_live_trading and action in ("buy", "sell"):
+            wallet_address = str(bot.public_key)
+            balances = bot.get_balances(wallet_address)
+            trade_amount = 1  # or use a dynamic amount
+
+            # Check if you have enough balance
+            if balances is not None:
+                if (action == "buy" and balances["USDC"] >= trade_amount) or (action == "sell" and balances["SOL"] >= trade_amount):
+                    order_response = bot.get_order(trade_amount, action)
+                    if order_response and order_response.get("transaction") and order_response.get("requestId"):
+                        # Optionally inspect order_response for slippage, price, etc.
+                        execute_response = bot.execute_order(
+                            order_response["requestId"],
+                            order_response["transaction"]
+                        )
+                        logger.info(f"Trade executed: {execute_response}")
+                    else:
+                        logger.warning("Order response missing transaction or requestId, skipping execution.")
+                else:
+                    logger.info("Insufficient balance for trade, skipping execution.")
+            else:
+                logger.warning("Failed to fetch balances, skipping execution.")
+        elif action in ("buy", "sell"):
+            logger.info("ENABLE_LIVE_TRADING is not set to 'Y'. Skipping live trade execution.")
+    else:
+        logger.error("Bot not loaded, skipping live trade execution.")
+    # --- End Order Execution Logic ---
+    return action, reward
+
+
 
 
 # Load or initialize model and metric
@@ -870,9 +922,9 @@ class SOLPriceFetcher:
             ))
             self.conn.commit()
             logger.info(f"SOL price: ${data['rate']:.2f} - Data stored successfully")
-            #########################################################################
-            #                    LOOP                                               #
-            #########################################################################
+#########################################################################
+#                    LOOP                                               #
+#########################################################################
             # Here is the place in the loop where we execute other actions on the "data" variable, which is our dictionary of price data.
             # Train the online model with the new data - it predicts the next price based on the current data.
             train_online_model(data)
@@ -886,7 +938,6 @@ class SOLPriceFetcher:
             except Exception as e:
                 logger.error(f"Bandit step failed: {e}")
                 logger.error(traceback.format_exc())
-
             return data
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching SOL price: {e}")

@@ -75,7 +75,58 @@ This strategy illustrates how both passive income and machine-assisted trading c
 
 ---
 
-### In Progress / Open Questions
+## 🚧 Trading Bot Integration (Experimental)
+
+> **Note:**
+> The Jupiter Ultra Trading Bot integration is currently **experimental and under development**.
+> The framework for automated trading is being built, but it is **untested** and should not be used with real funds until thoroughly validated.
+
+### Trading Bot Features (In Progress)
+
+- **Automated Trading via Jupiter Ultra API:**
+  The system can fetch quotes, sign transactions, and execute swaps between SOL and USDC using the Jupiter Ultra API.
+- **Contextual Bandit Integration:**
+  The trading bot is designed to act on buy/sell/hold recommendations from the contextual bandit model.
+- **Trade Logging:**
+  All attempted trades and execution results are logged to a dedicated `sol_trades.db` SQLite database for audit and analysis.
+- **Balance Checks:**
+  The bot checks wallet balances before attempting trades.
+- **.env Controlled:**
+  Trading is only enabled if the required private key is present in `.env` and `ENABLE_LIVE_TRADING=Y` is set.
+
+### How It Works (Framework)
+
+1. **Balance Check:**
+   Before trading, the bot checks if there is enough SOL or USDC to execute the desired action.
+2. **Quote Fetch:**
+   The bot fetches a quote/order from Jupiter Ultra for the intended swap.
+3. **Transaction Signing:**
+   The unsigned transaction from the quote is signed locally using the wallet keypair.
+4. **Order Execution:**
+   The signed transaction and request ID are sent to Jupiter Ultra's `/execute` endpoint.
+5. **Logging:**
+   All order and execution details are stored in `sol_trades.db`.
+
+### Enabling/Disabling Trading
+
+- Trading is **disabled by default**.
+- To enable live trading, set the following in your `.env` file:
+  ```
+  ENABLE_LIVE_TRADING=Y
+  SOL_PRIVATE_KEY=your_private_key_here
+  SOL_PUBLIC_KEY=your_public_key_here
+  ```
+- If the private key is missing, the trading bot will not be initialized and the rest of the application will continue to run.
+
+### ⚠️ Disclaimer
+
+- **This trading logic is untested and should be considered experimental.**
+- **Do not use with real funds until you have thoroughly reviewed and tested the code.**
+- The authors are not responsible for any financial loss or unintended trades.
+
+---
+
+**For more details, see the `trading_bot.py` and `sol_price_fetcher.py` files.**
 
 ## Tech Stack
 
@@ -268,68 +319,6 @@ The application provides the following API endpoints for programmatic access to 
       "error": "Database error"
     }
     ```
-
-## Database Schema
-
-The application uses SQLite, with new tables being added (i.e. right now it is missing the "trades" schema from bandit trading.):
-
-### collect_fees
-
-Stores reward collection events:
-
-- `signature`: Transaction signature
-- `timestamp`: Timestamp
-- `fee_payer`: Fee payer address
-- `token_mint`: Token mint address
-- `token_amount`: Amount transferred
-- `from_token_account`, `to_token_account`: Token accounts
-- `from_user_account`, `to_user_account`: User accounts
-
-### tokens
-
-Stores token metadata:
-
-- `mint`: Token mint address (primary key)
-- `symbol`: Token symbol
-- `name`: Token name
-- `decimals`: Token decimal precision
-
-### sol_predictions
-
-Stores model price predictions:
-
-- `timestamp`, `predicted_rate`, `actual_rate`, `error`, `mae`, `created_at`
-
-### bandit_logs
-
-Stores contextual bandit decision logs:
-
-- `timestamp`, `action`, `reward`, `prediction_buy`, `prediction_sell`, `prediction_hold`, `created_at`
-
-### trades
-
-Stores each buy, sell, or hold decision made by the contextual bandit, along with market context and portfolio state:
-
-- `id`: Auto-incrementing primary key
-- `timestamp`: ISO 8601 timestamp of the trade
-- `action`: `"buy"`, `"sell"`, or `"hold"`
-- `price`: SOL price at time of action
-- `amount`: Quantity of SOL traded (typically 1.0)
-- `fee_pct`: Trade fee as a decimal (e.g., 0.001)
-- `fee_usd`: Fee amount in USD
-- `net_value_usd`: Net USD value after fee
-- `portfolio_usd_balance`: USD balance after trade
-- `portfolio_sol_balance`: SOL balance after trade
-- `portfolio_equity`: Total portfolio value in USD
-- `avg_entry_price`: Average entry price for SOL position
-- `realized_pnl`: Realized profit/loss from trade in USD
-- `price_24h_high`: 24-hour high price of SOL
-- `price_24h_low`: 24-hour low price of SOL
-- `rolling_mean_price`: Rolling mean of recent prices
-- `returns_mean`: Mean of recent returns
-- `returns_std`: Standard deviation of recent returns
-
----
 
 ## Security Notes
 
