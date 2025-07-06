@@ -16,7 +16,7 @@ import numpy as np
 from collections import deque
 from statistics import mean, stdev
 import traceback
-from river import linear_model, preprocessing, metrics
+from river import linear_model, preprocessing, metrics, optim
 
 # # Load Jupiter Ultra Trading Bot!
 # from trading_bot import JupiterTradingBot
@@ -53,8 +53,15 @@ HORIZON_METRIC_PATH = Path("sol_horizon_metric.pkl")
 
 # Handle basic setup of the Contexual Bandit & It's Actions
 actions = ["buy", "sell", "hold"]
+# Old model - linear regression: Observations is that it can't handle price spikes
+# def model_factory():
+#     return preprocessing.StandardScaler() | linear_model.LinearRegression()
 def model_factory():
-    return preprocessing.StandardScaler() | linear_model.LinearRegression()
+    return linear_model.LinearRegression(
+        optimizer=optim.SGD(0.01),
+        l2=0.05
+    )
+
 
 # Critical function for price analysis, what has it done over 24 hours.
 # TODO - Abstract db_path into environment variable, default to sol_price.db if missing from .env
