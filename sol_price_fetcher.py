@@ -483,7 +483,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
 
             # Reward for correctly staying in cash during downtrend
             if sharpe_ratio < -0.3 and price_momentum < 0:
-                reward = 0.01
+                reward = 0.1
             # Penalty for missing buying opportunities
             elif potential_margin > 0.02:
                 missed_opportunity = ((potential_margin - 0.01) * 100) ** 1.5
