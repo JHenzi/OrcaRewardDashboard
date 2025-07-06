@@ -473,7 +473,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             # IMPROVED: Dynamic penalties based on missed opportunities
             penalty = calculate_dynamic_hold_penalty(unrealized_pct, sharpe_ratio, potential_margin)
 
-            if penalty < -0.01:  # Significant penalty
+            if penalty < 0.1:  # Significant penalty
                 reward = penalty
             else:
                 reward = 0.1  # Small hold bonus when appropriate
