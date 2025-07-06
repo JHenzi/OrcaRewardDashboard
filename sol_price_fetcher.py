@@ -289,7 +289,7 @@ def log_trade_to_db(action, price_now, portfolio, fee,
 
 
 #########################################################################
-#                    HELPER CALCULATIONS                                #
+#          HELPER CALCULATIONS (for reward function)                    #
 #########################################################################
 def calculate_enhanced_timing_bonus(price_pct_from_low, pnl_percentage):
         """Enhanced timing bonus that scales with profitability"""
@@ -414,7 +414,9 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             pnl_percentage = net_pnl / position_value if position_value > 0 else 0
             timing_bonus = calculate_enhanced_timing_bonus(price_pct_from_low, pnl_percentage)
 
-            reward = pnl_reward + sell_bonus + timing_bonus
+            profit_factor = max(pnl_percentage, 0)
+            reward = pnl_reward + (sell_bonus + timing_bonus) * profit_factor
+
 
             # reward = net_pnl * (1 * sell_bonus)  # pnl and bonus
             portfolio["realized_pnl"] += net_pnl
