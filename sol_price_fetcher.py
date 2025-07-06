@@ -365,9 +365,9 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
         if usd_balance >= price_now:
             # Signal strength encourages dip buying
             buy_signal_strength = (1 - price_pct_from_low) - price_pct_from_mean - sharpe_ratio
-            dip_reward = max(min(buy_signal_strength, 0.05), -0.05)
+            dip_reward = max(min(buy_signal_strength, 1), -1)
 
-            potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
+            potential_margin = ((rolling_mean_price - price_now) / rolling_mean_price) * 2 if rolling_mean_price else 0
             if potential_margin >= 0.01:  # Only reward if 1%+ opportunity
                 # Scale and shift so 1% = small reward, grows exponentially from there
                 margin_reward = ((potential_margin - 0.01) * 100) ** 1.5
@@ -379,7 +379,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             portfolio["usd_balance"] -= price_now
             portfolio["total_cost_basis"] += price_now
 
-            reward = dip_reward + margin_reward + 0.005  # combine both
+            reward = dip_reward + margin_reward  # combine both
 
             last_trade_action = "buy"
             last_trade_price = price_now
