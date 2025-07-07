@@ -581,6 +581,15 @@ def process_bandit_step(data, volatility):
     })
 
     x.update(price_features)
+
+    # Add Price vs SMA features
+    price_vs_sma_1h = price_now / price_features["sma_1h"] if price_features.get("sma_1h") and price_features["sma_1h"] != 0 else 1.0
+    price_vs_sma_4h = price_now / price_features["sma_4h"] if price_features.get("sma_4h") and price_features["sma_4h"] != 0 else 1.0
+    x.update({
+        "price_vs_sma_1h": price_vs_sma_1h,
+        "price_vs_sma_4h": price_vs_sma_4h,
+    })
+
     if volatility is None:
         volatility = compute_recent_volatility(prices)
     else:
@@ -596,13 +605,28 @@ def process_bandit_step(data, volatility):
         avg_entry = 0.0
         unrealized_pnl = 0.0
 
+    # Explicit portfolio state features
+    can_afford_buy = 1 if portfolio["usd_balance"] >= price_now else 0
+    is_position_open = 1 if portfolio["sol_balance"] > 0 else 0
+
+    # Ratio-based portfolio features
+    current_equity = portfolio["usd_balance"] + portfolio["sol_balance"] * price_now
+    usd_balance_ratio = portfolio["usd_balance"] / (current_equity + 1e-9) # Epsilon for safety
+    sol_balance_value = portfolio["sol_balance"] * price_now
+    sol_balance_ratio = sol_balance_value / (current_equity + 1e-9) # Epsilon for safety
+
+
     x.update({
         "portfolio_sol_balance": portfolio["sol_balance"],
         "portfolio_usd_balance": portfolio["usd_balance"],
         "portfolio_total_cost_basis": portfolio["total_cost_basis"],
         "portfolio_avg_entry_price": avg_entry,
         "portfolio_unrealized_pnl": unrealized_pnl,
-        "portfolio_equity": portfolio["usd_balance"] + portfolio["sol_balance"] * price_now,
+        "portfolio_equity": current_equity,
+        "can_afford_buy": can_afford_buy,
+        "is_position_open": is_position_open,
+        "usd_balance_ratio": usd_balance_ratio,
+        "sol_balance_ratio": sol_balance_ratio,
     })
 
 
