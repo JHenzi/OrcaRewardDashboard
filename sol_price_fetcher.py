@@ -44,13 +44,16 @@ logger = logging.getLogger(__name__)
 
 # Handle loading the price prediction in time model
 MODEL_PATH = Path("sol_model.pkl")
-METRIC_PATH = Path("sol_metric.pkl")
+METRIC_PATH = Path("sol_metric.pkl") # We set this up but are we using it?
 TRAIL = deque(maxlen=10)
 
 # Handle loading the Contextual Bandit Model Files - Function below to init these or create new.
 HORIZON_MODEL_PATH = Path("sol_horizon_model.pkl")
-HORIZON_METRIC_PATH = Path("sol_horizon_metric.pkl")
+HORIZON_METRIC_PATH = Path("sol_horizon_metric.pkl") # We aren't using this.
 
+#################################################################
+#                   LOAD THE MODEL FACTORY                      #
+#################################################################
 # Handle basic setup of the Contexual Bandit & It's Actions
 actions = ["buy", "sell", "hold"]
 # Old model - linear regression: Observations is that it can't handle price spikes
@@ -503,13 +506,13 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
         else:
             # IMPROVED: Better logic for cash holding
             potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
-            # Reward for correctly staying in cash during downtrend
-            if sharpe_ratio < -0.3 and price_momentum < 0:
-                reward = 0.6
             # Penalty for missing buying opportunities
-            elif potential_margin > 0.01:
+            if potential_margin > 0.01:
                 missed_opportunity = ((potential_margin - 0.01) * 100) ** 1.5
                 reward = -min(missed_opportunity * 0.3, 0.5)
+            # Reward for correctly staying in cash during downtrend
+            elif sharpe_ratio < -0.3 and price_momentum < 0:
+                reward = 0.6
             elif sharpe_ratio < 0.05:
                 reward = 0.51  # leaning defensive
             else:
@@ -542,6 +545,7 @@ def get_agent():
 #                    BANDIT STEP EXECUTION                              #
 #########################################################################
 def process_bandit_step(data, volatility):
+    # Get globals.
     global last_action, last_price, entry_price, position_open, fee, portfolio
     # Fetch last 24h prices from DB
     prices_24h = fetch_last_24h_prices()
@@ -550,8 +554,6 @@ def process_bandit_step(data, volatility):
     price_features = compute_price_features(prices_24h)
 
     # Assuming prices_24h = list of (timestamp, price)
-
-
     # Flatten raw data and merge with price features
     x = flatten_data(data)
 

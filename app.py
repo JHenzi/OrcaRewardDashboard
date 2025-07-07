@@ -13,7 +13,8 @@ from statistics import mean, stdev
 import logging
 import traceback
 import pytz
-
+from river.tree import HoeffdingAdaptiveTreeRegressor
+import pickle
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -493,7 +494,6 @@ def load_bandit_state():
             }
         }
 
-
 @app.route("/sol-tracker")
 def sol_tracker():
     selected_range = request.args.get("range", "day")
@@ -611,6 +611,8 @@ def sol_tracker():
 
     # Load bandit state
     bandit_state = load_bandit_state()
+    # Load Model stats - TODO
+
 
     return render_template(
         "sol_tracker.html",
