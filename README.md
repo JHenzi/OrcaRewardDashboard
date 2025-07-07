@@ -65,6 +65,12 @@ While we're still focused on tracking Orca liquidity pool redemptions, the appli
 
 We're currently not collecting certain data points like the total sum of all fees, but for now the model is performing adequately without this information. Eventually, richer logging may improve transparency and downstream analytics.
 
+### Issues/TODO:
+
+We enabled dynamic credit usage of the LiveCoinWatch API - we scale credit usage dynamically as the day progresses. This means we can fetch prices every 15 seconds. However, some of the chart queries are based on five minute increments and have limits of "288" to signify one day.
+
+I also am seeing the need to split the price and bandit actions into two charts - Chart.JS just doesn't merge the two datasets well. Or - we can pull "rate" from the bandit logs, it's there as a saved feature.
+
 ---
 
 ### Example Strategy in Scope
@@ -339,3 +345,13 @@ The application provides the following API endpoints for programmatic access to 
 ## License
 
 This project is open source and available under the [MIT License](LICENSE).
+
+---
+
+## Disclaimer & Author Note
+
+This project is the experimental work of **Joseph Henzi** and is intended as a technical and educational exercise in Python programming, data processing, and algorithmic trading logic.
+
+It is **not affiliated with The Henzi Foundation/The Frankie Fund**, a charitable organization dedicated to providing financial support to families facing the unexpected loss of a child.
+
+If you are looking for more information on the foundation or would like to support its mission of covering funeral and final expenses for children, please visit: [https://henzi.org](https://henzi.org)

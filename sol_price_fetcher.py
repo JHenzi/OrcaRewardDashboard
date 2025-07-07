@@ -16,7 +16,7 @@ import numpy as np
 from collections import deque
 from statistics import mean, stdev
 import traceback
-from river import linear_model, preprocessing, metrics, optim
+from river import linear_model, preprocessing, metrics, optim, tree
 
 # # Load Jupiter Ultra Trading Bot!
 # from trading_bot import JupiterTradingBot
@@ -56,11 +56,14 @@ actions = ["buy", "sell", "hold"]
 # Old model - linear regression: Observations is that it can't handle price spikes
 # def model_factory():
 #     return preprocessing.StandardScaler() | linear_model.LinearRegression()
+# Non-linear (bought a lot)
+# def model_factory():
+#     return linear_model.LinearRegression(
+#         optimizer=optim.SGD(0.01),
+#         l2=0.05
+#     )
 def model_factory():
-    return linear_model.LinearRegression(
-        optimizer=optim.SGD(0.01),
-        l2=0.05
-    )
+    return tree.HoeffdingTreeRegressor()
 
 
 # Critical function for price analysis, what has it done over 24 hours.

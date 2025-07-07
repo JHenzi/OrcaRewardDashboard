@@ -478,7 +478,7 @@ def sol_tracker():
         "month": 8640,
         "year": 105120,
     }
-    limit = range_map.get(selected_range, 288)
+    limit = range_map.get(selected_range, 10000)
 
     fetcher = SOLPriceFetcher()
     all_data = fetcher.get_price_history(limit=limit)
@@ -640,34 +640,38 @@ def setup_sol_price_fetcher():
 
     try:
         price_fetcher = SOLPriceFetcher()
+        fast_mode = os.getenv("FAST_MODE", "Y").upper() != "N"
 
-        credits = price_fetcher.get_credits()
-        if credits:
-            remaining = credits["dailyCreditsRemaining"]
-            limit = credits["dailyCreditsLimit"]
-            logger.info(f"Initial credits: {remaining}/{limit}")
-
-            # Determine optimal interval
-            seconds_remaining_today = seconds_until_midnight()
-            safe_buffer = 0.85  # Leave 15% of credits unused to avoid risk
-            safe_credits = int(remaining * safe_buffer)
-
-            if safe_credits > 0:
-                interval_seconds = max(seconds_remaining_today / safe_credits, 15)  # minimum 15 seconds
-                interval_minutes = round(interval_seconds / 60, 2)
-                logger.info(f"The fetch interval is {interval_minutes}")
-            else:
-                interval_minutes = 10  # fallback if no credits left
-
+        if not fast_mode:
+            interval_minutes = 5
+            logger.info("FAST_MODE disabled, using static interval of 5 minutes")
         else:
-            interval_minutes = 5  # fallback
+            credits = price_fetcher.get_credits()
+            if credits:
+                remaining = credits.get("dailyCreditsRemaining", 0)
+                limit = credits.get("dailyCreditsLimit", 10000)
+                logger.info(f"Initial credits: {remaining}/{limit}")
 
-        logger.info(f"Starting SOL price collection with dynamic interval: {interval_minutes} minutes")
+                seconds_remaining_today = seconds_until_midnight()
+                safe_buffer = 0.85  # Leave 15% unused
+                safe_credits = int(remaining * safe_buffer)
+
+                if safe_credits > 0:
+                    interval_seconds = max(seconds_remaining_today / safe_credits, 15)  # min 15 sec
+                    interval_minutes = round(interval_seconds / 60, 2)
+                else:
+                    interval_minutes = 10  # fallback if no credits
+            else:
+                interval_minutes = 5  # fallback if no credit info
+
+            logger.info(f"FAST_MODE enabled, using dynamic interval: {interval_minutes} minutes")
+
         start_sol_price_collection(interval_minutes)
 
     except Exception as e:
         logger.error(f"Error setting up SOL price fetcher: {e}")
         logger.error(traceback.format_exc())
+
 
 
 
@@ -691,9 +695,10 @@ def start_sol_price_collection(interval_minutes):
 def sol_price_fetch_loop(initial_interval_minutes):
     global price_fetcher, price_fetch_active
 
+    fast_mode = os.getenv("FAST_MODE", "Y").upper() != "N"
     interval_seconds = initial_interval_minutes * 60
     cycle_count = 0
-    check_credits_every = 1000  # check credits every 100 cycles
+    check_credits_every = 1000  # only used in fast mode
 
     while price_fetch_active:
         try:
@@ -704,28 +709,30 @@ def sol_price_fetch_loop(initial_interval_minutes):
                 else:
                     logger.warning("Failed to fetch SOL price")
 
-            cycle_count += 1
-
-            # Every N cycles, check credits and adjust interval
-            if cycle_count % check_credits_every == 0:
-                if price_fetcher is not None:
-                    credits = price_fetcher.get_credits()
-                    if credits:
-                        remaining = credits.get("dailyCreditsRemaining", 0)
-                        limit = credits.get("dailyCreditsLimit", 10000)
-                        seconds_remaining = seconds_until_midnight()
-                        safe_buffer = 0.85
-                        safe_credits = int(remaining * safe_buffer)
-                        if safe_credits > 0:
-                            new_interval = max(seconds_remaining / safe_credits, 15)  # min 15 sec
-                            interval_seconds = new_interval
-                            logger.info(f"Adjusted interval to {interval_seconds/60:.2f} minutes based on credits {remaining}/{limit}")
+            if fast_mode:
+                cycle_count += 1
+                if cycle_count % check_credits_every == 0:
+                    if price_fetcher is not None:
+                        credits = price_fetcher.get_credits()
+                        if credits:
+                            remaining = credits.get("dailyCreditsRemaining", 0)
+                            limit = credits.get("dailyCreditsLimit", 10000)
+                            seconds_remaining = seconds_until_midnight()
+                            safe_buffer = 0.85
+                            safe_credits = int(remaining * safe_buffer)
+                            if safe_credits > 0:
+                                new_interval = max(seconds_remaining / safe_credits, 15)  # min 15 sec
+                                interval_seconds = new_interval
+                                logger.info(f"Adjusted interval to {interval_seconds/60:.2f} minutes based on credits {remaining}/{limit}")
+                            else:
+                                interval_seconds = 600  # fallback 10 min if no credits left
+                                logger.warning("No safe credits left, setting interval to 10 minutes")
                         else:
-                            interval_seconds = 600  # fallback 10 min if no credits left
-                            logger.warning("No safe credits left, setting interval to 10 minutes")
-                else:
-                    logger.warning("price_fetcher is None, cannot check credits.")
-                cycle_count = 0  # reset cycle count after check
+                            logger.warning("Could not retrieve credits info")
+                    else:
+                        logger.warning("price_fetcher is None, cannot fetch credits")
+                    cycle_count = 0
+
             logger.info(f"Sleeping for {interval_seconds:.2f} seconds before next fetch")
             time.sleep(interval_seconds)
 
