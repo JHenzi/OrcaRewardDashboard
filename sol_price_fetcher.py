@@ -403,7 +403,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             portfolio["sol_balance"] += 1
             portfolio["usd_balance"] -= price_now
             portfolio["total_cost_basis"] += price_now
-
+            portfolio["entry_price"] = price_now
             reward = dip_reward + margin_reward  # combine both
 
             last_trade_action = "buy"
@@ -422,8 +422,13 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
     elif action == "sell":
         if sol_balance > 0:
             avg_entry = total_cost_basis / sol_balance
-            gross_pnl = (price_now - avg_entry) * sol_balance
-            net_pnl = gross_pnl - fee # TODO: Make this better
+            # OLD WAY
+            # gross_pnl = (price_now - avg_entry) * sol_balance
+            #net_pnl = gross_pnl - fee # TODO: Make this better
+            total_sale_value = sol_balance * price_now * (1 - fee)
+            total_entry_value = total_cost_basis
+            net_pnl = total_sale_value - total_entry_value
+
 
             # Reward more if we sold near 24h high
             sell_bonus = price_pct_from_low  # higher is better
@@ -443,6 +448,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
 
             # reward = net_pnl * (1 * sell_bonus)  # pnl and bonus
             portfolio["realized_pnl"] += net_pnl
+            portfolio["entry_price"] = 0.0
             portfolio["usd_balance"] += sol_balance * price_now * (1 - fee)
             portfolio["sol_balance"] = 0
             portfolio["total_cost_basis"] = 0
@@ -477,29 +483,37 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             avg_entry = total_cost_basis / sol_balance
             unrealized_pct = (price_now - avg_entry) / avg_entry
 
-            # IMPROVED: Calculate current margin opportunity
-            potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
+            # Encourage holding during uncertain/flat periods (low volatility, weak trend)
+            safe_hold_zone = abs(sharpe_ratio) < 0.2 and abs(price_pct_from_mean) < 0.01
 
-            # IMPROVED: Dynamic penalties based on missed opportunities
-            penalty = calculate_dynamic_hold_penalty(unrealized_pct, sharpe_ratio, potential_margin)
+            # Penalize not selling during high unrealized profits in strong uptrends
+            missed_exit = unrealized_pct > 0.03 and sharpe_ratio > 0.3
 
-            if penalty < 0.1:  # Significant penalty
-                reward = penalty
+            # Penalize holding during drawdowns
+            drawdown_risk = unrealized_pct < -0.03 and sharpe_ratio < -0.2
+
+            if missed_exit:
+                reward = -1.0 * min(unrealized_pct, 0.2)  # cap at -0.2
+            elif drawdown_risk:
+                reward = -0.5 * abs(unrealized_pct)  # proportional to drawdown
+            elif safe_hold_zone:
+                reward = 0.5  # good to hold, no clear signal
             else:
-                reward = 0.1  # Small hold bonus when appropriate
+                reward = 0.25  # mild default reward
         else:
             # IMPROVED: Better logic for cash holding
             potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
-
             # Reward for correctly staying in cash during downtrend
             if sharpe_ratio < -0.3 and price_momentum < 0:
-                reward = 0.1
+                reward = 0.25
             # Penalty for missing buying opportunities
-            elif potential_margin > 0.02:
+            elif potential_margin > 0.01:
                 missed_opportunity = ((potential_margin - 0.01) * 100) ** 1.5
-                reward = missed_opportunity * -0.3  # Penalty for missing good entries
+                reward = -min(missed_opportunity * 0.3, 0.5)
+            elif sharpe_ratio < 0.05:
+                reward = 0.4  # leaning defensive
             else:
-                reward = 0.01
+                reward = 0.25  # weak hold signal
 
 
     last_action = action
