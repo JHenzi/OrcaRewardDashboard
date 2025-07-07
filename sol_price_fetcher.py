@@ -371,6 +371,52 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
                         price_24h_high=None, price_24h_low=None,
                         rolling_mean_price=None, returns_mean=None,
                         returns_std=None, prices_24h=None):
+    """
+    Calculate the contextual reward for a given action in a bandit-based trading environment.
+
+    This function evaluates the quality of a trading decision ("buy", "sell", or "hold") 
+    by comparing the action taken with market conditions, volatility, recent performance,
+    and historical price data. It is designed to encourage the bandit agent to:
+    - Buy near local price lows or during dips with favorable reward-to-risk ratios.
+    - Sell when positions are profitable and aligned with positive price momentum.
+    - Hold when volatility is low or it's optimal to wait.
+    - Penalize missed opportunities and poor trade timing.
+
+    Parameters:
+    ----------
+    action : str
+        One of "buy", "sell", or "hold" representing the agent's chosen action.
+    price_now : float
+        The current market price of the asset (e.g., SOL).
+    portfolio : dict
+        A dictionary tracking balances and position data. Keys include:
+        - "sol_balance" (float): current SOL holdings.
+        - "usd_balance" (float): current cash holdings.
+        - "total_cost_basis" (float): total cost of the current position.
+        - "entry_price" (float): price of the last entry into SOL.
+        - "realized_pnl" (float): cumulative realized profit/loss.
+    fee : float, optional
+        Trading fee as a decimal (default is 0.001, or 0.1%).
+    price_24h_high : float, optional
+        The high price over the last 24 hours.
+    price_24h_low : float, optional
+        The low price over the last 24 hours.
+    rolling_mean_price : float, optional
+        A short-term moving average of price for trend detection.
+    returns_mean : float, optional
+        Mean of recent log returns, used in Sharpe ratio calculation.
+    returns_std : float, optional
+        Standard deviation of recent log returns, used in Sharpe ratio calculation.
+    prices_24h : list of float, optional
+        List of recent prices over the past 24 hours for momentum calculation.
+
+    Returns:
+    -------
+    reward : float
+        A scalar reward signal used to train the contextual bandit. Positive values
+        represent profitable or wise actions, while negative values represent losses,
+        missed opportunities, or risky behavior.
+    """
     global last_trade_action, last_trade_price, position_open, last_action
     reward = 0.0
     cost_with_fee = price_now * (1 + fee) # This is a good idea, it's unused - TODO
@@ -514,9 +560,9 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             elif sharpe_ratio < -0.3 and price_momentum < 0:
                 reward = 0.6
             elif sharpe_ratio < 0.05:
-                reward = 0.51  # leaning defensive
+                reward = 0.21  # leaning defensive
             else:
-                reward = 0.25  # weak hold signal
+                reward = 0.15  # weak hold signal
 
 
     last_action = action
