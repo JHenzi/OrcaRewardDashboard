@@ -29,13 +29,13 @@ This project blends DeFi analytics, machine learning, and intelligent trading au
 
 We are using the LiveCoinWatch API to grab the price of SOL and stashing in a SQLite database for long term analysis and statistical display.
 
-You can start the price fetcher, on a `screen` session, by executing this command(Note, this is NOT NEEDED if you are running app.py, it will dispatch the predictions and combined the logged output so you only have one script to run!):
+~~You can start the price fetcher, on a `screen` session, by executing this command(Note, this is NOT NEEDED if you are running app.py, it will dispatch the predictions and combined the logged output so you only have one script to run!):~~
 
 ```bash
 python sol_price_fetcher.py
 ```
 
-This will count the API calls that remain for the day and ask you how often it should fetch prices based on the math it does. I have it fetching the price of SOL every five minutes. You can then see a chart of the last 288 price fetches (24 hours @ 5 minutes between fetches), the standard deviation, 24 hour range, low, high and so forth at `http://localhost:5030/sol-tracker`.
+Intead launch `app.py` with python on a `screen` session. This will count the API calls that remain for the day and ask you how often it should fetch prices based on the math it does. I have it fetching the price of SOL every five minutes. You can then see a chart of the last 288 price fetches (24 hours @ 5 minutes between fetches), the standard deviation, 24 hour range, low, high and so forth at `http://localhost:5030/sol-tracker`.
 
 ![Chart.png](images/Chart.png)
 
@@ -67,9 +67,9 @@ We're currently not collecting certain data points like the total sum of all fee
 
 ### Issues/TODO:
 
-We enabled dynamic credit usage of the LiveCoinWatch API - we scale credit usage dynamically as the day progresses. This means we can fetch prices every 15 seconds. However, some of the chart queries are based on five minute increments and have limits of "288" to signify one day.
+~~We enabled dynamic credit usage of the LiveCoinWatch API - we scale credit usage dynamically as the day progresses. This means we can fetch prices every 15 seconds. However, some of the chart queries are based on five minute increments and have limits of "288" to signify one day.~~
 
-I also am seeing the need to split the price and bandit actions into two charts - Chart.JS just doesn't merge the two datasets well. Or - we can pull "rate" from the bandit logs, it's there as a saved feature.
+~~I also am seeing the need to split the price and bandit actions into two charts - Chart.JS just doesn't merge the two datasets well. Or - we can pull "rate" from the bandit logs, it's there as a saved feature.~~
 
 ---
 

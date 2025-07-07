@@ -511,7 +511,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
                 missed_opportunity = ((potential_margin - 0.01) * 100) ** 1.5
                 reward = -min(missed_opportunity * 0.3, 0.5)
             elif sharpe_ratio < 0.05:
-                reward = 0.6  # leaning defensive
+                reward = 0.51  # leaning defensive
             else:
                 reward = 0.25  # weak hold signal
 
