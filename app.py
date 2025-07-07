@@ -407,20 +407,35 @@ def get_predictions(cursor, limit=5):
         })
     return predictions
 
-def get_bandits(cursor, limit=5):
-    cursor.execute(f"""
-        SELECT timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold
+from datetime import datetime, timedelta
+
+def get_bandits(cursor, limit="24h"):
+    window=limit
+    # Map input window to timedelta
+    now = datetime.utcnow()
+    delta_map = {
+        "24h": timedelta(hours=24),
+        "1w": timedelta(weeks=1),
+        "1m": timedelta(days=30),
+        "1y": timedelta(days=365),
+    }
+    delta = delta_map.get(window, timedelta(hours=24))
+    time_threshold = now - delta
+
+    # Now includes rate pulled from JSON
+    cursor.execute("""
+        SELECT 
+            timestamp, action, reward, 
+            prediction_buy, prediction_sell, prediction_hold,
+            json_extract(data_json, '$.rate') AS rate
         FROM bandit_logs
+        WHERE timestamp >= ?
         ORDER BY created_at DESC
-        LIMIT {limit}
-    """)
+    """, (time_threshold.isoformat(),))
+
     rows = cursor.fetchall()
     bandit_logs = []
-    # Initially did this but reverted, keeping the code for reference.
-    # Problem is in the chart.js module it somehow is mapping these to the wrong date.
-    # utc = pytz.utc  # Use UTC for consistent timestamps
-    #local_tz = pytz.timezone("America/New_York")  # Use local timezone for display - TODO: Make this dynamic, use tzlocal.get_localzone() or similar!
-    # Convert timestamps to local timezone for display
+
     for row in rows:
         log_ts = datetime.fromisoformat(row[0]).strftime("%b %d, %I:%M %p")
         bandit_logs.append({
@@ -429,9 +444,14 @@ def get_bandits(cursor, limit=5):
             "reward": round(row[2], 4),
             "prediction_buy": round(row[3], 4) if row[3] is not None else None,
             "prediction_sell": round(row[4], 4) if row[4] is not None else None,
-            "prediction_hold": round(row[5], 4) if row[5] is not None else None
+            "prediction_hold": round(row[5], 4) if row[5] is not None else None,
+            "rate": round(row[6], 4) if row[6] is not None else None
         })
+
+
+
     return bandit_logs
+
 
 def load_bandit_state():
     try:
@@ -498,7 +518,7 @@ def sol_tracker():
     cursor = conn.cursor()
 
     predictions = get_predictions(cursor, limit=limit)
-    bandit_logs = get_bandits(cursor, limit=limit)  # match bandits to price points for charting
+    bandit_logs = get_bandits(cursor, limit='24h')  # match bandits to price points for charting
 
     conn.close()
 
