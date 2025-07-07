@@ -497,7 +497,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             elif drawdown_risk:
                 reward = -0.5 * abs(unrealized_pct)  # proportional to drawdown
             elif safe_hold_zone:
-                reward = 0.5  # good to hold, no clear signal
+                reward = 0.75  # good to hold, no clear signal
             else:
                 reward = 0.25  # mild default reward
         else:
@@ -505,13 +505,13 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
             # Reward for correctly staying in cash during downtrend
             if sharpe_ratio < -0.3 and price_momentum < 0:
-                reward = 0.25
+                reward = 0.6
             # Penalty for missing buying opportunities
             elif potential_margin > 0.01:
                 missed_opportunity = ((potential_margin - 0.01) * 100) ** 1.5
                 reward = -min(missed_opportunity * 0.3, 0.5)
             elif sharpe_ratio < 0.05:
-                reward = 0.4  # leaning defensive
+                reward = 0.6  # leaning defensive
             else:
                 reward = 0.25  # weak hold signal
 

@@ -492,11 +492,11 @@ def load_bandit_state():
 def sol_tracker():
     selected_range = request.args.get("range", "day")
     range_map = {
-        "hour": 12,
-        "day": 288,
-        "week": 2016,
-        "month": 8640,
-        "year": 105120,
+        "hour": (10000 / 12),
+        "day": 10000,
+        "week": 10000 * 7,
+        "month": 10000 * 30,
+        "year": 10000 * 365,
     }
     limit = range_map.get(selected_range, 10000)
 
