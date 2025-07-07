@@ -663,8 +663,8 @@ def setup_sol_price_fetcher():
         fast_mode = os.getenv("FAST_MODE", "Y").upper() != "N"
 
         if not fast_mode:
-            interval_minutes = 5
-            logger.info("FAST_MODE disabled, using static interval of 5 minutes")
+            interval_minutes = 1
+            logger.info("FAST_MODE disabled, using static interval of 1 minute")
         else:
             credits = price_fetcher.get_credits()
             if credits:
@@ -682,7 +682,7 @@ def setup_sol_price_fetcher():
                 else:
                     interval_minutes = 10  # fallback if no credits
             else:
-                interval_minutes = 5  # fallback if no credit info
+                interval_minutes = 1  # fallback if no credit info
 
             logger.info(f"FAST_MODE enabled, using dynamic interval: {interval_minutes} minutes")
 
