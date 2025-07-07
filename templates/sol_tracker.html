@@ -83,37 +83,39 @@
             <canvas id="solChart"></canvas>
         </div>
         <div class="mt-8 bg-white p-6 rounded-lg shadow-lg">
-            <h2 class="text-xl font-semibold mb-4">📊 24h Price Summary</h2>
+            <h2 class="text-xl font-semibold mb-4">📊 {{ selected_range|capitalize }} Price Summary</h2>
             <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-gray-800">
 
-              <div><strong>💰 Current Price:</strong> ${{ stats.current_price }}</div>
-              <div><strong>📅 24h Ago:</strong> ${{ stats.price_start }}</div>
+              <div><strong>💰 Current Price:</strong> ${{ stats.current_price if stats.current_price is not none else 'N/A' }}</div>
+              <div><strong>📅 Start of Period:</strong> ${{ stats.price_start if stats.price_start is not none else 'N/A' }}</div>
 
               <div>
-                <strong>📈 % Change:</strong>
-                <span class="{% if stats.percent_change > 0 %}text-green-600{% elif stats.percent_change < 0 %}text-red-600{% else %}text-gray-500{% endif %}">
-                  {{ stats.percent_change }}%
-                  {% if stats.percent_change > 0 %}⬆️{% elif stats.percent_change < 0 %}⬇️{% else %}⏸️{% endif %}
+                <strong>📈 % Change ({{ selected_range|capitalize }}):</strong>
+                <span class="{% if stats.percent_change is not none and stats.percent_change > 0 %}text-green-600{% elif stats.percent_change is not none and stats.percent_change < 0 %}text-red-600{% else %}text-gray-500{% endif %}">
+                  {{ stats.percent_change if stats.percent_change is not none else '0' }}%
+                  {% if stats.percent_change is not none and stats.percent_change > 0 %}⬆️{% elif stats.percent_change is not none and stats.percent_change < 0 %}⬇️{% else %}⏸️{% endif %}
                 </span>
               </div>
 
-              <div><strong>📈 High (24h):</strong> ${{ stats.high }}</div>
-              <div><strong>📉 Low (24h):</strong> ${{ stats.low }}</div>
-              <div><strong>📊 Range:</strong> ${{ stats.range }}</div>
+              <div><strong>📈 High ({{ selected_range|capitalize }}):</strong> ${{ stats.high if stats.high is not none else 'N/A' }}</div>
+              <div><strong>📉 Low ({{ selected_range|capitalize }}):</strong> ${{ stats.low if stats.low is not none else 'N/A' }}</div>
+              <div><strong>📊 Range ({{ selected_range|capitalize }}):</strong> ${{ stats.range if stats.range is not none else 'N/A' }}</div>
 
-              <div><strong>🕐 SMA (1h):</strong> ${{ stats.sma_1h }}</div>
-              <div><strong>🕓 SMA (4h):</strong> ${{ stats.sma_4h }}</div>
-              <div><strong>🕛 SMA (24h):</strong> ${{ stats.sma_24h }}</div>
+              {# SMAs are calculated based on number of data points, might not always align with selected_range #}
+              {# Keeping existing SMA labels as they describe the window of the moving average itself #}
+              <div><strong>🕐 SMA (1h):</strong> ${{ stats.sma_1h if stats.sma_1h is not none else 'N/A' }}</div>
+              <div><strong>🕓 SMA (4h):</strong> ${{ stats.sma_4h if stats.sma_4h is not none else 'N/A' }}</div>
+              <div><strong>🕛 SMA (24h):</strong> ${{ stats.sma_24h if stats.sma_24h is not none else 'N/A' }}</div>
 
               <div>
                 <strong>🎯 Std Dev:</strong>
-                <span class="{% if stats.std_dev > 2 %}text-red-500 font-semibold{% elif stats.std_dev > 1 %}text-yellow-500{% else %}text-green-600{% endif %}">
-                  ${{ stats.std_dev }}
-                  {% if stats.std_dev > 2 %}⚠️{% elif stats.std_dev > 1 %}📉{% else %}👌{% endif %}
+                <span class="{% if stats.std_dev is not none and stats.std_dev > 2 %}text-red-500 font-semibold{% elif stats.std_dev is not none and stats.std_dev > 1 %}text-yellow-500{% else %}text-green-600{% endif %}">
+                  ${{ stats.std_dev if stats.std_dev is not none else 'N/A' }}
+                  {% if stats.std_dev is not none and stats.std_dev > 2 %}⚠️{% elif stats.std_dev is not none and stats.std_dev > 1 %}📉{% else %}👌{% endif %}
                 </span>
               </div>
 
-              <div><strong>📉 Avg Δ / 5min:</strong> ${{ stats.avg_delta }}</div>
+              <div><strong>📉 Avg Δ / 5min:</strong> ${{ stats.avg_delta if stats.avg_delta is not none else 'N/A' }}</div>
             </div>
           </div>
 

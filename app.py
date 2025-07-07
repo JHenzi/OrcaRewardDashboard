@@ -387,13 +387,17 @@ def index():
         analytics=analytics  # Pass analytics data to template
     )
 
-def get_predictions(cursor, limit=5):
+def get_predictions(cursor, time_threshold=None): # Renamed limit to time_threshold
+    if time_threshold is None: # Default behavior if no time_threshold is passed
+        # Calculate time_threshold for the last 24 hours if not provided
+        time_threshold = (datetime.utcnow() - timedelta(days=1)).isoformat()
+
     cursor.execute(f"""
         SELECT timestamp, predicted_rate, actual_rate, error, mae
         FROM sol_predictions
+        WHERE created_at >= ?
         ORDER BY created_at DESC
-        LIMIT {limit}
-    """)
+    """, (time_threshold,))
     rows = cursor.fetchall()
     predictions = []
     for row in rows:
@@ -407,22 +411,25 @@ def get_predictions(cursor, limit=5):
         })
     return predictions
 
-from datetime import datetime, timedelta
 
-def get_bandits(cursor, limit="24h"):
+def get_bandits(cursor, limit="24h"): # limit is now a string like "1h", "24h", "1w", etc.
     window=limit
-    # Map input window to timedelta
     now = datetime.utcnow()
+    # Updated delta_map to include "1h"
     delta_map = {
+        "1h": timedelta(hours=1),
         "24h": timedelta(hours=24),
         "1w": timedelta(weeks=1),
-        "1m": timedelta(days=30),
-        "1y": timedelta(days=365),
+        "1m": timedelta(days=30), # Approx 1 month
+        "1y": timedelta(days=365) # Approx 1 year
     }
+    # Default to 24 hours if the limit string is not recognized
     delta = delta_map.get(window, timedelta(hours=24))
-    time_threshold = now - delta
+    time_threshold_dt = now - delta
+    time_threshold_iso = time_threshold_dt.isoformat()
 
     # Now includes rate pulled from JSON
+    # The 'timestamp' in bandit_logs is expected to be ISO format string
     cursor.execute("""
         SELECT 
             timestamp, action, reward, 
@@ -431,7 +438,7 @@ def get_bandits(cursor, limit="24h"):
         FROM bandit_logs
         WHERE timestamp >= ?
         ORDER BY created_at DESC
-    """, (time_threshold.isoformat(),))
+    """, (time_threshold_iso,)) # Use the ISO formatted time_threshold_iso
 
     rows = cursor.fetchall()
     bandit_logs = []
@@ -451,7 +458,6 @@ def get_bandits(cursor, limit="24h"):
 
 
     return bandit_logs
-
 
 def load_bandit_state():
     try:
@@ -491,38 +497,64 @@ def load_bandit_state():
 @app.route("/sol-tracker")
 def sol_tracker():
     selected_range = request.args.get("range", "day")
+    # Updated range_map to use timedelta for time-based filtering
+    now = datetime.utcnow()
     range_map = {
-        "hour": (10000 / 12),
-        "day": 10000,
-        "week": 10000 * 7,
-        "month": 10000 * 30,
-        "year": 10000 * 365,
+        "hour": now - timedelta(hours=1),
+        "day": now - timedelta(days=1),
+        "week": now - timedelta(weeks=1),
+        "month": now - timedelta(days=30), # Approx month
+        "year": now - timedelta(days=365) # Approx year
     }
-    limit = range_map.get(selected_range, 10000)
+    time_threshold = range_map.get(selected_range, now - timedelta(days=1))
 
     fetcher = SOLPriceFetcher()
-    all_data = fetcher.get_price_history(limit=limit)
+    # Pass time_threshold to get_price_history
+    all_data = fetcher.get_price_history(time_threshold=time_threshold.isoformat())
     fetcher.close()
 
     timestamps = []
     prices = []
-    for row in reversed(all_data):  # oldest to newest
-        ts = row[1]
-        price = row[2]
-        dt = datetime.fromisoformat(ts)
-        short_ts = dt.strftime("%b %d, %I:%M %p")
-        timestamps.append(short_ts)
-        prices.append(price)
+    if all_data: # Ensure all_data is not None or empty
+        for row in (all_data):  # oldest to newest
+            ts = row[1] # timestamp column
+            price = row[2] # rate column
+            # Ensure timestamp is valid before formatting
+            if ts:
+                try:
+                    dt = datetime.fromisoformat(ts)
+                    short_ts = dt.strftime("%b %d, %I:%M %p")
+                    timestamps.append(short_ts)
+                    prices.append(price)
+                except ValueError:
+                    logger.warning(f"Skipping row with invalid timestamp format: {ts}")
+            else:
+                logger.warning("Skipping row with null timestamp.")
+
+    if not prices: # Handle case with no price data for the selected range
+        logger.warning(f"No price data found for range: {selected_range}. Returning empty data.")
+        # Optionally, you could provide default empty values or render a specific message
+        # For now, we'll let it proceed, and the template should handle empty lists gracefully.
 
     conn = sqlite3.connect("sol_prices.db")
     cursor = conn.cursor()
 
-    predictions = get_predictions(cursor, limit=limit)
-    bandit_logs = get_bandits(cursor, limit='24h')  # match bandits to price points for charting
+    # Pass time_threshold to get_predictions and get_bandits
+    predictions = get_predictions(cursor, time_threshold=time_threshold.isoformat())
+    # Map selected_range (e.g., "day") to the format get_bandits expects (e.g., "24h")
+    bandit_range_map = {
+        "hour": "1h", # Assuming get_bandits can handle "1h"
+        "day": "24h",
+        "week": "1w",
+        "month": "1m",
+        "year": "1y"
+    }
+    bandit_limit_arg = bandit_range_map.get(selected_range, "24h")
+    bandit_logs = get_bandits(cursor, limit=bandit_limit_arg)
 
     conn.close()
 
-    # Stats calculations (unchanged)
+    # Stats calculations
     def simple_moving_average(prices, window):
         if len(prices) < window:
             return None
@@ -532,30 +564,50 @@ def sol_tracker():
     sma_4h = simple_moving_average(prices, 48) if len(prices) >= 48 else None
     sma_24h = simple_moving_average(prices, 288) if len(prices) >= 288 else None
 
-    current_price = prices[-1]
-    price_start = prices[0]
-    percent_change = round(((current_price - price_start) / price_start) * 100, 2)
-
-    high_price = round(max(prices), 4)
-    low_price = round(min(prices), 4)
-    price_range = round(high_price - low_price, 4)
-
-    price_stdev = round(stdev(prices), 4) if len(prices) > 1 else 0
-    avg_price_delta = round(mean([abs(prices[i] - prices[i - 1]) for i in range(1, len(prices))]), 4)
-
+    # Initialize stats with default/empty values
     stats = {
-        "current_price": round(current_price, 4),
-        "price_start": round(price_start, 4),
-        "percent_change": percent_change,
-        "high": high_price,
-        "low": low_price,
-        "range": price_range,
+        "current_price": None,
+        "price_start": None,
+        "percent_change": 0,
+        "high": None,
+        "low": None,
+        "range": None,
         "sma_1h": sma_1h,
         "sma_4h": sma_4h,
         "sma_24h": sma_24h,
-        "std_dev": price_stdev,
-        "avg_delta": avg_price_delta
+        "std_dev": 0,
+        "avg_delta": 0
     }
+
+    if prices: # Only calculate these if there is price data
+        current_price = prices[-1]
+        price_start = prices[0]
+        stats["current_price"] = round(current_price, 4)
+        stats["price_start"] = round(price_start, 4)
+
+        if price_start != 0: # Avoid division by zero
+            percent_change = round(((current_price - price_start) / price_start) * 100, 2)
+            stats["percent_change"] = percent_change
+        else:
+            stats["percent_change"] = 0 # Or some other indicator like 'N/A' if preferred
+
+        high_price = round(max(prices), 4)
+        low_price = round(min(prices), 4)
+        stats["high"] = high_price
+        stats["low"] = low_price
+        stats["range"] = round(high_price - low_price, 4)
+
+        if len(prices) > 1:
+            stats["std_dev"] = round(stdev(prices), 4)
+            stats["avg_delta"] = round(mean([abs(prices[i] - prices[i - 1]) for i in range(1, len(prices))]), 4)
+        else: # Handle cases with single price point
+            stats["std_dev"] = 0
+            stats["avg_delta"] = 0 # Or None, depending on desired display
+
+    # Update SMAs in stats dict again, ensuring they are correctly assigned
+    stats["sma_1h"] = sma_1h # These are already calculated based on available `prices`
+    stats["sma_4h"] = sma_4h
+    stats["sma_24h"] = sma_24h
 
     # Load bandit state
     bandit_state = load_bandit_state()
@@ -570,6 +622,7 @@ def sol_tracker():
         selected_range=selected_range,
         bandit_state=bandit_state
     )
+
 
 @app.route('/api/latest-prediction', methods=['GET'])
 def get_latest_prediction():

@@ -414,7 +414,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
                         price_24h_high, price_24h_low,
                         rolling_mean_price, returns_mean, returns_std)
         else:
-            reward = -0.02  # can't afford
+            reward = -0.5  # can't afford
 
     ###################
     # Sell Logic
@@ -1050,13 +1050,24 @@ class SOLPriceFetcher:
         finally:
             self.close()
 
-    def get_price_history(self, limit=None):
-        """Retrieve price history from database"""
-        query = "SELECT * FROM sol_prices ORDER BY created_at DESC"
-        if limit:
-            query += f" LIMIT {limit}"
+    def get_price_history(self, time_threshold=None):
+        """Retrieve price history from database based on a time threshold."""
+        # Ensure the connection and cursor are available
+        if not hasattr(self, 'conn') or not hasattr(self, 'cursor'):
+            logger.error("Database connection not initialized in SOLPriceFetcher.")
+            # Attempt to re-initialize, or handle error appropriately
+            self.init_database() # Or return an empty list / raise an exception
 
-        self.cursor.execute(query)
+        if time_threshold:
+            # Query to fetch records newer than or equal to the time_threshold, ordered oldest to newest
+            # The 'timestamp' column in sol_prices stores ISO formatted strings.
+            query = "SELECT id, timestamp, rate, volume, market_cap, liquidity, delta_hour, delta_day, delta_week, delta_month, delta_quarter, delta_year, created_at FROM sol_prices WHERE timestamp >= ? ORDER BY timestamp ASC"
+            self.cursor.execute(query, (time_threshold,))
+        else:
+            # Default behavior: fetch all records if no time_threshold is provided, ordered oldest to newest
+            query = "SELECT id, timestamp, rate, volume, market_cap, liquidity, delta_hour, delta_day, delta_week, delta_month, delta_quarter, delta_year, created_at FROM sol_prices ORDER BY timestamp ASC"
+            self.cursor.execute(query)
+
         return self.cursor.fetchall()
 
     def get_credits_history(self, limit=None):
