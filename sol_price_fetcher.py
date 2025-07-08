@@ -492,7 +492,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             timing_bonus = calculate_enhanced_timing_bonus(price_pct_from_low, pnl_percentage)
 
             profit_factor = max(pnl_percentage, 0)
-            reward = pnl_reward + (sell_bonus + timing_bonus) * profit_factor
+            reward = (pnl_reward * 1.15) + (sell_bonus + timing_bonus) * profit_factor
 
 
             # reward = net_pnl * (1 * sell_bonus)  # pnl and bonus
@@ -524,6 +524,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             reward = base_penalty + momentum_modifier
 
 
+
     ###################
     # Hold Logic
     ###################
@@ -546,23 +547,27 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             elif drawdown_risk:
                 reward = -0.5 * abs(unrealized_pct)  # proportional to drawdown
             elif safe_hold_zone:
-                reward = 0.75  # good to hold, no clear signal
+                reward = random.uniform(0.5, 0.75)  # good to hold, no clear signal
             else:
-                reward = 0.25  # mild default reward
+                reward = random.uniform(0.1, 0.25)  # mild default reward
         else:
-            # IMPROVED: Better logic for cash holding
+            # Penalize for missing buying opportunity when price moves up from a recent low
             potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
-            # Penalty for missing buying opportunities
+            # If price is below rolling mean, opportunity to buy
             if potential_margin > 0.01:
                 missed_opportunity = ((potential_margin - 0.01) * 100) ** 1.5
-                reward = -min(missed_opportunity * 0.3, 0.5)
+                reward = min(missed_opportunity * 0.01, 0.05)  # much smaller value
+            # Additional penalty if price is rising and we are not in position
+            elif price_momentum > 0.01 and sharpe_ratio > 0.1:
+                # Penalize missing upward momentum
+                reward = min(price_momentum / price_now, 0.05)  # Small value
             # Reward for correctly staying in cash during downtrend
             elif sharpe_ratio < -0.3 and price_momentum < 0:
-                reward = 0.6
+                reward = random.uniform(0.2, 0.3)
             elif sharpe_ratio < 0.05:
-                reward = 0.21  # leaning defensive
+                reward = random.uniform(0.15, 0.25)  # leaning defensive
             else:
-                reward = 0.15  # weak hold signal
+                reward = random.uniform(0.1, 0.2)  # weak hold signal
 
 
     last_action = action
@@ -745,6 +750,7 @@ def process_bandit_step(data, volatility):
                     order_response = bot.get_order(trade_amount, action)
                     if order_response and order_response.get("transaction") and order_response.get("requestId"):
                         # Optionally inspect order_response for slippage, price, etc.
+                        # Is price within acceptaple range of what Livecoinwatch is telling us to execute on (check for abnormality)?
                         execute_response = bot.execute_order(
                             order_response["requestId"],
                             order_response["transaction"]

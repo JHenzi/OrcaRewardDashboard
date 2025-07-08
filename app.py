@@ -500,11 +500,11 @@ def sol_tracker():
     # Updated range_map to use timedelta for time-based filtering
     now = datetime.utcnow()
     range_map = {
-        "hour": now - timedelta(hours=1),
+        "hour": now - timedelta(days=1/24),  # 1 hour = 1/24 of a day
         "day": now - timedelta(days=1),
         "week": now - timedelta(weeks=1),
-        "month": now - timedelta(days=30), # Approx month
-        "year": now - timedelta(days=365) # Approx year
+        "month": now - timedelta(days=30),  # Approx month
+        "year": now - timedelta(days=365)   # Approx year
     }
     time_threshold = range_map.get(selected_range, now - timedelta(days=1))
 
