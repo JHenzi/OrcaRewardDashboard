@@ -440,21 +440,17 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             # Signal strength encourages dip buying
             buy_signal_strength = (1 - price_pct_from_low) - price_pct_from_mean - sharpe_ratio
             dip_reward = max(min(buy_signal_strength, 1), -1)
-
             potential_margin = ((rolling_mean_price - price_now) / rolling_mean_price) * 2 if rolling_mean_price else 0
             if potential_margin >= 0.01:  # Only reward if 1%+ opportunity
                 # Scale and shift so 1% = small reward, grows exponentially from there
                 margin_reward = ((potential_margin - 0.01) * 100) ** 1.5
             else:
                 margin_reward = 0
-
-
             portfolio["sol_balance"] += 1
             portfolio["usd_balance"] -= price_now
             portfolio["total_cost_basis"] += price_now
             portfolio["entry_price"] = price_now
             reward = dip_reward + margin_reward  # combine both
-
             last_trade_action = "buy"
             last_trade_price = price_now
             position_open = True
@@ -477,31 +473,23 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             total_sale_value = sol_balance * price_now * (1 - fee)
             total_entry_value = total_cost_basis
             net_pnl = total_sale_value - total_entry_value
-
-
             # Reward more if we sold near 24h high
             sell_bonus = price_pct_from_low  # higher is better
-
             # IMPROVED: Calculate position value for percentage-based rewards
             position_value = total_cost_basis  # Original investment amount
-
             # IMPROVED: Percentage-based PnL scaling instead of linear
             pnl_reward = calculate_percentage_pnl_reward(net_pnl, position_value)
             # IMPROVED: Enhanced timing bonus that scales with profitability
             pnl_percentage = net_pnl / position_value if position_value > 0 else 0
             timing_bonus = calculate_enhanced_timing_bonus(price_pct_from_low, pnl_percentage)
-
             profit_factor = max(pnl_percentage, 0)
             reward = (pnl_reward * 1.15) + (sell_bonus + timing_bonus) * profit_factor
-
-
             # reward = net_pnl * (1 * sell_bonus)  # pnl and bonus
             portfolio["realized_pnl"] += net_pnl
             portfolio["entry_price"] = 0.0
-            portfolio["usd_balance"] += sol_balance * price_now * (1 - fee)
+            portfolio["usd_balance"] += sol_balance * price_now
             portfolio["sol_balance"] = 0
             portfolio["total_cost_basis"] = 0
-
             last_trade_action = "sell"
             last_trade_price = price_now
             position_open = False
@@ -532,16 +520,12 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
         if sol_balance > 0:
             avg_entry = total_cost_basis / sol_balance
             unrealized_pct = (price_now - avg_entry) / avg_entry
-
             # Encourage holding during uncertain/flat periods (low volatility, weak trend)
             safe_hold_zone = abs(sharpe_ratio) < 0.2 and abs(price_pct_from_mean) < 0.01
-
             # Penalize not selling during high unrealized profits in strong uptrends
             missed_exit = unrealized_pct > 0.03 and sharpe_ratio > 0.3
-
             # Penalize holding during drawdowns
             drawdown_risk = unrealized_pct < -0.03 and sharpe_ratio < -0.2
-
             if missed_exit:
                 reward = -1.0 * min(unrealized_pct, 0.2)  # cap at -0.2
             elif drawdown_risk:
@@ -565,7 +549,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             elif sharpe_ratio < -0.3 and price_momentum < 0:
                 reward = random.uniform(0.2, 0.3)
             elif sharpe_ratio < 0.05:
-                reward = random.uniform(0.15, 0.25)  # leaning defensive
+                reward = random.uniform(0.15, 0.2)  # leaning defensive
             else:
                 reward = random.uniform(0.1, 0.2)  # weak hold signal
 
