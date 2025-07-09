@@ -612,6 +612,9 @@ def sol_tracker():
     # Load bandit state
     bandit_state = load_bandit_state()
     # Load Model stats - TODO
+    bandit_stats = fetcher.get_bandit_stats(db_path="sol_prices.db", limit=5000)
+
+    fetcher.close()
 
 
     return render_template(
@@ -622,7 +625,8 @@ def sol_tracker():
         predictions=predictions,
         bandit_logs=bandit_logs,
         selected_range=selected_range,
-        bandit_state=bandit_state
+        bandit_state=bandit_state,
+        bandit_stats=bandit_stats
     )
 
 

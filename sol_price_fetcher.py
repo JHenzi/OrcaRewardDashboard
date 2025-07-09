@@ -17,6 +17,7 @@ from collections import deque
 from statistics import mean, stdev
 import traceback
 from river import linear_model, preprocessing, metrics, optim, tree
+import pandas as pd
 
 # # Load Jupiter Ultra Trading Bot!
 # from trading_bot import JupiterTradingBot
@@ -483,7 +484,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             pnl_percentage = net_pnl / position_value if position_value > 0 else 0
             timing_bonus = calculate_enhanced_timing_bonus(price_pct_from_low, pnl_percentage)
             profit_factor = max(pnl_percentage, 0)
-            reward = (pnl_reward * 1.15) + (sell_bonus + timing_bonus) * profit_factor
+            reward = ((pnl_reward * 1.15) + (sell_bonus + timing_bonus)) * (1 + profit_factor)
             # reward = net_pnl * (1 * sell_bonus)  # pnl and bonus
             portfolio["realized_pnl"] += net_pnl
             portfolio["entry_price"] = 0.0
@@ -525,13 +526,13 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             # Penalize not selling during high unrealized profits in strong uptrends
             missed_exit = unrealized_pct > 0.03 and sharpe_ratio > 0.3
             # Penalize holding during drawdowns
-            drawdown_risk = unrealized_pct < -0.03 and sharpe_ratio < -0.2
+            drawdown_risk = unrealized_pct < -0.01 and sharpe_ratio < -0.2
             if missed_exit:
                 reward = -1.0 * min(unrealized_pct, 0.2)  # cap at -0.2
             elif drawdown_risk:
                 reward = -0.5 * abs(unrealized_pct)  # proportional to drawdown
             elif safe_hold_zone:
-                reward = random.uniform(0.5, 0.75)  # good to hold, no clear signal
+                reward = 0.5 + 0.25 * (1 - abs(price_pct_from_mean) * 10)
             else:
                 reward = random.uniform(0.1, 0.25)  # mild default reward
         else:
@@ -1122,6 +1123,52 @@ class SOLPriceFetcher:
         if hasattr(self, 'conn'):
             self.conn.close()
             logger.info("Database connection closed")
+
+    def get_bandit_stats(self, db_path="sol_prices.db", limit=5000):
+        try:
+            conn = sqlite3.connect(db_path)
+            df = pd.read_sql_query(f'''
+                SELECT * FROM bandit_logs ORDER BY timestamp DESC LIMIT {limit}
+            ''', conn)
+            conn.close()
+        except Exception as e:
+            return {"error": f"Failed to load data: {str(e)}"}
+
+        # Parse and enrich
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["features"] = df["data_json"].apply(json.loads)
+
+        # Chosen prediction confidence
+        df["chosen_prediction"] = df.apply(
+            lambda row: row.get(f"prediction_{row['action']}", None), axis=1
+        )
+
+        # Optional: Calculate regret (how far the chosen prediction was from the best one)
+        def regret(row: pd.Series) -> float:
+            preds = [row["prediction_buy"], row["prediction_sell"], row["prediction_hold"]]
+            chosen_pred = row.get(f"prediction_{row['action']}", None)
+            if chosen_pred is None:
+                return 0.0
+            return max(preds) - chosen_pred
+
+
+        df["regret"] = df.apply(regret, axis=1)
+
+        # Summary stats
+        summary = {
+            "num_rows": len(df),
+            "avg_reward": round(df["reward"].mean(), 4),
+            "std_reward": round(df["reward"].std(), 4),
+            "action_counts": df["action"].value_counts().to_dict(),
+            "avg_reward_by_action": df.groupby("action")["reward"].mean().round(4).to_dict(),
+            "avg_regret": round(df["regret"].mean(), 4),
+        }
+
+        # Optional: Top 5 best trades
+        top_trades = df.sort_values("reward", ascending=False).head(5)
+        summary["top_rewards"] = top_trades[["timestamp", "action", "reward"]].to_dict(orient="records")
+
+        return summary
 
 def check_flask_app_running(host="127.0.0.1", port=5030):
     """Check if Flask app is running by trying to connect to it"""
