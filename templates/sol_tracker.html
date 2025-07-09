@@ -255,6 +255,21 @@
                   </tr>
                 </tbody>
               </table>
+              <table class="w-full mt-6 text-sm text-left text-gray-700 border border-gray-200 rounded-lg overflow-hidden shadow">
+                <thead class="bg-indigo-100 text-gray-800 text-xs uppercase font-semibold">
+                  <tr>
+                    <th colspan="2" class="px-4 py-2 text-center">🏆 Top 5 Rewards</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for trade in bandit_stats.top_rewards %}
+                  <tr class="border-t">
+                    <td class="px-4 py-2">{{ trade.timestamp }}</td>
+                    <td class="px-4 py-2">{{ trade.action }}: {{ trade.reward }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
             </div>
 
             <div>
@@ -291,23 +306,6 @@
               </table>
             </div>
 
-            <div class="md:col-span-2">
-              <table class="w-full mt-6 text-sm text-left text-gray-700 border border-gray-200 rounded-lg overflow-hidden shadow">
-                <thead class="bg-indigo-100 text-gray-800 text-xs uppercase font-semibold">
-                  <tr>
-                    <th colspan="2" class="px-4 py-2 text-center">🏆 Top 5 Rewards</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for trade in bandit_stats.top_rewards %}
-                  <tr class="border-t">
-                    <td class="px-4 py-2">{{ trade.timestamp }}</td>
-                    <td class="px-4 py-2">{{ trade.action }}: {{ trade.reward }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
           </div>
         </div>
 
