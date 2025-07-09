@@ -427,7 +427,14 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
     price_pct_from_low = (price_now - price_24h_low) / (price_24h_high - price_24h_low + 1e-9) if price_24h_low and price_24h_high else 0.01
     price_pct_from_mean = (price_now - rolling_mean_price) / rolling_mean_price if rolling_mean_price else 0
     sharpe_ratio = (returns_mean / returns_std) if returns_std else 0
-    price_momentum = price_now - prices_24h[-5] if prices_24h and len(prices_24h) >= 5 else 0
+    if prices_24h and len(prices_24h) >= 50:
+        price_momentum = price_now - prices_24h[-50]
+    elif prices_24h and len(prices_24h) >= 10:
+        price_momentum = price_now - prices_24h[-10]
+    elif prices_24h and len(prices_24h) >= 5:
+        price_momentum = price_now - prices_24h[-5]
+    else:
+        price_momentum = 0
 
     sol_balance = portfolio["sol_balance"]
     usd_balance = portfolio["usd_balance"]
@@ -484,8 +491,22 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             pnl_percentage = net_pnl / position_value if position_value > 0 else 0
             timing_bonus = calculate_enhanced_timing_bonus(price_pct_from_low, pnl_percentage)
             profit_factor = max(pnl_percentage, 0)
-            reward = ((pnl_reward * 1.15) + (sell_bonus + timing_bonus)) * (1 + profit_factor)
-            # reward = net_pnl * (1 * sell_bonus)  # pnl and bonus
+            # Old ways;
+            # reward = ((pnl_reward * 1.15) + (sell_bonus + timing_bonus)) * (1 + profit_factor)
+            # Safety caps
+            pnl_percentage = max(min(net_pnl / position_value, 1.0), -1.0)
+            sell_bonus = min(price_pct_from_low, 0.05)
+            timing_bonus = min(timing_bonus, 0.05)
+            pnl_reward = max(min(pnl_reward, 1.0), -1.0)
+
+            # Revised logic (flattened scaling)
+            base = pnl_reward * 1.15
+            bonus = sell_bonus + timing_bonus
+            reward = base + bonus * pnl_percentage
+
+            # Final cap to avoid wild values
+            reward = max(min(reward, 1.5), -1.0)
+
             portfolio["realized_pnl"] += net_pnl
             portfolio["entry_price"] = 0.0
             portfolio["usd_balance"] += sol_balance * price_now
