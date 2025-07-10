@@ -134,6 +134,68 @@ def compute_price_features(prices):
         "avg_delta": avg_price_delta,
     }
 
+##########################################################################
+#                    COMPUTE RELATIVE STRENGTH INDED                     #
+##########################################################################
+def calculate_rsi(prices, period=14):
+    """
+    Calculate the Relative Strength Index (RSI).
+    prices: List of prices, ordered oldest to newest.
+    period: Lookback period for RSI calculation.
+    """
+    if len(prices) < period + 1:
+        return None  # Not enough data
+
+    deltas = np.diff(prices)
+    seed = deltas[:period] # Use first 'period' deltas for initial average gain/loss
+
+    # Calculate initial average gain and loss
+    gains = seed[seed >= 0].sum() / period
+    losses = -seed[seed < 0].sum() / period
+
+    if losses == 0: # Avoid division by zero if no losses
+        return 100.0
+    if gains == 0: # Avoid division by zero if no gains
+        return 0.0
+
+    rs = gains / losses
+    rsi_initial = 100.0 - (100.0 / (1.0 + rs))
+
+    # Smooth RSI using Wilder's smoothing method
+    # Note: For simplicity in an online setting without storing all historical RSIs,
+    # this implementation recalculates based on available price history each time.
+    # A more optimized version for very long series would update RSI incrementally.
+
+    avg_gain = gains
+    avg_loss = losses
+
+    for i in range(period, len(deltas)):
+        delta = deltas[i]
+        if delta > 0:
+            gain = delta
+            loss = 0.0
+        else:
+            gain = 0.0
+            loss = -delta
+
+        avg_gain = (avg_gain * (period - 1) + gain) / period
+        avg_loss = (avg_loss * (period - 1) + loss) / period
+
+        if avg_loss == 0: # Avoid division by zero
+            # If avg_loss is zero, it means all changes were gains or zero in the smoothing period.
+            # RSI should be 100 in this case.
+            return 100.0
+
+    if avg_loss == 0: # Should be caught by above, but as a safeguard
+        return 100.0
+
+    rs = avg_gain / avg_loss
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+
+    return rsi
+
+
+
 # This function flattens nested dictionary data for easier processing.
 # It converts keys like "delta_hour" into "delta_hour" and "delta_day"
 # to "delta_day" for easier access in the model.
@@ -371,7 +433,7 @@ def calculate_dynamic_hold_penalty(unrealized_pct, sharpe_ratio, margin_opportun
 def calculate_reward(action, price_now, portfolio, fee=0.001,
                         price_24h_high=None, price_24h_low=None,
                         rolling_mean_price=None, returns_mean=None,
-                        returns_std=None, prices_24h=None):
+                        returns_std=None, prices_24h=None, rsi_value=None,price_momentum_15m=None):
     """
     Calculate the contextual reward for a given action in a bandit-based trading environment.
 
@@ -382,34 +444,6 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
     - Sell when positions are profitable and aligned with positive price momentum.
     - Hold when volatility is low or it's optimal to wait.
     - Penalize missed opportunities and poor trade timing.
-
-    Parameters:
-    ----------
-    action : str
-        One of "buy", "sell", or "hold" representing the agent's chosen action.
-    price_now : float
-        The current market price of the asset (e.g., SOL).
-    portfolio : dict
-        A dictionary tracking balances and position data. Keys include:
-        - "sol_balance" (float): current SOL holdings.
-        - "usd_balance" (float): current cash holdings.
-        - "total_cost_basis" (float): total cost of the current position.
-        - "entry_price" (float): price of the last entry into SOL.
-        - "realized_pnl" (float): cumulative realized profit/loss.
-    fee : float, optional
-        Trading fee as a decimal (default is 0.001, or 0.1%).
-    price_24h_high : float, optional
-        The high price over the last 24 hours.
-    price_24h_low : float, optional
-        The low price over the last 24 hours.
-    rolling_mean_price : float, optional
-        A short-term moving average of price for trend detection.
-    returns_mean : float, optional
-        Mean of recent log returns, used in Sharpe ratio calculation.
-    returns_std : float, optional
-        Standard deviation of recent log returns, used in Sharpe ratio calculation.
-    prices_24h : list of float, optional
-        List of recent prices over the past 24 hours for momentum calculation.
 
     Returns:
     -------
@@ -454,11 +488,24 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
                 margin_reward = ((potential_margin - 0.01) * 100) ** 1.5
             else:
                 margin_reward = 0
+            # Normalize RSI (0-1)
+            rsi_score = rsi_value / 100.0 if rsi_value is not None else 0.5
+
+            # Bonus if oversold
+            if rsi_value is not None:
+                if rsi_value < 30:
+                    rsi_bonus = (30 - rsi_value) / 30  # Scales from 0 to 1
+                else:
+                    rsi_bonus = -((rsi_value - 50) / 50) if rsi_value > 50 else 0.00001  # Mild penalty
+            else:
+                rsi_bonus = 0.00001
+            # Momentum consideration (prefer to buy when momentum has flattened)
+            momentum_penalty = -abs(price_momentum_15m or 0) * 0.2
             portfolio["sol_balance"] += 1
             portfolio["usd_balance"] -= price_now
             portfolio["total_cost_basis"] += price_now
             portfolio["entry_price"] = price_now
-            reward = dip_reward + margin_reward  # combine both
+            reward = dip_reward + margin_reward + rsi_bonus + momentum_penalty # BIGGER  # combine both
             last_trade_action = "buy"
             last_trade_price = price_now
             position_open = True
@@ -501,7 +548,14 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
 
             # Revised logic (flattened scaling)
             base = pnl_reward * 1.15
-            bonus = sell_bonus + timing_bonus
+            if rsi_value is not None:
+                if rsi_value > 70:
+                    rsi_bonus = (rsi_value - 70) / 30  # Scales from 0 to 1
+                else:
+                    rsi_bonus = -((rsi_value - 50) / 50) if rsi_value > 50 else 0.00001  # Mild penalty
+            else:
+                rsi_bonus = 0.00001
+            bonus = sell_bonus + timing_bonus + rsi_bonus
             reward = base + bonus * pnl_percentage
 
             # Final cap to avoid wild values
@@ -548,6 +602,14 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             missed_exit = unrealized_pct > 0.03 and sharpe_ratio > 0.3
             # Penalize holding during drawdowns
             drawdown_risk = unrealized_pct < -0.01 and sharpe_ratio < -0.2
+            rsi_hold_bonus = 0.0
+            if rsi_value is not None:
+                if 40 <= rsi_value <= 60:
+                    rsi_hold_bonus = 0.2
+                elif rsi_value < 30 and sharpe_ratio <0:
+                    rsi_hold_bonus = -0.2
+                elif rsi_value > 70 and sharpe_ratio > 0:
+                    rsi_hold_bonus = -0.3
             if missed_exit:
                 reward = -1.0 * min(unrealized_pct, 0.2)  # cap at -0.2
             elif drawdown_risk:
@@ -555,7 +617,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             elif safe_hold_zone:
                 reward = 0.5 + 0.25 * (1 - abs(price_pct_from_mean) * 10)
             else:
-                reward = random.uniform(0.1, 0.25)  # mild default reward
+                reward = rsi_hold_bonus + random.uniform(0.1, 0.25)  # mild default reward
         else:
             # Penalize for missing buying opportunity when price moves up from a recent low
             potential_margin = (rolling_mean_price - price_now) / rolling_mean_price if rolling_mean_price else 0
@@ -563,10 +625,13 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             if potential_margin > 0.01:
                 missed_opportunity = ((potential_margin - 0.01) * 100) ** 1.5
                 reward = min(missed_opportunity * 0.01, 0.05)  # much smaller value
+            if rsi_value is not None and price_momentum is not None:
+                if rsi_value > 60 and price_momentum > 0:
+                    reward = -0.05
             # Additional penalty if price is rising and we are not in position
-            elif price_momentum > 0.01 and sharpe_ratio > 0.1:
-                # Penalize missing upward momentum
-                reward = min(price_momentum / price_now, 0.05)  # Small value
+            # elif price_momentum > 0.01 and sharpe_ratio > 0.1:
+            #     # Penalize missing upward momentum
+            #     reward = min(price_momentum / price_now, 0.05)  # IN ABOVE REMOVING
             # Reward for correctly staying in cash during downtrend
             elif sharpe_ratio < -0.3 and price_momentum < 0:
                 reward = random.uniform(0.2, 0.3)
@@ -574,8 +639,8 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
                 reward = random.uniform(0.15, 0.2)  # leaning defensive
             else:
                 reward = random.uniform(0.1, 0.2)  # weak hold signal
-
-
+    if abs(reward) > 1.0:
+        logger.info(f"⚠️ High reward {reward:.2f} on {action}: pnl={net_pnl:.2f}, rsi={rsi_value}, momentum={price_momentum_15m}")
     last_action = action
     save_state()
     return reward
@@ -625,9 +690,31 @@ def process_bandit_step(data, volatility):
     # Slice last 5 returns or fewer if not enough
     returns_last_n = returns[-5:] if len(returns) >= 5 else returns
 
+    # Define the lookback period for Sharpe Ratio calculation (e.g., 60 for 1 hour of 1-minute data)
+    sharpe_lookback_period = 60
+
+    # Ensure we have enough returns data (need lookback_period returns, so lookback_period + 1 prices)
+    if len(returns) >= sharpe_lookback_period:
+        returns_for_sharpe = returns[-sharpe_lookback_period:]
+    else:
+        returns_for_sharpe = returns # Use all available if not enough
+
+    # Calculate aggregated stats safely for Sharpe Ratio
+    if len(returns_for_sharpe) > 1: # Need at least 2 returns to calculate stdev
+        returns_mean = mean(returns_for_sharpe)
+        returns_std = stdev(returns_for_sharpe)
+        if returns_std == 0: # Avoid division by zero in Sharpe Ratio
+            returns_std = 1e-9 # A very small number instead of zero
+    elif len(returns_for_sharpe) == 1:
+        returns_mean = returns_for_sharpe[0]
+        returns_std = 1e-9 # Cannot calculate stdev from a single point, use small epsilon
+    else:
+        returns_mean = 0.0
+        returns_std = 1e-9
+
     # Calculate aggregated stats safely
-    returns_mean = sum(returns_last_n) / len(returns_last_n) if returns_last_n else 0.0
-    returns_std = stdev(returns_last_n) if len(returns_last_n) > 1 else 0.0
+    #returns_mean = sum(returns_last_n) / len(returns_last_n) if returns_last_n else 0.0
+    #returns_std = stdev(returns_last_n) if len(returns_last_n) > 1 else 0.0
 
     # Update features without passing the list itself
     x.update({
@@ -637,6 +724,7 @@ def process_bandit_step(data, volatility):
         "rolling_mean_price": rolling_mean,
         "returns_mean": returns_mean,
         "returns_std": returns_std,
+        # "returns_for_sharpe": returns_for_sharpe,
     })
 
     x.update(price_features)
@@ -644,9 +732,25 @@ def process_bandit_step(data, volatility):
     # Add Price vs SMA features
     price_vs_sma_1h = price_now / price_features["sma_1h"] if price_features.get("sma_1h") and price_features["sma_1h"] != 0 else 1.0
     price_vs_sma_4h = price_now / price_features["sma_4h"] if price_features.get("sma_4h") and price_features["sma_4h"] != 0 else 1.0
+
+
+    # Calculate RSI
+    # Ensure prices_24h has enough data for RSI (at least period + 1, e.g., 14+1=15 for 14-period RSI)
+    rsi_period = 14
+    rsi_value = calculate_rsi(prices, period=rsi_period) if len(prices) > rsi_period else None
+
+    # Calculate Price Momentum (e.g., over last 15 periods)
+    momentum_period = 15
+    price_momentum_15m = None
+    if len(prices) >= momentum_period + 1: # Need current price and price N periods ago
+        price_momentum_15m = price_now - prices[-(momentum_period + 1)]
+
     x.update({
         "price_vs_sma_1h": price_vs_sma_1h,
         "price_vs_sma_4h": price_vs_sma_4h,
+        "rsi_value": rsi_value,
+        "price_momentum_15m": price_momentum_15m,
+        "sharpe_ratio": (returns_mean / returns_std) if returns_std != 0 else 0, # Added Sharpe Ratio
     })
 
     if volatility is None:
@@ -705,7 +809,9 @@ def process_bandit_step(data, volatility):
         rolling_mean_price=rolling_mean,
         returns_mean=returns_mean,
         returns_std=returns_std,
-        prices_24h=prices
+        prices_24h=prices,
+        rsi_value=rsi_value,
+        price_momentum_15m=price_momentum_15m,
     )
 
     agent.update(x, action, reward)
