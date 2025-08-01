@@ -293,8 +293,9 @@ portfolio = {
     "sol_balance": 0.0,
     "usd_balance": 1000.0,          # Starting budget
     "total_cost_basis": 0.0,        # Cost of SOL held
-    "realized_pnl": 0.0
-}
+    "realized_pnl": 0.0,
+    "entry_price": 0.0
+    }
 
 # Important file, however we are leaving it out of the repo. What do we do when it's missing? (We default - but should we look to .env?)
 STATE_FILE = "bandit_state.json"
@@ -327,7 +328,8 @@ def load_state():
                 "sol_balance": 0.0,
                 "usd_balance": starting_cash,
                 "total_cost_basis": 0.0,
-                "realized_pnl": 0.0
+                "realized_pnl": 0.0,
+                "entry_price": 0.0
             })
     else:
         logger.info("No saved state found, using defaults.")
@@ -525,7 +527,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             # OLD WAY
             # gross_pnl = (price_now - avg_entry) * sol_balance
             #net_pnl = gross_pnl - fee # TODO: Make this better
-            total_sale_value = sol_balance * price_now * (1 - fee)
+            total_sale_value = sol_balance * price_now * (1 ) # - fee)
             total_entry_value = total_cost_basis
             net_pnl = total_sale_value - total_entry_value
             # Reward more if we sold near 24h high
