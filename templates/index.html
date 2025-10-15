@@ -139,32 +139,31 @@
               <p class="text-lg font-bold text-purple-600">{{ analytics.collection_patterns|length }} patterns</p>
           </div>
       </div>
+
 <h3 class="text-xl font-semibold mt-6 mb-4">Daily Rewards (USD)</h3>
+
+{% set high_count = 0 %}
 <table class="table-auto w-full border-collapse">
   <thead>
     <tr class="bg-gray-200">
       <th class="px-2 py-1 text-left">Date</th>
       <th class="px-2 py-1 text-right">USD Value</th>
-      <th class="px-2 py-1 text-right">Cumulative USD</th>
     </tr>
   </thead>
   <tbody>
-    {% set cumulative = 0 %}
     {% for row in daily_summary %}
-      {% set cumulative = cumulative + row.usd_value %}
+      {% if row.usd_value > 1.50 %}
+        {% set high_count = high_count + 1 %}
+      {% endif %}
       <tr class="border-b">
         <td class="px-2 py-1">{{ row.day }}</td>
         <td class="px-2 py-1 text-right {% if row.usd_value > 1.50 %}bg-yellow-100 font-semibold{% endif %}">
           ${{ "%.2f"|format(row.usd_value) }}
         </td>
-        <td class="px-2 py-1 text-right">${{ "%.2f"|format(cumulative) }}</td>
       </tr>
     {% endfor %}
   </tbody>
 </table>
-
-
-
 </div>
 </div>
   </div>
