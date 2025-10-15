@@ -353,6 +353,22 @@ def index():
     c.execute('SELECT MIN(timestamp) FROM collect_fees')
     since_timestamp = c.fetchone()[0]
 
+
+    # --- Summarize USD per day (combine SOL + USDC) ---
+    c.execute('''
+        SELECT date(timestamp, 'unixepoch') AS day,
+               token_mint,
+               SUM(token_amount) AS total_amount
+        FROM collect_fees
+        WHERE token_mint IN (
+            'So11111111111111111111111111111111111111112',
+            'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+        )
+        GROUP BY day, token_mint
+        ORDER BY day
+    ''')
+    rows = c.fetchall()
+
     conn.close()
 
     totals = {}
@@ -377,6 +393,29 @@ def index():
     # for key, value in analytics.items():
     #     print(f"{key}: {type(value)} - {value}")
 
+    # --- Combine USD values by day ---
+    daily_summary = {}
+    for day, mint, amount in rows:
+        usd_value = amount * sol_data['rate'] if mint.startswith('So1') else amount
+        if day not in daily_summary:
+            daily_summary[day] = 0
+        daily_summary[day] += usd_value
+
+    # Convert to sorted list for template
+    daily_summary_list = [
+        {'day': day, 'usd_value': value} 
+        for day, value in sorted(daily_summary.items())
+    ]
+
+    # # --- Prepare chart data for Chart.js ---
+    # chart_data = {}
+    # for token in ['SOL', 'USDC']:
+    #     token_data = [row for row in daily_summary if row['token'] == token]
+    #     chart_data[token] = {
+    #         'labels': [row['day'] for row in token_data],
+    #         'values': [round(row['usd_value'], 2) for row in token_data]
+    #     }
+
     return render_template('index.html', 
         sol=totals.get('SOL', 0),
         usdc=totals.get('USDC', 0),
@@ -385,7 +424,9 @@ def index():
         sol_deltas=sol_data['delta'],
         total_usd=(totals.get('SOL', 0) * sol_data['rate']) + totals.get('USDC', 0),
         since_date=since_date,
-        analytics=analytics  # Pass analytics data to template
+        analytics=analytics,  # Pass analytics data to template
+        daily_summary=daily_summary  # Pass daily summary to template
+        # chart_data=json.dumps(chart_data)  # Pass chart data to template
     )
 
 def get_predictions(cursor, time_threshold=None): # Renamed limit to time_threshold
