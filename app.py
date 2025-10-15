@@ -425,7 +425,7 @@ def index():
         total_usd=(totals.get('SOL', 0) * sol_data['rate']) + totals.get('USDC', 0),
         since_date=since_date,
         analytics=analytics,  # Pass analytics data to template
-        daily_summary=daily_summary  # Pass daily summary to template
+        daily_summary=daily_summary_list  # Pass daily summary to template
         # chart_data=json.dumps(chart_data)  # Pass chart data to template
     )
 
