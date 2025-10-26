@@ -369,6 +369,21 @@ def index():
     ''')
     rows = c.fetchall()
 
+    # --- Monthly breakdown (per token) ---
+    c.execute('''
+        SELECT strftime('%Y-%m', timestamp, 'unixepoch') AS month,
+               token_mint,
+               SUM(token_amount) AS total_amount
+        FROM collect_fees
+        WHERE token_mint IN (
+            'So11111111111111111111111111111111111111112',
+            'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+        )
+        GROUP BY month, token_mint
+        ORDER BY month
+    ''')
+    monthly_rows = c.fetchall()
+
     conn.close()
 
     totals = {}
@@ -401,6 +416,18 @@ def index():
             daily_summary[day] = 0
         daily_summary[day] += usd_value
 
+    # --- Combine monthly data into USD ---
+    monthly_summary = {}
+    for month, mint, amount in monthly_rows:
+        usd_value = amount * sol_data['rate'] if mint.startswith('So1') else amount
+        monthly_summary[month] = monthly_summary.get(month, 0) + usd_value
+
+    monthly_summary_list = [
+        {'month': month, 'usd_value': value}
+        for month, value in sorted(monthly_summary.items())
+    ]
+
+
     # Convert to sorted list for template
     daily_summary_list = [
         {'day': day, 'usd_value': value} 
@@ -425,7 +452,8 @@ def index():
         total_usd=(totals.get('SOL', 0) * sol_data['rate']) + totals.get('USDC', 0),
         since_date=since_date,
         analytics=analytics,  # Pass analytics data to template
-        daily_summary=daily_summary_list  # Pass daily summary to template
+        daily_summary=daily_summary_list,  # Pass daily summary to template
+        monthly_summary=monthly_summary_list
         # chart_data=json.dumps(chart_data)  # Pass chart data to template
     )
 

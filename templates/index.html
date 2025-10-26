@@ -140,30 +140,105 @@
           </div>
       </div>
 
-<h3 class="text-xl font-semibold mt-6 mb-4">Daily Rewards (USD)</h3>
+<!-- Monthly Summary -->
+<section class="mt-10 bg-white rounded-2xl shadow-lg border-l-4 border-indigo-500 p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-2xl font-semibold text-gray-800 flex items-center space-x-2">
+      <span>📅</span>
+      <span>Monthly Summary</span>
+    </h2>
+    <span class="text-sm text-gray-500">Updated {{ since_date }}</span>
+  </div>
 
-{% set high_count = 0 %}
-<table class="table-auto w-full border-collapse">
-  <thead>
-    <tr class="bg-gray-200">
-      <th class="px-2 py-1 text-left">Date</th>
-      <th class="px-2 py-1 text-right">USD Value</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in daily_summary %}
-      {% if row.usd_value > 1.50 %}
-        {% set high_count = high_count + 1 %}
-      {% endif %}
-      <tr class="border-b">
-        <td class="px-2 py-1">{{ row.day }}</td>
-        <td class="px-2 py-1 text-right {% if row.usd_value > 1.50 %}bg-yellow-100 font-semibold{% endif %}">
-          ${{ "%.2f"|format(row.usd_value) }}
-        </td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  <div class="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
+    <table class="min-w-full text-sm divide-y divide-gray-200">
+      <thead class="bg-gray-50 text-gray-600 uppercase text-xs tracking-wider">
+        <tr>
+          <th scope="col" class="px-6 py-3 text-left font-semibold">Month</th>
+          <th scope="col" class="px-6 py-3 text-right font-semibold">Total USD</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for item in monthly_summary %}
+        <tr class="hover:bg-indigo-50 transition-colors duration-200">
+          <td class="px-6 py-3 font-medium text-gray-800">
+            {{ item.month }}
+          </td>
+          <td class="px-6 py-3 text-right font-semibold text-green-600">
+            ${{ '%.2f'|format(item.usd_value) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Optional: Summary footer with total -->
+  {% set total_monthly = monthly_summary | sum(attribute='usd_value') %}
+  <div class="mt-4 flex justify-end">
+    <div class="text-right">
+      <p class="text-sm text-gray-500">Total All Months</p>
+      <p class="text-lg font-bold text-indigo-600">
+        ${{ '%.2f'|format(total_monthly) }}
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- Daily Rewards Section -->
+<section class="mt-10 bg-white rounded-2xl shadow-lg border-l-4 border-green-500 p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-2xl font-semibold text-gray-800 flex items-center space-x-2">
+      <span>💵</span>
+      <span>Daily Rewards (USD)</span>
+    </h2>
+    <p class="text-sm text-gray-500">Since {{ since_date }}</p>
+  </div>
+
+  <div class="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
+    <table class="min-w-full text-sm divide-y divide-gray-200">
+      <thead class="bg-gray-50 text-gray-600 uppercase text-xs tracking-wider">
+        <tr>
+          <th scope="col" class="px-6 py-3 text-left font-semibold">Date</th>
+          <th scope="col" class="px-6 py-3 text-right font-semibold">USD Value</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for row in daily_summary %}
+        <tr class="hover:bg-green-50 transition duration-150 ease-in-out">
+          <td class="px-6 py-3 font-medium text-gray-800">{{ row.day }}</td>
+          <td class="px-6 py-3 text-right">
+            {% if row.usd_value > 1.50 %}
+              <span class="inline-block bg-gradient-to-r from-green-500 to-emerald-400 text-white text-xs font-semibold px-2 py-1 rounded-full shadow-sm">
+                ${{ '%.2f'|format(row.usd_value) }}
+              </span>
+            {% else %}
+              <span class="text-gray-700 font-medium">
+                ${{ '%.2f'|format(row.usd_value) }}
+              </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Optional summary footer -->
+  {% set total_daily = daily_summary | sum(attribute='usd_value') %}
+  {% set avg_daily = total_daily / (daily_summary | length) %}
+  <div class="mt-4 flex justify-end space-x-8 text-sm">
+    <div>
+      <p class="text-gray-500">Total Collected</p>
+      <p class="text-lg font-bold text-green-600">${{ '%.2f'|format(total_daily) }}</p>
+    </div>
+    <div>
+      <p class="text-gray-500">Average per Day</p>
+      <p class="text-lg font-bold text-emerald-600">${{ '%.2f'|format(avg_daily) }}</p>
+    </div>
+  </div>
+</section>
+
 </div>
 </div>
   </div>
