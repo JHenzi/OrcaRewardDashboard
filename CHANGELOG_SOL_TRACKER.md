@@ -39,10 +39,14 @@
      - Better query structure
 
 3. **`templates/sol_tracker.html`**:
+   - Migrated to TradingView Lightweight Charts library
    - Added RSI display in stats panel with color coding
    - Added RSI line to chart with secondary Y-axis
    - Enhanced tooltips for RSI values
    - Improved chart configuration
+   - Fixed all dark text color issues for dark theme
+   - Updated all tables and form elements for dark theme compatibility
+   - Added proper Unix timestamp support for chart data
 
 ## Performance Improvements
 

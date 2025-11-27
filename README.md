@@ -39,7 +39,7 @@ Intead launch `app.py` with python on a `screen` session. This will count the AP
 
 ![Chart.png](images/Chart.png)
 
-### Bonus SOL Price Prediction and Bandit Actions
+### SOL Price Tracking & Trading Signals
 
 ![Bandits.png](images/Bandits.png)
 
@@ -48,6 +48,13 @@ Intead launch `app.py` with python on a `screen` session. This will count the AP
 > **Price Prediction**: The online price prediction feature has been **deprecated and disabled** as it was returning irrational values. Historical predictions may still be visible in the database and UI, but no new predictions are being generated.
 > 
 > **Buy/Sell/Hold Signals**: The contextual bandit algorithm for generating buy/sell/hold action suggestions **remains active and functional**. This feature uses separate online learning models for each potential action, learning to predict the expected reward based on the current market context (price features, volatility, etc.). The action with the highest predicted reward is chosen, with some randomness (epsilon-greedy strategy) to encourage exploration.
+
+**Recent Improvements:**
+- ✅ Migrated to TradingView Lightweight Charts for professional-grade visualization
+- ✅ Added RSI (Relative Strength Index) technical indicator
+- ✅ Enhanced dark theme UI with improved readability
+- ✅ Optimized data loading for faster page performance
+- ✅ Interactive charts with crosshair synchronization
 > 
 > **Live Trading**: Automated trading execution via Jupiter Ultra API has been **deprecated and disabled** until thoroughly tested and validated. Buy/sell/hold signals are generated for informational purposes only.
 
@@ -267,14 +274,18 @@ Visit `http://localhost:5030` to view:
 - Current SOL price and USD value of rewards
 - Collection analytics (frequency, sessions, daily rate, patterns)
 
-### SOL Price & Predictions
+### SOL Price & Trading Signals
 
 Visit `http://localhost:5030/sol-tracker` to view:
 
-- SOL price chart with recent 24-hour data
-- Statistical summaries (SMA, range, std dev, etc.)
-- Latest model price predictions vs actuals
-- Bandit buy/sell/hold actions and rewards
+- **Professional Trading Charts**: Interactive price charts using TradingView Lightweight Charts
+- **RSI Indicator**: Relative Strength Index (14-period) with overbought/oversold levels
+- **Trading Signals**: Real-time buy/sell/hold recommendations from contextual bandit algorithm
+- **Statistical Analysis**: SMA (1h, 4h, 24h), standard deviation, price ranges
+- **Time Range Selection**: View data for 1 hour, 1 day, 1 week, 1 month, or 1 year
+- **Bandit Strategy State**: Portfolio tracking, entry prices, and performance metrics
+
+> **Note**: Price prediction has been deprecated. The page now focuses on trading signals and technical analysis.
 
 ### Backfill Historical Data
 
