@@ -728,17 +728,17 @@
               const rsiChartContainer = document.getElementById('rsi-chart');
               if (rsiChartContainer) {
                   rsiChart = LightweightCharts.createChart(rsiChartContainer, {
-                  ...chartOptions,
-                  height: 150,
-                  rightPriceScale: {
-                      ...chartOptions.rightPriceScale,
-                      visible: true,
-                      scaleMargins: {
-                          top: 0.1,
-                          bottom: 0.1,
+                      ...chartOptions,
+                      height: 150,
+                      rightPriceScale: {
+                          ...chartOptions.rightPriceScale,
+                          visible: true,
+                          scaleMargins: {
+                              top: 0.1,
+                              bottom: 0.1,
+                          },
                       },
-                  },
-              });
+                  });
 
                   // Check API version for RSI series
                   if (typeof rsiChart.addLineSeries === 'function') {
@@ -844,6 +844,7 @@
           if (priceEl) {
               priceEl.textContent = 'No Data';
           }
+      }
       } // End initChart function
       
       // Wait for library to load, then initialize chart
