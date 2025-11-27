@@ -6,7 +6,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <!-- TradingView Lightweight Charts - Professional Trading Chart Library -->
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- Using v4.x for compatibility (v5.x has breaking API changes) -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         /* Professional Trading Chart Styles */
         #tradingview-chart {
@@ -453,6 +454,8 @@
 
 
     <script>
+      // Wait for TradingView library to load
+      function initChart() {
       // Data from Flask
       const timestamps = {{ timestamps|tojson }};
       const prices = {{ prices|tojson }};
@@ -460,20 +463,83 @@
       const rsiValues = {{ rsi_values|tojson }};
       const unixTimestamps = {{ unix_timestamps|tojson }};
 
+      // Debug: Log data to console
+      console.log('Timestamps:', timestamps ? timestamps.length : 0);
+      console.log('Prices:', prices ? prices.length : 0);
+      console.log('Unix Timestamps:', unixTimestamps ? unixTimestamps.length : 0);
+      console.log('Unix Timestamps type:', typeof unixTimestamps);
+      console.log('Unix Timestamps value:', unixTimestamps);
+      if (timestamps && timestamps.length > 0) {
+          console.log('Sample data:', {
+              firstTimestamp: timestamps[0],
+              firstPrice: prices[0],
+              firstUnix: unixTimestamps && unixTimestamps.length > 0 ? unixTimestamps[0] : 'undefined'
+          });
+      }
+
       // Prepare price data for TradingView (using Unix timestamps from server)
       const priceData = [];
       const timestampToIndex = {};
       
-      timestamps.forEach((ts, i) => {
-          const unixTime = unixTimestamps[i];
-          if (unixTime && prices[i] !== undefined && !isNaN(prices[i])) {
-              priceData.push({
-                  time: unixTime,
-                  value: prices[i]
-              });
-              timestampToIndex[ts] = i;
-          }
-      });
+      if (timestamps.length !== prices.length || timestamps.length !== unixTimestamps.length) {
+          console.error('Data length mismatch!', {
+              timestamps: timestamps.length,
+              prices: prices.length,
+              unixTimestamps: unixTimestamps.length
+          });
+      }
+      
+      // Check if we have valid data
+      if (!unixTimestamps || unixTimestamps.length === 0) {
+          console.warn('WARNING: unixTimestamps is empty! Generating from formatted timestamps as fallback.');
+          // Fallback: Generate Unix timestamps from formatted timestamps
+          // This is less ideal but will work if server-side generation failed
+          unixTimestamps = [];
+          timestamps.forEach((ts, i) => {
+              try {
+                  // Parse "Nov 26, 06:38 PM" format
+                  const date = new Date(ts);
+                  if (!isNaN(date.getTime())) {
+                      unixTimestamps.push(Math.floor(date.getTime() / 1000));
+                  } else {
+                      // If parsing fails, use current time as fallback (not ideal but prevents crash)
+                      console.warn(`Failed to parse timestamp: ${ts}, using current time`);
+                      unixTimestamps.push(Math.floor(Date.now() / 1000));
+                  }
+              } catch (e) {
+                  console.error(`Error parsing timestamp ${ts}:`, e);
+                  unixTimestamps.push(Math.floor(Date.now() / 1000));
+              }
+          });
+          console.log('Generated', unixTimestamps.length, 'Unix timestamps as fallback');
+      }
+      
+      if (timestamps && prices && unixTimestamps) {
+          timestamps.forEach((ts, i) => {
+              const unixTime = unixTimestamps[i];
+              const price = prices[i];
+              
+              if (unixTime && price !== undefined && !isNaN(price) && price > 0) {
+                  priceData.push({
+                      time: unixTime,
+                      value: price
+                  });
+                  timestampToIndex[ts] = i;
+              }
+          });
+      } else {
+          console.error('Missing required data arrays:', {
+              hasTimestamps: !!timestamps,
+              hasPrices: !!prices,
+              hasUnixTimestamps: !!unixTimestamps
+          });
+      }
+
+      console.log('Price data prepared:', priceData.length, 'points');
+      if (priceData.length > 0) {
+          console.log('First price point:', priceData[0]);
+          console.log('Last price point:', priceData[priceData.length - 1]);
+      }
 
       // Create signal markers
       const buyMarkers = [];
@@ -502,14 +568,18 @@
 
       // Prepare RSI data
       const rsiData = [];
-      rsiValues.forEach((rsi, index) => {
-          if (rsi !== null && index < timestamps.length && unixTimestamps[index]) {
-              rsiData.push({
-                  time: unixTimestamps[index],
-                  value: rsi
-              });
-          }
-      });
+      if (rsiValues && unixTimestamps) {
+          rsiValues.forEach((rsi, index) => {
+              if (rsi !== null && rsi !== undefined && index < timestamps.length && unixTimestamps[index]) {
+                  rsiData.push({
+                      time: unixTimestamps[index],
+                      value: rsi
+                  });
+              }
+          });
+      }
+      
+      console.log('RSI data prepared:', rsiData.length, 'points');
 
       // Professional Dark Theme Configuration
       const chartOptions = {
@@ -550,122 +620,248 @@
 
       // Create main price chart
       const chartContainer = document.getElementById('tradingview-chart');
-      const chart = LightweightCharts.createChart(chartContainer, chartOptions);
-
-      // Add price line series
-      const priceSeries = chart.addLineSeries({
-          color: '#3b82f6',
-          lineWidth: 2,
-          priceFormat: {
-              type: 'price',
-              precision: 2,
-              minMove: 0.01,
-          },
-          lastValueVisible: true,
-          priceLineVisible: true,
-      });
-
-      priceSeries.setData(priceData);
-
-      // Add markers for buy/sell/hold signals
-      const allMarkers = [...buyMarkers, ...sellMarkers, ...holdMarkers];
-      priceSeries.setMarkers(allMarkers);
-
-      // Update price display on crosshair move
-      chart.subscribeCrosshairMove(param => {
-          if (param.point === undefined || !param.time || param.seriesData.size === 0) {
-              return;
-          }
-          const price = param.seriesData.get(priceSeries);
-          if (price) {
-              const currentPrice = price.value;
-              const firstPrice = prices[0];
-              const change = currentPrice - firstPrice;
-              const changePercent = ((change / firstPrice) * 100).toFixed(2);
+      
+      if (!chartContainer) {
+          console.error('Chart container not found!');
+      } else if (typeof LightweightCharts === 'undefined') {
+          console.error('TradingView Lightweight Charts library not loaded!');
+          chartContainer.innerHTML = '<div class="text-white p-4 text-center">Chart library failed to load. Please refresh the page.</div>';
+      } else if (priceData.length === 0) {
+          console.error('No price data available!');
+          console.error('Debug info:', {
+              timestampsLength: timestamps ? timestamps.length : 0,
+              pricesLength: prices ? prices.length : 0,
+              unixTimestampsLength: unixTimestamps ? unixTimestamps.length : 0,
+              unixTimestampsType: typeof unixTimestamps,
+              unixTimestampsValue: unixTimestamps
+          });
+          chartContainer.innerHTML = '<div class="text-white p-4 text-center">No price data available for the selected time range. Check console for details.</div>';
+      } else {
+          let chart, priceSeries, rsiChart, rsiSeries;
+          
+          try {
+              console.log('Creating chart with', priceData.length, 'data points');
+              console.log('LightweightCharts object:', typeof LightweightCharts, LightweightCharts);
               
-              document.getElementById('chart-price').textContent = `$${currentPrice.toFixed(2)}`;
-              const changeEl = document.getElementById('chart-change');
-              changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
-              changeEl.className = change >= 0 ? 'ml-2 text-green-400' : 'ml-2 text-red-400';
+              // Check if createChart exists
+              if (!LightweightCharts || !LightweightCharts.createChart) {
+                  throw new Error('LightweightCharts.createChart is not available. Library may not have loaded correctly.');
+              }
+              
+              chart = LightweightCharts.createChart(chartContainer, {
+                  ...chartOptions,
+                  width: chartContainer.clientWidth,
+                  height: 500,
+              });
+
+              console.log('Chart created:', chart);
+              console.log('Chart methods:', Object.keys(chart).filter(k => k.includes('Series')));
+              
+              // Check if addLineSeries exists, if not try addSeries (v5.x API)
+              if (typeof chart.addLineSeries === 'function') {
+                  // v4.x API
+                  priceSeries = chart.addLineSeries({
+                      color: '#3b82f6',
+                      lineWidth: 2,
+                      priceFormat: {
+                          type: 'price',
+                          precision: 2,
+                          minMove: 0.01,
+                      },
+                      lastValueVisible: true,
+                      priceLineVisible: true,
+                  });
+              } else if (typeof chart.addSeries === 'function' && LightweightCharts.LineSeries) {
+                  // v5.x API
+                  priceSeries = chart.addSeries(LightweightCharts.LineSeries, {
+                      color: '#3b82f6',
+                      lineWidth: 2,
+                      priceFormat: {
+                          type: 'price',
+                          precision: 2,
+                          minMove: 0.01,
+                      },
+                      lastValueVisible: true,
+                      priceLineVisible: true,
+                  });
+              } else {
+                  throw new Error('Neither addLineSeries nor addSeries(LineSeries) is available. Chart library version issue.');
+              }
+
+              // Set price data
+              if (priceData.length > 0) {
+                  priceSeries.setData(priceData);
+                  console.log('Price data set successfully');
+
+                  // Add markers for buy/sell/hold signals
+                  const allMarkers = [...buyMarkers, ...sellMarkers, ...holdMarkers];
+                  if (allMarkers.length > 0) {
+                      priceSeries.setMarkers(allMarkers);
+                      console.log('Markers set:', allMarkers.length);
+                  }
+              } else {
+                  console.error('No price data to display!');
+                  // Show error message
+                  chartContainer.innerHTML = '<div class="text-white p-4 text-center">No price data available for the selected time range.</div>';
+              }
+
+              // Update price display on crosshair move
+              chart.subscribeCrosshairMove(param => {
+                  if (param.point === undefined || !param.time || param.seriesData.size === 0) {
+                      return;
+                  }
+                  const price = param.seriesData.get(priceSeries);
+                  if (price) {
+                      const currentPrice = price.value;
+                      const firstPrice = prices[0];
+                      const change = currentPrice - firstPrice;
+                      const changePercent = ((change / firstPrice) * 100).toFixed(2);
+                      
+                      document.getElementById('chart-price').textContent = `$${currentPrice.toFixed(2)}`;
+                      const changeEl = document.getElementById('chart-change');
+                      changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
+                      changeEl.className = change >= 0 ? 'ml-2 text-green-400' : 'ml-2 text-red-400';
+                  }
+              });
+
+              // Create RSI chart below
+              const rsiChartContainer = document.getElementById('rsi-chart');
+              if (rsiChartContainer) {
+                  rsiChart = LightweightCharts.createChart(rsiChartContainer, {
+                  ...chartOptions,
+                  height: 150,
+                  rightPriceScale: {
+                      ...chartOptions.rightPriceScale,
+                      visible: true,
+                      scaleMargins: {
+                          top: 0.1,
+                          bottom: 0.1,
+                      },
+                  },
+              });
+
+                  // Check API version for RSI series
+                  if (typeof rsiChart.addLineSeries === 'function') {
+                      // v4.x API
+                      rsiSeries = rsiChart.addLineSeries({
+                          color: '#d97706',
+                          lineWidth: 1,
+                          priceFormat: {
+                              type: 'price',
+                              precision: 2,
+                              minMove: 0.01,
+                          },
+                      });
+                  } else if (typeof rsiChart.addSeries === 'function' && LightweightCharts.LineSeries) {
+                      // v5.x API
+                      rsiSeries = rsiChart.addSeries(LightweightCharts.LineSeries, {
+                          color: '#d97706',
+                          lineWidth: 1,
+                          priceFormat: {
+                              type: 'price',
+                              precision: 2,
+                              minMove: 0.01,
+                          },
+                      });
+                  } else {
+                      console.error('Cannot create RSI series - API not available');
+                      rsiSeries = null;
+                  }
+                  
+                  if (rsiSeries && rsiData.length > 0) {
+                      rsiSeries.setData(rsiData);
+
+                      // Add RSI overbought/oversold lines
+                      rsiSeries.createPriceLine({
+                          price: 70,
+                          color: '#ef4444',
+                          lineWidth: 1,
+                          lineStyle: 2,
+                          axisLabelVisible: true,
+                          title: 'Overbought',
+                      });
+
+                      rsiSeries.createPriceLine({
+                          price: 30,
+                          color: '#10b981',
+                          lineWidth: 1,
+                          lineStyle: 2,
+                          axisLabelVisible: true,
+                          title: 'Oversold',
+                      });
+                  } else {
+                      console.warn('No RSI data available');
+                  }
+
+                  // Synchronize crosshair between charts
+                  if (chart && rsiChart && rsiSeries) {
+                      chart.subscribeCrosshairMove(param => {
+                          if (param.time && rsiChart) {
+                              rsiChart.setCrosshairPosition(param.time, param.point);
+                          }
+                      });
+
+                      rsiChart.subscribeCrosshairMove(param => {
+                          if (param.time && chart) {
+                              chart.setCrosshairPosition(param.time, param.point);
+                          }
+                      });
+
+                      // Handle window resize
+                      window.addEventListener('resize', () => {
+                          if (chart) chart.applyOptions({ width: chartContainer.clientWidth });
+                          if (rsiChart) rsiChart.applyOptions({ width: rsiChartContainer.clientWidth });
+                      });
+                  }
+              } // Close rsiChartContainer if block
+          } catch (error) {
+              console.error('Error creating chart:', error);
+              chartContainer.innerHTML = '<div class="text-white p-4 text-center">Error creating chart: ' + error.message + '</div>';
           }
-      });
-
-      // Create RSI chart below
-      const rsiChartContainer = document.getElementById('rsi-chart');
-      const rsiChart = LightweightCharts.createChart(rsiChartContainer, {
-          ...chartOptions,
-          height: 150,
-          rightPriceScale: {
-              ...chartOptions.rightPriceScale,
-              visible: true,
-              scaleMargins: {
-                  top: 0.1,
-                  bottom: 0.1,
-              },
-          },
-      });
-
-      const rsiSeries = rsiChart.addLineSeries({
-          color: '#d97706',
-          lineWidth: 1,
-          priceFormat: {
-              type: 'price',
-              precision: 2,
-              minMove: 0.01,
-          },
-      });
-
-      rsiSeries.setData(rsiData);
-
-      // Add RSI overbought/oversold lines
-      rsiSeries.createPriceLine({
-          price: 70,
-          color: '#ef4444',
-          lineWidth: 1,
-          lineStyle: 2,
-          axisLabelVisible: true,
-          title: 'Overbought',
-      });
-
-      rsiSeries.createPriceLine({
-          price: 30,
-          color: '#10b981',
-          lineWidth: 1,
-          lineStyle: 2,
-          axisLabelVisible: true,
-          title: 'Oversold',
-      });
-
-      // Synchronize crosshair between charts
-      chart.subscribeCrosshairMove(param => {
-          if (param.time) {
-              rsiChart.setCrosshairPosition(param.time, param.point);
-          }
-      });
-
-      rsiChart.subscribeCrosshairMove(param => {
-          if (param.time) {
-              chart.setCrosshairPosition(param.time, param.point);
-          }
-      });
-
-      // Handle window resize
-      window.addEventListener('resize', () => {
-          chart.applyOptions({ width: chartContainer.clientWidth });
-          rsiChart.applyOptions({ width: rsiChartContainer.clientWidth });
-      });
+      } // Close else block (priceData.length > 0)
 
       // Set initial price display
-      if (prices.length > 0) {
+      if (prices && prices.length > 0) {
           const lastPrice = prices[prices.length - 1];
           const firstPrice = prices[0];
           const change = lastPrice - firstPrice;
-          const changePercent = ((change / firstPrice) * 100).toFixed(2);
+          const changePercent = firstPrice > 0 ? ((change / firstPrice) * 100).toFixed(2) : '0.00';
           
-          document.getElementById('chart-price').textContent = `$${lastPrice.toFixed(2)}`;
+          const priceEl = document.getElementById('chart-price');
           const changeEl = document.getElementById('chart-change');
-          changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
-          changeEl.className = change >= 0 ? 'ml-2 text-green-400' : 'ml-2 text-red-400';
+          
+          if (priceEl) {
+              priceEl.textContent = `$${lastPrice.toFixed(2)}`;
+          }
+          
+          if (changeEl) {
+              changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
+              changeEl.className = change >= 0 ? 'ml-2 text-green-400' : 'ml-2 text-red-400';
+          }
+      } else {
+          console.warn('No prices available for display');
+          const priceEl = document.getElementById('chart-price');
+          if (priceEl) {
+              priceEl.textContent = 'No Data';
+          }
+      } // End initChart function
+      
+      // Wait for library to load, then initialize chart
+      if (typeof LightweightCharts !== 'undefined') {
+          initChart();
+      } else {
+          // Wait for library to load
+          window.addEventListener('load', function() {
+              if (typeof LightweightCharts !== 'undefined') {
+                  initChart();
+              } else {
+                  console.error('TradingView Lightweight Charts failed to load');
+                  const chartContainer = document.getElementById('tradingview-chart');
+                  if (chartContainer) {
+                      chartContainer.innerHTML = '<div class="text-white p-4 text-center">Chart library failed to load. Please refresh the page.</div>';
+                  }
+              }
+          });
       }
   </script>
 </body>

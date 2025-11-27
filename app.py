@@ -590,6 +590,8 @@ def sol_tracker():
 
     timestamps = []
     prices = []
+    unix_timestamps = []  # Initialize Unix timestamps list
+    
     if all_data: # Ensure all_data is not None or empty
         for row in all_data:  # oldest to newest
             # Optimized query now returns (timestamp, rate) tuple
@@ -602,15 +604,18 @@ def sol_tracker():
                     short_ts = dt.strftime("%b %d, %I:%M %p")
                     timestamps.append(short_ts)
                     prices.append(float(price))  # Ensure price is float
-                    # Also store Unix timestamp for TradingView charts
+                    # Store Unix timestamp for TradingView charts
                     unix_ts = int(dt.timestamp())
-                    if 'unix_timestamps' not in locals():
-                        unix_timestamps = []
                     unix_timestamps.append(unix_ts)
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Skipping row with invalid data: {ts}, {price} - {e}")
             else:
                 logger.warning("Skipping row with null timestamp.")
+    
+    # Debug logging
+    logger.info(f"Loaded {len(timestamps)} timestamps, {len(prices)} prices, {len(unix_timestamps)} unix timestamps")
+    if len(unix_timestamps) > 0:
+        logger.info(f"Sample unix timestamp: {unix_timestamps[0]}")
 
     if not prices: # Handle case with no price data for the selected range
         logger.warning(f"No price data found for range: {selected_range}. Returning empty data.")
@@ -651,7 +656,7 @@ def sol_tracker():
     
     rsi_value = None
     rsi_values = []  # For chart display - RSI series
-    unix_timestamps = []  # Store Unix timestamps for TradingView
+    # Note: unix_timestamps is already initialized and populated above, don't reinitialize it
     
     if len(prices) >= 15:  # Need at least 15 prices for 14-period RSI
         # Calculate current RSI (last value)
@@ -723,6 +728,12 @@ def sol_tracker():
 
     fetcher.close()
 
+    # Final validation before passing to template
+    if len(unix_timestamps) != len(timestamps):
+        logger.error(f"CRITICAL: unix_timestamps length ({len(unix_timestamps)}) doesn't match timestamps length ({len(timestamps)})")
+        logger.error("This will cause the chart to fail. Check timestamp conversion logic.")
+    else:
+        logger.info(f"Data validated: {len(unix_timestamps)} timestamps ready for chart")
 
     return render_template(
         "sol_tracker.html",
