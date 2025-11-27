@@ -579,24 +579,36 @@ def sol_tracker():
 
     fetcher = SOLPriceFetcher()
     # Pass time_threshold to get_price_history
-    all_data = fetcher.get_price_history(time_threshold=time_threshold.isoformat())
+    # Optimized: Only fetch columns we need (timestamp, rate) and limit results for performance
+    # For very long ranges, we could implement data sampling/downsampling
+    max_data_points = 1000  # Limit to prevent chart overload
+    all_data = fetcher.get_price_history(
+        time_threshold=time_threshold.isoformat(),
+        limit=max_data_points
+    )
     fetcher.close()
 
     timestamps = []
     prices = []
     if all_data: # Ensure all_data is not None or empty
-        for row in (all_data):  # oldest to newest
-            ts = row[1] # timestamp column
-            price = row[2] # rate column
+        for row in all_data:  # oldest to newest
+            # Optimized query now returns (timestamp, rate) tuple
+            ts = row[0]  # timestamp column (first column)
+            price = row[1]  # rate column (second column)
             # Ensure timestamp is valid before formatting
             if ts:
                 try:
                     dt = datetime.fromisoformat(ts)
                     short_ts = dt.strftime("%b %d, %I:%M %p")
                     timestamps.append(short_ts)
-                    prices.append(price)
-                except ValueError:
-                    logger.warning(f"Skipping row with invalid timestamp format: {ts}")
+                    prices.append(float(price))  # Ensure price is float
+                    # Also store Unix timestamp for TradingView charts
+                    unix_ts = int(dt.timestamp())
+                    if 'unix_timestamps' not in locals():
+                        unix_timestamps = []
+                    unix_timestamps.append(unix_ts)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Skipping row with invalid data: {ts}, {price} - {e}")
             else:
                 logger.warning("Skipping row with null timestamp.")
 
@@ -633,6 +645,31 @@ def sol_tracker():
     sma_4h = simple_moving_average(prices, 48) if len(prices) >= 48 else None
     sma_24h = simple_moving_average(prices, 288) if len(prices) >= 288 else None
 
+    # Calculate RSI using the function from sol_price_fetcher
+    from sol_price_fetcher import calculate_rsi
+    import numpy as np
+    
+    rsi_value = None
+    rsi_values = []  # For chart display - RSI series
+    unix_timestamps = []  # Store Unix timestamps for TradingView
+    
+    if len(prices) >= 15:  # Need at least 15 prices for 14-period RSI
+        # Calculate current RSI (last value)
+        rsi_value = calculate_rsi(prices, period=14)
+        
+        # Calculate RSI for the full series (for chart)
+        # RSI can only be calculated starting from index 14 (period)
+        rsi_period = 14
+        rsi_values = [None] * rsi_period  # First 14 values are None
+        
+        # Calculate RSI for each subsequent point
+        for i in range(rsi_period, len(prices)):
+            # Get prices up to current point
+            prices_slice = prices[:i+1]
+            rsi_at_point = calculate_rsi(prices_slice, period=rsi_period)
+            rsi_values.append(rsi_at_point)
+    
+
     # Initialize stats with default/empty values
     stats = {
         "current_price": None,
@@ -645,7 +682,8 @@ def sol_tracker():
         "sma_4h": sma_4h,
         "sma_24h": sma_24h,
         "std_dev": 0,
-        "avg_delta": 0
+        "avg_delta": 0,
+        "rsi": rsi_value
     }
 
     if prices: # Only calculate these if there is price data
@@ -695,12 +733,19 @@ def sol_tracker():
         bandit_logs=bandit_logs,
         selected_range=selected_range,
         bandit_state=bandit_state,
-        bandit_stats=bandit_stats
+        bandit_stats=bandit_stats,
+        rsi_values=rsi_values,  # Add RSI values for chart
+        unix_timestamps=unix_timestamps  # Add Unix timestamps for TradingView
     )
 
 
 @app.route('/api/latest-prediction', methods=['GET'])
 def get_latest_prediction():
+    """
+    DEPRECATED: Price prediction has been disabled due to irrational value returns.
+    This endpoint returns historical predictions if available, but no new predictions
+    are being generated.
+    """
     try:
         conn = sqlite3.connect("sol_prices.db")
         cursor = conn.cursor()
@@ -720,11 +765,17 @@ def get_latest_prediction():
                 "actual_rate": row[2],
                 "error": row[3],
                 "mae": row[4],
-                "created_at": row[5]
+                "created_at": row[5],
+                "deprecated": True,
+                "message": "Price prediction has been disabled. This is historical data only."
             }
             return jsonify(prediction)
         else:
-            return jsonify({"error": "No predictions found"}), 404
+            return jsonify({
+                "error": "No predictions found",
+                "deprecated": True,
+                "message": "Price prediction has been disabled. No historical data available."
+            }), 404
     except sqlite3.Error as e:
         logger.error(f"Database error fetching latest prediction: {e}")
         return jsonify({"error": "Database error"}), 500

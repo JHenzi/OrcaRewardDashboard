@@ -43,10 +43,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Handle loading the price prediction in time model
-MODEL_PATH = Path("sol_model.pkl")
-METRIC_PATH = Path("sol_metric.pkl") # We set this up but are we using it?
-TRAIL = deque(maxlen=10)
+# ============================================================================
+# DEPRECATED: Price Prediction Model (Returns Irrational Values)
+# ============================================================================
+# Price prediction using contextual bandits has been disabled as it returns
+# irrational values. The buy/sell/hold signal logic remains intact and functional.
+# 
+# MODEL_PATH = Path("sol_model.pkl")
+# METRIC_PATH = Path("sol_metric.pkl") # We set this up but are we using it?
+# TRAIL = deque(maxlen=10)
 
 # Handle loading the Contextual Bandit Model Files - Function below to init these or create new.
 HORIZON_MODEL_PATH = Path("sol_horizon_model.pkl")
@@ -850,55 +855,68 @@ def process_bandit_step(data, volatility):
         logger.error(f"Error logging to database: {e}")
     conn.commit()
     conn.close()
-    # --- Order Execution Logic ---
-    enable_live_trading = os.getenv("ENABLE_LIVE_TRADING", "N").upper() == "Y"
-    if bot is not None:
-        if enable_live_trading and action in ("buy", "sell"):
-            wallet_address = str(bot.public_key)
-            balances = bot.get_balances(wallet_address)
-            trade_amount = 1  # or use a dynamic amount
-
-            # Check if you have enough balance
-            if balances is not None:
-                if (action == "buy" and balances["USDC"] >= trade_amount) or (action == "sell" and balances["SOL"] >= trade_amount):
-                    order_response = bot.get_order(trade_amount, action)
-                    if order_response and order_response.get("transaction") and order_response.get("requestId"):
-                        # Optionally inspect order_response for slippage, price, etc.
-                        # Is price within acceptaple range of what Livecoinwatch is telling us to execute on (check for abnormality)?
-                        execute_response = bot.execute_order(
-                            order_response["requestId"],
-                            order_response["transaction"]
-                        )
-                        logger.info(f"Trade executed: {execute_response}")
-                    else:
-                        logger.warning("Order response missing transaction or requestId, skipping execution.")
-                else:
-                    logger.info("Insufficient balance for trade, skipping execution.")
-            else:
-                logger.warning("Failed to fetch balances, skipping execution.")
-        elif action in ("buy", "sell"):
-            logger.info("ENABLE_LIVE_TRADING is not set to 'Y'. Skipping live trade execution.")
-    else:
-        logger.error("Bot not loaded, skipping live trade execution.")
+    # ========================================================================
+    # DEPRECATED: Live Trading Execution (Experimental - Not Recommended)
+    # ========================================================================
+    # Live trading via Jupiter Ultra API has been disabled until thoroughly
+    # tested and validated. The buy/sell/hold signals are still generated for
+    # informational purposes, but no actual trades are executed.
+    #
+    # --- Order Execution Logic (COMMENTED OUT) ---
+    # enable_live_trading = os.getenv("ENABLE_LIVE_TRADING", "N").upper() == "Y"
+    # if bot is not None:
+    #     if enable_live_trading and action in ("buy", "sell"):
+    #         wallet_address = str(bot.public_key)
+    #         balances = bot.get_balances(wallet_address)
+    #         trade_amount = 1  # or use a dynamic amount
+    #
+    #         # Check if you have enough balance
+    #         if balances is not None:
+    #             if (action == "buy" and balances["USDC"] >= trade_amount) or (action == "sell" and balances["SOL"] >= trade_amount):
+    #                 order_response = bot.get_order(trade_amount, action)
+    #                 if order_response and order_response.get("transaction") and order_response.get("requestId"):
+    #                     # Optionally inspect order_response for slippage, price, etc.
+    #                     # Is price within acceptaple range of what Livecoinwatch is telling us to execute on (check for abnormality)?
+    #                     execute_response = bot.execute_order(
+    #                         order_response["requestId"],
+    #                         order_response["transaction"]
+    #                     )
+    #                     logger.info(f"Trade executed: {execute_response}")
+    #                 else:
+    #                     logger.warning("Order response missing transaction or requestId, skipping execution.")
+    #             else:
+    #                 logger.info("Insufficient balance for trade, skipping execution.")
+    #         else:
+    #             logger.warning("Failed to fetch balances, skipping execution.")
+    #     elif action in ("buy", "sell"):
+    #         logger.info("ENABLE_LIVE_TRADING is not set to 'Y'. Skipping live trade execution.")
+    # else:
+    #     logger.error("Bot not loaded, skipping live trade execution.")
     # --- End Order Execution Logic ---
     return action, reward
 
 
 
 
+# ============================================================================
+# DEPRECATED: Price Prediction Model Loading and Training
+# ============================================================================
+# Price prediction has been disabled due to irrational value returns.
+# This code is kept for reference but is not executed.
+#
 # Load or initialize model and metric
-if MODEL_PATH.exists() and METRIC_PATH.exists():
-    with open(MODEL_PATH, "rb") as f:
-        model = pickle.load(f)
-    logger.info("Loaded existing online learning model from disk.")
-    with open(METRIC_PATH, "rb") as f:
-        metric = pickle.load(f)
-    logger.info("Loaded existing metric from disk.")
-else:
-    model = preprocessing.StandardScaler() | linear_model.LinearRegression()
-    metric = metrics.MAE()
+# if MODEL_PATH.exists() and METRIC_PATH.exists():
+#     with open(MODEL_PATH, "rb") as f:
+#         model = pickle.load(f)
+#     logger.info("Loaded existing online learning model from disk.")
+#     with open(METRIC_PATH, "rb") as f:
+#         metric = pickle.load(f)
+#     logger.info("Loaded existing metric from disk.")
+# else:
+#     model = preprocessing.StandardScaler() | linear_model.LinearRegression()
+#     metric = metrics.MAE()
 
-def train_online_model(data):
+# def train_online_model(data):
     conn = sqlite3.connect("sol_prices.db")
     cursor = conn.cursor()
 
@@ -966,10 +984,10 @@ def train_online_model(data):
     conn.close()
 
     # Persist model and metric
-    with open(MODEL_PATH, "wb") as f:
-        pickle.dump(model, f)
-    with open(METRIC_PATH, "wb") as f:
-        pickle.dump(metric, f)
+    # with open(MODEL_PATH, "wb") as f:
+    #     pickle.dump(model, f)
+    # with open(METRIC_PATH, "wb") as f:
+    #     pickle.dump(metric, f)
 
 
 class SOLPriceFetcher:
@@ -1142,8 +1160,12 @@ class SOLPriceFetcher:
 #                    LOOP                                               #
 #########################################################################
             # Here is the place in the loop where we execute other actions on the "data" variable, which is our dictionary of price data.
-            # Train the online model with the new data - it predicts the next price based on the current data.
-            train_online_model(data)
+            # ========================================================================
+            # DEPRECATED: Price Prediction Training (Returns Irrational Values)
+            # ========================================================================
+            # Price prediction has been disabled. Buy/sell/hold signals remain active.
+            # train_online_model(data)
+            
             # Train the contextual bandit model with the new data
             # This will choose an action based on the current data and update the model with the reward
             volatility = compute_recent_volatility(fetch_recent_prices())
@@ -1218,25 +1240,47 @@ class SOLPriceFetcher:
         finally:
             self.close()
 
-    def get_price_history(self, time_threshold=None):
-        """Retrieve price history from database based on a time threshold."""
+    def get_price_history(self, time_threshold=None, limit=None):
+        """
+        Retrieve price history from database based on a time threshold.
+        Optimized for performance with proper indexing and limiting.
+        
+        Args:
+            time_threshold: ISO format timestamp string - only fetch records >= this time
+            limit: Maximum number of records to return (for pagination/performance)
+        """
         # Ensure the connection and cursor are available
         if not hasattr(self, 'conn') or not hasattr(self, 'cursor'):
             logger.error("Database connection not initialized in SOLPriceFetcher.")
             # Attempt to re-initialize, or handle error appropriately
             self.init_database() # Or return an empty list / raise an exception
 
+        # Optimized query - only select columns we actually need for the chart
+        # Using timestamp index for faster queries
+        base_query = "SELECT timestamp, rate FROM sol_prices"
+        conditions = []
+        params = []
+        
         if time_threshold:
-            # Query to fetch records newer than or equal to the time_threshold, ordered oldest to newest
-            # The 'timestamp' column in sol_prices stores ISO formatted strings.
-            query = "SELECT id, timestamp, rate, volume, market_cap, liquidity, delta_hour, delta_day, delta_week, delta_month, delta_quarter, delta_year, created_at FROM sol_prices WHERE timestamp >= ? ORDER BY timestamp ASC"
-            self.cursor.execute(query, (time_threshold,))
-        else:
-            # Default behavior: fetch all records if no time_threshold is provided, ordered oldest to newest
-            query = "SELECT id, timestamp, rate, volume, market_cap, liquidity, delta_hour, delta_day, delta_week, delta_month, delta_quarter, delta_year, created_at FROM sol_prices ORDER BY timestamp ASC"
-            self.cursor.execute(query)
-
-        return self.cursor.fetchall()
+            conditions.append("timestamp >= ?")
+            params.append(time_threshold)
+        
+        if conditions:
+            base_query += " WHERE " + " AND ".join(conditions)
+        
+        # Order by timestamp for chronological display
+        base_query += " ORDER BY timestamp ASC"
+        
+        # Add limit if specified (useful for large datasets)
+        if limit:
+            base_query += f" LIMIT {limit}"
+        
+        try:
+            self.cursor.execute(base_query, params)
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            logger.error(f"Database error in get_price_history: {e}")
+            return []
 
     def get_credits_history(self, limit=None):
         """Retrieve credits history from database"""
