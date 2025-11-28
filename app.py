@@ -943,8 +943,8 @@ def sol_tracker():
     
 
     # Calculate price position relative to SMAs and Bollinger Bands
-    # Get current price from prices list
-    current_price_for_indicators = prices[-1] if prices else None
+    # Use the actual current price for indicators (not filtered by time range)
+    current_price_for_indicators = actual_current_price if actual_current_price is not None else (prices[-1] if prices else None)
     price_vs_sma_1h = (current_price_for_indicators / sma_1h - 1) * 100 if (current_price_for_indicators and sma_1h and sma_1h != 0) else None
     price_vs_sma_4h = (current_price_for_indicators / sma_4h - 1) * 100 if (current_price_for_indicators and sma_4h and sma_4h != 0) else None
     price_vs_sma_24h = (current_price_for_indicators / sma_24h - 1) * 100 if (current_price_for_indicators and sma_24h and sma_24h != 0) else None
@@ -984,17 +984,21 @@ def sol_tracker():
     }
 
     if prices: # Only calculate these if there is price data
-        current_price = prices[-1]
-        price_start = prices[0]
-        stats["current_price"] = round(current_price, 4)
+        # Use actual_current_price for the header display (always latest)
+        # Use prices[-1] for period-specific calculations (last price in selected range)
+        period_end_price = prices[-1]  # Last price in the selected time range
+        price_start = prices[0]  # First price in the selected time range
+        
+        # Set current_price to the actual latest price (not filtered by time range)
+        stats["current_price"] = actual_current_price if actual_current_price is not None else round(period_end_price, 4)
         stats["price_start"] = round(price_start, 4)
         
-        # Update current_price for indicator calculations if not already set
-        if stats.get("current_price") is None:
-            stats["current_price"] = round(current_price, 4)
+        # For period-specific percent change, use the period's start and end prices
+        # This shows the change within the selected time range
 
         if price_start != 0: # Avoid division by zero
-            percent_change = round(((current_price - price_start) / price_start) * 100, 2)
+            # Calculate percent change for the SELECTED TIME RANGE (period_end_price vs price_start)
+            percent_change = round(((period_end_price - price_start) / price_start) * 100, 2)
             stats["percent_change"] = percent_change
         else:
             stats["percent_change"] = 0 # Or some other indicator like 'N/A' if preferred
