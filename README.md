@@ -11,7 +11,7 @@ A Flask web application that tracks and displays Solana rewards from [**Orca** l
 - 📈 **SOL Price Tracking** - Professional trading charts with technical indicators using TradingView Lightweight Charts
 - 🎯 **RSI-Based Trading Signals** - Clear buy/sell/hold recommendations based on Relative Strength Index (RSI)
 - 📉 **Technical Analysis** - Moving averages (SMA), MACD, Bollinger Bands, momentum indicators, and volatility metrics
-- 📊 **Signal Performance Tracker** - **NEW!** Track the reliability of each trading signal over time. See win rates, average returns, and historical performance for RSI and Bandit signals to make informed decisions
+- 📊 **Signal Performance Tracker** - **NEW!** Track the reliability of each trading signal over time. See win rates, average returns, and historical performance for RSI signals to make informed decisions
 - 💰 **Rewards Analytics** - Daily and monthly breakdowns, collection patterns, and performance metrics
 
 > **Note:** Some features have been deprecated. See [DEPRECATED.md](DEPRECATED.md) for historical information about price prediction, contextual bandit algorithms, and automated trading bots.
@@ -59,7 +59,7 @@ The SOL Tracker provides professional-grade price analysis with clear, actionabl
   - **Average Return**: Expected performance for each signal type (24-hour horizon)
   - **Best/Worst Cases**: Historical performance ranges
   - **Color-Coded Reliability**: Green (≥60% win rate), Yellow (≥50%), Red (<50%)
-  - Tracks: RSI Buy/Sell/Hold signals and Bandit Buy/Sell/Hold recommendations
+  - Tracks: RSI Buy/Sell/Hold signals
 - ✅ **Time Range Selection** - View data for 1 hour, 1 day, 1 week, 1 month, or 1 year
 - ✅ **Dark Theme UI** - Modern, professional trading platform aesthetic
 
@@ -68,7 +68,6 @@ Visit `http://localhost:5030/sol-tracker` to view:
 - Real-time RSI-based trading signals
 - **Signal reliability metrics** - Know which signals to trust!
 - Comprehensive technical indicator panel (RSI, MACD, Bollinger Bands, Momentum, SMA)
-- Latest contextual bandit recommendations
 - Price statistics and volatility metrics
 
 ### Why Signal Performance Tracking Matters
@@ -76,7 +75,7 @@ Visit `http://localhost:5030/sol-tracker` to view:
 **The Problem:** Trading signals are only as good as their track record. Without performance tracking, you can't know if a "BUY" signal is actually profitable or if it's just noise.
 
 **The Solution:** The Signal Performance Tracker automatically:
-1. **Logs every signal** when it's generated (RSI buy/sell/hold, Bandit recommendations)
+1. **Logs every signal** when it's generated (RSI buy/sell/hold)
 2. **Tracks outcomes** by checking price movements 1 hour, 4 hours, 24 hours, and 7 days later
 3. **Calculates reliability metrics** including win rate, average return, and best/worst cases
 4. **Displays results** in an easy-to-understand format on the SOL Tracker page
@@ -84,10 +83,9 @@ Visit `http://localhost:5030/sol-tracker` to view:
 **What This Means for You:**
 - **Make Informed Decisions**: See which signals have historically been profitable
 - **Trust the Data**: Know if RSI buy signals actually lead to price increases
-- **Compare Strategies**: Compare RSI signals vs Bandit recommendations
 - **Continuous Improvement**: As more signals are tracked, reliability metrics become more accurate
 
-**Example:** If RSI Buy signals show a 65% win rate with an average +2.3% return over 24 hours, you can confidently act on those signals. If Bandit Sell signals show only 40% win rate, you might want to be more cautious.
+**Example:** If RSI Buy signals show a 65% win rate with an average +2.3% return over 24 hours, you can confidently act on those signals. If RSI Sell signals show only 40% win rate, you might want to be more cautious.
 
 > **Note:** Price prediction and contextual bandit features have been deprecated. See [DEPRECATED.md](DEPRECATED.md) for historical information.
 
@@ -99,20 +97,18 @@ Visit `http://localhost:5030/sol-tracker` to view:
 
 **What Gets Tracked:**
 - **RSI Signals**: Every time RSI generates a buy/sell/hold signal, we log it
-- **Bandit Recommendations**: Every contextual bandit recommendation is tracked
 - **Outcomes**: We check prices 1 hour, 4 hours, 24 hours, and 7 days later
 - **Metrics**: Win rate, average return, best/worst cases are calculated automatically
 
 **Why This Matters:**
 1. **Trust the Data**: See which signals have actually been profitable historically
-2. **Compare Strategies**: Compare RSI signals vs Bandit recommendations side-by-side
-3. **Risk Assessment**: Know the best and worst case scenarios for each signal type
-4. **Continuous Learning**: As more signals are tracked, reliability metrics become more accurate
-5. **Informed Decisions**: Make trading decisions based on proven track records, not just current signals
+2. **Risk Assessment**: Know the best and worst case scenarios for each signal type
+3. **Continuous Learning**: As more signals are tracked, reliability metrics become more accurate
+4. **Informed Decisions**: Make trading decisions based on proven track records, not just current signals
 
 **Example Use Case:**
 - RSI Buy signals show **65% win rate** with **+2.3% average return** → High confidence to act
-- Bandit Sell signals show **40% win rate** with **-0.5% average return** → Be cautious, maybe wait for stronger signals
+- RSI Sell signals show **40% win rate** with **-0.5% average return** → Be cautious, maybe wait for stronger signals
 - RSI Hold signals show **55% win rate** → Neutral, confirms it's a good time to wait
 
 This feature transforms the SOL Tracker from a simple signal generator into a **data-driven trading intelligence platform**.
@@ -131,8 +127,10 @@ This project began as a simple Orca rewards tracker and has evolved into a compr
 
 ### Future Enhancements
 
-See [COMPREHENSIVE_AUDIT_AND_IMPROVEMENT_PLAN.md](COMPREHENSIVE_AUDIT_AND_IMPROVEMENT_PLAN.md) for detailed roadmap including:
-- Advanced AI features (LSTM, news sentiment analysis)
+See [SOL_TRACKER_IMPROVEMENT_PLAN.md](SOL_TRACKER_IMPROVEMENT_PLAN.md) for detailed roadmap including:
+- **RL-Based Trading Agent** - Full reinforcement learning system with explainable rule discovery (see [NewAgent.md](NewAgent.md))
+- Advanced AI features (multi-horizon predictions, news sentiment integration, attention mechanisms)
+- Explainability features (SHAP values, decision tree rules, attention visualization)
 - Production deployment strategies
 - Security hardening
 - Additional technical indicators
@@ -276,7 +274,6 @@ Visit `http://localhost:5030/sol-tracker` to view:
 - **RSI-Based Trading Signals**: Clear buy/sell/hold recommendations based on RSI levels
 - **Signal Performance Tracker**: See win rates, average returns, and reliability metrics for each signal type
 - **Technical Indicators Summary**: Moving averages (SMA 1h, 4h, 24h), MACD, Bollinger Bands, momentum indicators
-- **Latest Bandit Recommendations**: Contextual bandit algorithm buy/sell/hold suggestions
 - **Time Range Selection**: View data for 1 hour, 1 day, 1 week, 1 month, or 1 year
 - **Price Statistics**: Current price, 24h change, high/low ranges, standard deviation
 

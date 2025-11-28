@@ -2,7 +2,7 @@
 
 > **⚠️ This document contains information about features that have been deprecated or removed from the project.**
 > 
-> **Last Updated:** 2025-11-27
+> **Last Updated:** 2025-01-XX
 
 This document preserves historical information about deprecated features for reference purposes. These features are no longer actively maintained or supported.
 
@@ -49,40 +49,218 @@ The project now focuses on **RSI-based trading signals** instead of price predic
 
 ## Contextual Bandit Trading Agent
 
-### Status: **REMOVED** from SOL Tracker UI
+### Status: **DEPRECATED** (Removed from UI, Replaced with RSI Signals)
 
-The contextual bandit algorithm has been **removed from the SOL Tracker page** and replaced with RSI-based signals. The bandit code may still exist in the codebase but is no longer displayed in the UI.
+The contextual bandit algorithm has been **deprecated and removed from the SOL Tracker page**. It was replaced with RSI-based signals, which provide more transparent and interpretable trading recommendations. The bandit code may still exist in the codebase but is no longer displayed in the UI or actively maintained.
 
-### What It Was
+---
 
-A reinforcement learning agent that learned to buy, sell, or hold SOL based on:
-- Momentum and trend signals
-- Statistical features (Sharpe ratio, rolling mean, price deviations)
-- Profit and loss from past trades
+### What It Really Did
 
-### Implementation Details
+The contextual bandit was a **multi-armed bandit** reinforcement learning system that attempted to learn optimal trading actions (buy, sell, or hold) by exploring different strategies and exploiting the ones that appeared most profitable.
 
-- Used separate online learning models (typically Hoeffding Tree Regressor) for each potential action
-- Learned to predict the expected reward based on the current market context
-- The action with the highest predicted reward was chosen, with some randomness (epsilon-greedy strategy) to encourage exploration
-- Bandit action logs (including chosen action, predicted rewards, and context) were stored in the `sol_prices.db` SQLite database
+#### Core Mechanism
 
-### Why It Was Removed
+1. **Three Separate Models**: The system maintained three independent online learning models (typically `HoeffdingAdaptiveTreeRegressor` from the `river` library), one for each action:
+   - `model_buy`: Predicted expected reward for buying SOL
+   - `model_sell`: Predicted expected reward for selling SOL
+   - `model_hold`: Predicted expected reward for holding current position
 
-The SOL Tracker page was redesigned to focus on clear, interpretable RSI-based signals rather than the more complex bandit algorithm. RSI provides more transparent and widely-understood trading signals.
+2. **Contextual Features**: At each decision point, the bandit observed a feature vector including:
+   - **Momentum signals**: Recent price changes, rate of change
+   - **Trend indicators**: Moving averages, price vs. SMA ratios
+   - **Statistical features**: Sharpe ratio, rolling standard deviation, price deviations from mean
+   - **Portfolio state**: Current position size, unrealized P&L, time since last trade
+   - **Market conditions**: Volatility metrics, recent price range
+
+3. **Reward Prediction**: Each model predicted the expected reward (profit/loss) for its corresponding action given the current context
+
+4. **Action Selection**: The system used an **epsilon-greedy** strategy:
+   - **Exploitation (1-ε)**: Choose the action with the highest predicted reward
+   - **Exploration (ε)**: Randomly select an action to discover new strategies
+   - The epsilon value typically decayed over time to shift from exploration to exploitation
+
+5. **Learning Loop**: After taking an action, the system:
+   - Waited for a time period (e.g., 1 hour, 24 hours)
+   - Calculated the actual reward based on price movement
+   - Updated the corresponding model with the (context, reward) pair
+   - Adjusted its predictions for future similar contexts
+
+6. **Portfolio Simulation**: The bandit maintained a simulated portfolio in `bandit_state.json` to track:
+   - Current position (SOL amount, entry price)
+   - Portfolio value over time
+   - Trade history and outcomes
+   - Cumulative returns
+
+#### Technical Implementation
+
+- **Online Learning**: Models updated incrementally with each new data point (no batch retraining)
+- **Adaptive Trees**: Used Hoeffding trees that could adapt to concept drift (changing market conditions)
+- **Feature Engineering**: Computed rolling statistics, momentum indicators, and normalized features
+- **Reward Calculation**: Rewards were based on log returns, transaction costs, and risk penalties
+- **Logging**: All decisions, predicted rewards, and outcomes were stored in `sol_prices.db` for analysis
+
+---
+
+### Why It Was Fun to Build
+
+The contextual bandit was an **intellectually stimulating project** that combined several interesting concepts:
+
+1. **Reinforcement Learning in Practice**: It was a real-world application of RL concepts (exploration vs. exploitation, credit assignment, online learning) outside of academic exercises
+
+2. **Adaptive Learning**: Watching the models learn and adapt in real-time was fascinating - you could see the predictions change as the system observed more market data
+
+3. **Multi-Armed Bandit Problem**: The classic exploration/exploitation tradeoff is a fundamental problem in machine learning, and implementing it for trading was a natural fit
+
+4. **Feature Engineering Challenge**: Designing contextual features that might predict profitable trades required thinking about market dynamics, technical analysis, and statistical properties
+
+5. **Simulation & Experimentation**: The portfolio simulation allowed for safe experimentation - you could test strategies without risking real capital
+
+6. **Data-Driven Decisions**: The idea of an algorithm that "learns" from market data and makes autonomous decisions felt like building a trading AI
+
+7. **Online Learning Appeal**: The ability to update models incrementally without retraining from scratch made it feel like a "living" system that evolved with the market
+
+8. **Transparency**: Unlike black-box neural networks, you could inspect the tree structures and understand (to some degree) what the models were learning
+
+---
+
+### Why It's Not a Good Trading Advice Model
+
+Despite being an engaging technical project, the contextual bandit had **fundamental limitations** that made it unsuitable as a reliable trading advice system:
+
+#### 1. **Overfitting to Noise**
+
+- **Problem**: Financial markets are extremely noisy, and the bandit could easily learn spurious patterns that don't generalize
+- **Example**: If SOL happened to rise after a specific combination of features occurred 3 times, the model might "learn" that pattern, even if it was just random chance
+- **Impact**: The system could appear to perform well in backtesting but fail in live trading
+
+#### 2. **Concept Drift & Non-Stationarity**
+
+- **Problem**: Market conditions change constantly (bull markets, bear markets, volatility regimes, macro events). What worked yesterday may not work tomorrow
+- **Example**: A strategy that worked during a trending market might fail during a ranging market, but the bandit would continue using it until it accumulated enough negative feedback
+- **Impact**: The system could be slow to adapt to regime changes, leading to losses during transitions
+
+#### 3. **Limited Context Window**
+
+- **Problem**: The bandit only considered recent price data and simple technical indicators. It couldn't incorporate:
+  - News events and sentiment
+  - Macroeconomic factors
+  - Market microstructure
+  - Cross-asset correlations
+  - Long-term trends
+- **Impact**: The system made decisions based on incomplete information
+
+#### 4. **Reward Signal Delay**
+
+- **Problem**: The bandit learned from delayed rewards (waiting 1h/24h to see outcomes). This created several issues:
+  - **Credit Assignment**: Hard to know which features actually caused the outcome
+  - **Slow Learning**: Takes many trades to learn, but markets change faster
+  - **Sparse Feedback**: Most of the time, you're waiting, not learning
+- **Impact**: The system learned slowly and might miss short-term opportunities
+
+#### 5. **Epsilon-Greedy Limitations**
+
+- **Problem**: The exploration strategy was naive:
+  - Random exploration doesn't prioritize promising strategies
+  - Fixed epsilon decay might explore too much early (wasting capital) or too little later (missing new patterns)
+  - No uncertainty quantification - couldn't distinguish between "confident" and "uncertain" predictions
+- **Impact**: Inefficient use of capital and missed opportunities
+
+#### 6. **No Risk Management**
+
+- **Problem**: The bandit optimized for expected reward but didn't explicitly consider:
+  - Drawdown limits
+  - Position sizing based on confidence
+  - Correlation with portfolio
+  - Tail risk
+- **Impact**: Could take large positions in uncertain situations, leading to catastrophic losses
+
+#### 7. **Single-Asset Focus**
+
+- **Problem**: The bandit only considered SOL price action, ignoring:
+  - Market-wide conditions (crypto market cap, BTC correlation)
+  - Sector trends
+  - Liquidity conditions
+- **Impact**: Missed important contextual information
+
+#### 8. **Lack of Interpretability**
+
+- **Problem**: While tree models are more interpretable than neural networks, understanding why the bandit made a specific decision required:
+  - Inspecting tree structures (complex)
+  - Analyzing feature importance (not always clear)
+  - No human-readable "rules" or explanations
+- **Impact**: Users couldn't understand or trust the recommendations
+
+#### 9. **Sample Size Requirements**
+
+- **Problem**: Online learning requires many examples to converge, but:
+  - Each trade provides only one data point
+  - Markets change before enough data accumulates
+  - Need thousands of trades for statistical significance, but market conditions change weekly/monthly
+- **Impact**: The system might never converge to optimal behavior
+
+#### 10. **No Theoretical Guarantees**
+
+- **Problem**: Unlike some RL algorithms with theoretical guarantees (regret bounds, convergence proofs), the contextual bandit had no guarantees about:
+  - Convergence to optimal policy
+  - Regret bounds
+  - Performance in non-stationary environments
+- **Impact**: No way to know if the system was working correctly or just lucky
+
+#### 11. **Transaction Cost Ignorance**
+
+- **Problem**: While transaction costs were included in reward calculation, the bandit didn't optimize for:
+  - Trade frequency (too many small trades = high costs)
+  - Optimal entry/exit timing to minimize slippage
+  - Market impact of trades
+- **Impact**: Could generate many small trades that look profitable but lose money after costs
+
+#### 12. **Emotional/Behavioral Factors**
+
+- **Problem**: Real trading involves human psychology, but the bandit:
+  - Couldn't account for market sentiment shifts
+  - Didn't consider FOMO, panic selling, or other behavioral factors
+  - Made decisions purely on numerical features
+- **Impact**: Missed important market dynamics driven by human behavior
+
+---
+
+### Why RSI Is Better (For Now)
+
+RSI-based signals, while simpler, address many of the bandit's weaknesses:
+
+1. **Interpretable**: Clear rules (RSI < 30 = oversold = buy signal) that anyone can understand
+2. **Time-Tested**: RSI has been used by traders for decades with known strengths/weaknesses
+3. **No Overfitting Risk**: Fixed rules don't adapt to noise
+4. **Transparent**: You can see exactly why a signal was generated
+5. **Fast**: No learning required, works immediately
+6. **Reliable**: Consistent behavior across different market conditions
+
+However, RSI also has limitations (it's a lagging indicator, can give false signals, etc.), which is why the project is moving toward a **full RL agent** (see [NewAgent.md](NewAgent.md)) that addresses the bandit's weaknesses while maintaining interpretability.
+
+---
 
 ### Current Status
 
 - Bandit code may still exist in `sol_price_fetcher.py` but is not displayed in the UI
 - The `/api/latest-bandit-action` endpoint may still exist but is not actively used
-- Historical bandit logs remain in the database
+- Historical bandit logs remain in the database for reference
+- `bandit_state.json` may still exist but is not actively updated
 
 ### Migration Path
 
-The project now uses **RSI (Relative Strength Index)** for trading signals:
+The project has moved to **RSI (Relative Strength Index)** for trading signals:
 - **RSI < 30**: Buy signal (oversold conditions)
 - **RSI > 70**: Sell signal (overbought conditions)
 - **RSI 30-70**: Hold signal (neutral conditions)
+
+**Future Direction**: The project is planning to implement a **full reinforcement learning agent** (see [NewAgent.md](NewAgent.md) and [SOL_TRACKER_IMPROVEMENT_PLAN.md](SOL_TRACKER_IMPROVEMENT_PLAN.md)) that will:
+- Use proper RL algorithms (PPO/actor-critic) instead of bandits
+- Integrate multi-modal features (price, technical indicators, news embeddings, sentiment)
+- Provide explainable outputs (SHAP values, decision trees, attention mechanisms)
+- Include proper risk management and safety constraints
+- Learn from multi-horizon returns (1h, 24h) to accelerate learning
+- Extract human-readable rules that users can understand and validate
 
 ---
 
@@ -251,7 +429,7 @@ If you're working with historical data or need to understand the deprecated feat
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** 2025-11-27  
+**Document Version:** 2.0  
+**Last Updated:** 2025-01-XX  
 **Maintained By:** Development Team
 
