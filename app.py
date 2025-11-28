@@ -743,9 +743,11 @@ def load_bandit_state():
 def sol_tracker():
     selected_range = request.args.get("range", "day")
     # Updated range_map to use timedelta for time-based filtering
-    now = datetime.utcnow()
+    # Use timezone-aware datetime for consistency
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
     range_map = {
-        "hour": now - timedelta(days=1/24),  # 1 hour = 1/24 of a day
+        "hour": now - timedelta(hours=1),
         "day": now - timedelta(days=1),
         "week": now - timedelta(weeks=1),
         "month": now - timedelta(days=30),  # Approx month
@@ -758,17 +760,20 @@ def sol_tracker():
     # Optimized: Only fetch columns we need (timestamp, rate) and limit results for performance
     # For very long ranges, we could implement data sampling/downsampling
     max_data_points = 1000  # Limit to prevent chart overload
+    time_threshold_iso = time_threshold.isoformat()
+    logger.info(f"Fetching price history for range '{selected_range}' with threshold: {time_threshold_iso}")
     all_data = fetcher.get_price_history(
-        time_threshold=time_threshold.isoformat(),
+        time_threshold=time_threshold_iso,
         limit=max_data_points
     )
+    logger.info(f"get_price_history returned {len(all_data) if all_data else 0} records")
     fetcher.close()
 
     timestamps = []
     prices = []
     unix_timestamps = []  # Initialize Unix timestamps list
     
-    if all_data: # Ensure all_data is not None or empty
+    if all_data and len(all_data) > 0:  # Ensure all_data is not None and not empty
         for row in all_data:  # oldest to newest
             # Optimized query now returns (timestamp, rate) tuple
             ts = row[0]  # timestamp column (first column)
@@ -776,7 +781,15 @@ def sol_tracker():
             # Ensure timestamp is valid before formatting
             if ts:
                 try:
-                    dt = datetime.fromisoformat(ts)
+                    # Parse timestamp - handle both timezone-aware and naive timestamps
+                    if isinstance(ts, str):
+                        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    else:
+                        dt = ts
+                    # Ensure timezone-aware for consistent timestamp calculation
+                    if dt.tzinfo is None:
+                        from datetime import timezone
+                        dt = dt.replace(tzinfo=timezone.utc)
                     short_ts = dt.strftime("%b %d, %I:%M %p")
                     timestamps.append(short_ts)
                     prices.append(float(price))  # Ensure price is float
@@ -792,11 +805,42 @@ def sol_tracker():
     logger.info(f"Loaded {len(timestamps)} timestamps, {len(prices)} prices, {len(unix_timestamps)} unix timestamps")
     if len(unix_timestamps) > 0:
         logger.info(f"Sample unix timestamp: {unix_timestamps[0]}")
+        logger.info(f"First timestamp: {timestamps[0] if timestamps else 'N/A'}, First price: {prices[0] if prices else 'N/A'}")
+        logger.info(f"Last timestamp: {timestamps[-1] if timestamps else 'N/A'}, Last price: {prices[-1] if prices else 'N/A'}")
+    else:
+        logger.warning(f"No data processed! all_data length: {len(all_data) if all_data else 'None'}")
 
     if not prices: # Handle case with no price data for the selected range
-        logger.warning(f"No price data found for range: {selected_range}. Returning empty data.")
-        # Optionally, you could provide default empty values or render a specific message
-        # For now, we'll let it proceed, and the template should handle empty lists gracefully.
+        logger.warning(f"No price data found for range: {selected_range} with threshold {time_threshold_iso}.")
+        logger.warning(f"Attempting fallback: fetching last {max_data_points} records regardless of time threshold.")
+        # Fallback: try fetching without time threshold
+        try:
+            fetcher2 = SOLPriceFetcher()
+            all_data_fallback = fetcher2.get_price_history(time_threshold=None, limit=max_data_points)
+            fetcher2.close()
+            if all_data_fallback and len(all_data_fallback) > 0:
+                logger.info(f"Fallback query returned {len(all_data_fallback)} records")
+                for row in all_data_fallback[-max_data_points:]:  # Take most recent
+                    ts = row[0]
+                    price = row[1]
+                    if ts:
+                        try:
+                            if isinstance(ts, str):
+                                dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                            else:
+                                dt = ts
+                            if dt.tzinfo is None:
+                                from datetime import timezone
+                                dt = dt.replace(tzinfo=timezone.utc)
+                            short_ts = dt.strftime("%b %d, %I:%M %p")
+                            timestamps.append(short_ts)
+                            prices.append(float(price))
+                            unix_ts = int(dt.timestamp())
+                            unix_timestamps.append(unix_ts)
+                        except Exception as e:
+                            logger.warning(f"Error processing fallback row: {e}")
+        except Exception as e:
+            logger.error(f"Fallback query also failed: {e}")
 
     conn = sqlite3.connect("sol_prices.db")
     cursor = conn.cursor()
@@ -834,9 +878,12 @@ def sol_tracker():
     # Get the ACTUAL current/latest price (not from filtered time range)
     # This should always be the most recent price in the database, regardless of selected time range
     actual_current_price = None
+    price_24h_ago = None  # Price from exactly 24 hours ago (for 24h change calculation)
     try:
         conn = sqlite3.connect("sol_prices.db")
         cursor = conn.cursor()
+        
+        # Get the most recent price
         cursor.execute("""
             SELECT rate, timestamp 
             FROM sol_prices 
@@ -846,6 +893,30 @@ def sol_tracker():
         latest_row = cursor.fetchone()
         if latest_row:
             actual_current_price = round(latest_row[0], 4)
+            latest_timestamp = latest_row[1]
+            
+            # Calculate 24 hours ago from the latest timestamp
+            from datetime import timezone
+            if isinstance(latest_timestamp, str):
+                latest_dt = datetime.fromisoformat(latest_timestamp.replace('Z', '+00:00'))
+            else:
+                latest_dt = latest_timestamp
+            if latest_dt.tzinfo is None:
+                latest_dt = latest_dt.replace(tzinfo=timezone.utc)
+            
+            # Get price from 24 hours ago
+            price_24h_ago_time = (latest_dt - timedelta(hours=24)).isoformat()
+            cursor.execute("""
+                SELECT rate 
+                FROM sol_prices 
+                WHERE timestamp <= ?
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            """, (price_24h_ago_time,))
+            price_24h_row = cursor.fetchone()
+            if price_24h_row:
+                price_24h_ago = round(price_24h_row[0], 4)
+        
         conn.close()
     except Exception as e:
         logger.warning(f"Could not fetch latest price from database: {e}")
@@ -853,6 +924,12 @@ def sol_tracker():
         try:
             sol_data = get_sol_price_data()
             actual_current_price = round(sol_data.get('rate', 0), 4) if sol_data else None
+            # Try to get 24h change from API data
+            if sol_data and 'delta' in sol_data and 'day' in sol_data['delta']:
+                # Calculate 24h ago price from delta
+                delta_day = sol_data['delta'].get('day', 1.0)
+                if actual_current_price and delta_day != 1.0:
+                    price_24h_ago = round(actual_current_price / delta_day, 4)
         except Exception as e2:
             logger.error(f"Could not fetch live price from API: {e2}")
             # Last resort: use the last price from the filtered range if available
@@ -973,6 +1050,8 @@ def sol_tracker():
         "current_price": None,
         "price_start": None,
         "percent_change": 0,
+        "percent_change_24h": None,
+        "percent_change_display": None,
         "high": None,
         "low": None,
         "range": None,
@@ -1007,15 +1086,27 @@ def sol_tracker():
         stats["current_price"] = actual_current_price if actual_current_price is not None else round(period_end_price, 4)
         stats["price_start"] = round(price_start, 4)
         
+        # Calculate 24-hour change (always based on current price vs 24 hours ago, regardless of selected range)
+        if actual_current_price is not None and price_24h_ago is not None and price_24h_ago != 0:
+            percent_change_24h = round(((actual_current_price - price_24h_ago) / price_24h_ago) * 100, 2)
+            stats["percent_change_24h"] = percent_change_24h
+        else:
+            stats["percent_change_24h"] = None
+        
         # For period-specific percent change, use the period's start and end prices
         # This shows the change within the selected time range
-
         if price_start != 0: # Avoid division by zero
             # Calculate percent change for the SELECTED TIME RANGE (period_end_price vs price_start)
             percent_change = round(((period_end_price - price_start) / price_start) * 100, 2)
             stats["percent_change"] = percent_change
         else:
             stats["percent_change"] = 0 # Or some other indicator like 'N/A' if preferred
+        
+        # Use 24h change for display if available, otherwise fall back to period change
+        if stats.get("percent_change_24h") is not None:
+            stats["percent_change_display"] = stats["percent_change_24h"]
+        else:
+            stats["percent_change_display"] = stats["percent_change"]
 
         high_price = round(max(prices), 4)
         low_price = round(min(prices), 4)

@@ -461,6 +461,7 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
     """
     global last_trade_action, last_trade_price, position_open, last_action
     reward = 0.0
+    net_pnl = 0.0  # Initialize net_pnl for logging purposes
     cost_with_fee = price_now * (1 + fee) # This is a good idea, it's unused - TODO
     sell_price_after_fee = price_now * (1 - fee) # This is a good idea, it's unused - TODO
 
@@ -647,7 +648,9 @@ def calculate_reward(action, price_now, portfolio, fee=0.001,
             else:
                 reward = random.uniform(0.1, 0.2)  # weak hold signal
     if abs(reward) > 1.0:
-        logger.info(f"⚠️ High reward {reward:.2f} on {action}: pnl={net_pnl:.2f}, rsi={rsi_value}, momentum={price_momentum_15m}")
+        # Only log net_pnl if it was calculated (i.e., for sell actions)
+        pnl_str = f"pnl={net_pnl:.2f}" if action == "sell" else "pnl=N/A"
+        logger.info(f"⚠️ High reward {reward:.2f} on {action}: {pnl_str}, rsi={rsi_value}, momentum={price_momentum_15m}")
     last_action = action
     save_state()
     return reward

@@ -90,9 +90,9 @@
                 <div class="flex flex-col md:flex-row md:items-center md:justify-between">
                     <div class="flex items-center space-x-6 mb-4 md:mb-0">
                         <div class="text-6xl md:text-7xl">
-                            {% if stats.percent_change is not none and stats.percent_change > 0 %}
+                            {% if stats.percent_change_display is not none and stats.percent_change_display > 0 %}
                                 📈
-                            {% elif stats.percent_change is not none and stats.percent_change < 0 %}
+                            {% elif stats.percent_change_display is not none and stats.percent_change_display < 0 %}
                                 📉
                             {% else %}
                                 💰
@@ -108,11 +108,12 @@
                     <div class="flex flex-col items-start md:items-end space-y-2">
                         <div class="text-sm text-white/80 font-medium">24h Change</div>
                         <div class="flex items-center space-x-3">
-                            {% if stats.percent_change is not none %}
+                            {% if stats.percent_change_display is not none %}
                                 <div class="text-4xl md:text-5xl font-extrabold text-white">
-                                    {% if stats.percent_change > 0 %}⬆️{% elif stats.percent_change < 0 %}⬇️{% else %}➡️{% endif %}
-                                    {{ "%.2f"|format(stats.percent_change) }}%
+                                    {% if stats.percent_change_display > 0 %}⬆️{% elif stats.percent_change_display < 0 %}⬇️{% else %}➡️{% endif %}
+                                    {{ "%.2f"|format(stats.percent_change_display) }}%
                                 </div>
+                                <div class="text-xs text-white/70 mt-2">24h</div>
                             {% else %}
                                 <div class="text-4xl md:text-5xl font-extrabold text-white/50">N/A</div>
                             {% endif %}
@@ -1180,11 +1181,20 @@
     <script>
       // Wait for TradingView library to load
       function initChart() {
+      console.log('=== Chart Initialization Started ===');
+      
       // Data from Flask
       const timestamps = {{ timestamps|tojson }};
       const prices = {{ prices|tojson }};
       const rsiValues = {{ rsi_values|tojson }};
       const unixTimestamps = {{ unix_timestamps|tojson }};
+      
+      console.log('Data received from server:', {
+          timestamps: timestamps ? timestamps.length : 0,
+          prices: prices ? prices.length : 0,
+          rsiValues: rsiValues ? rsiValues.length : 0,
+          unixTimestamps: unixTimestamps ? unixTimestamps.length : 0
+      });
 
       // Debug: Log data to console
       console.log('Timestamps:', timestamps ? timestamps.length : 0);
@@ -1242,7 +1252,8 @@
               const unixTime = unixTimestamps[i];
               const price = prices[i];
               
-              if (unixTime && price !== undefined && !isNaN(price) && price > 0) {
+              if (unixTime && unixTime !== null && unixTime !== undefined && !isNaN(unixTime) && 
+                  price !== undefined && price !== null && !isNaN(price) && isFinite(price) && price > 0) {
                   priceData.push({
                       time: unixTime,
                       value: price
@@ -1262,6 +1273,33 @@
       if (priceData.length > 0) {
           console.log('First price point:', priceData[0]);
           console.log('Last price point:', priceData[priceData.length - 1]);
+          
+          // Validate data format for TradingView
+          const invalidPoints = [];
+          priceData.forEach((point, idx) => {
+              if (!point || typeof point.time !== 'number' || typeof point.value !== 'number') {
+                  invalidPoints.push({idx, point});
+              }
+              if (point && (isNaN(point.time) || isNaN(point.value) || point.value <= 0)) {
+                  invalidPoints.push({idx, point, reason: 'NaN or invalid value'});
+              }
+              // Check if timestamp is reasonable (not too far in past/future)
+              if (point && point.time) {
+                  const now = Math.floor(Date.now() / 1000);
+                  const yearAgo = now - (365 * 24 * 60 * 60);
+                  const yearFromNow = now + (365 * 24 * 60 * 60);
+                  if (point.time < yearAgo || point.time > yearFromNow) {
+                      invalidPoints.push({idx, point, reason: `Timestamp out of range: ${point.time} (now: ${now})`});
+                  }
+              }
+          });
+          if (invalidPoints.length > 0) {
+              console.error('Invalid price data points found:', invalidPoints.slice(0, 10));
+          } else {
+              console.log('✅ All price data points are valid');
+          }
+      } else {
+          console.error('❌ No price data to display!');
       }
 
       // Create RSI-based signal markers
@@ -1269,15 +1307,52 @@
       const sellMarkers = [];
       
       // Add markers based on RSI values (oversold = buy, overbought = sell)
-      if (rsiValues && unixTimestamps && prices) {
-          rsiValues.forEach((rsi, index) => {
-              if (rsi !== null && rsi !== undefined && index < unixTimestamps.length && unixTimestamps[index]) {
-                  const unixTime = unixTimestamps[index];
-                  
+      // Note: RSI values may have fewer points than price data (RSI needs history to calculate)
+      if (rsiValues && unixTimestamps && prices && priceData.length > 0) {
+          // Create a map of time -> price index for faster lookup
+          const timeToPriceIndex = {};
+          priceData.forEach((point, idx) => {
+              if (point.time && point.value !== null && point.value !== undefined) {
+                  timeToPriceIndex[point.time] = idx;
+              }
+          });
+          
+          // Iterate through RSI values and match them to price data by time
+          rsiValues.forEach((rsi, rsiIndex) => {
+              // Skip null/undefined RSI values
+              if (rsi === null || rsi === undefined || isNaN(rsi)) {
+                  return;
+              }
+              
+              // Find corresponding timestamp - RSI index might be offset from price index
+              // Try to find matching timestamp in priceData
+              let matchedTime = null;
+              
+              // Strategy 1: If RSI index is within unixTimestamps bounds, use that
+              if (rsiIndex < unixTimestamps.length && unixTimestamps[rsiIndex] !== null && unixTimestamps[rsiIndex] !== undefined) {
+                  const candidateTime = unixTimestamps[rsiIndex];
+                  // Verify this time exists in priceData
+                  if (timeToPriceIndex.hasOwnProperty(candidateTime)) {
+                      matchedTime = candidateTime;
+                  }
+              }
+              
+              // Strategy 2: If no direct match, try to find closest timestamp in priceData
+              // (RSI typically starts after some price history is available)
+              if (!matchedTime && priceData.length > 0) {
+                  // RSI usually starts at index ~14 (for 14-period RSI), so offset the index
+                  const estimatedPriceIndex = Math.min(rsiIndex + 14, priceData.length - 1);
+                  if (priceData[estimatedPriceIndex] && priceData[estimatedPriceIndex].time) {
+                      matchedTime = priceData[estimatedPriceIndex].time;
+                  }
+              }
+              
+              // Only create marker if we found a valid time
+              if (matchedTime && matchedTime !== null && matchedTime !== undefined) {
                   // Buy signal: RSI < 30 (oversold)
                   if (rsi < 30) {
                       buyMarkers.push({
-                          time: unixTime,
+                          time: matchedTime,
                           position: 'belowBar',
                           color: '#10b981',
                           shape: 'arrowUp',
@@ -1288,7 +1363,7 @@
                   // Sell signal: RSI > 70 (overbought)
                   else if (rsi > 70) {
                       sellMarkers.push({
-                          time: unixTime,
+                          time: matchedTime,
                           position: 'aboveBar',
                           color: '#ef4444',
                           shape: 'arrowDown',
@@ -1301,19 +1376,80 @@
       }
 
       // Prepare RSI data
+      // RSI values may have fewer points than price data (RSI needs history to calculate)
+      // CRITICAL: Only include RSI points where timestamp exactly matches price data timestamp
       const rsiData = [];
-      if (rsiValues && unixTimestamps) {
-          rsiValues.forEach((rsi, index) => {
-              if (rsi !== null && rsi !== undefined && index < timestamps.length && unixTimestamps[index]) {
+      if (rsiValues && priceData && priceData.length > 0) {
+          // Create a Set of valid price timestamps for fast lookup
+          const validPriceTimes = new Set();
+          priceData.forEach((point) => {
+              if (point && point.time !== null && point.time !== undefined && !isNaN(point.time) && isFinite(point.time)) {
+                  validPriceTimes.add(point.time);
+              }
+          });
+          
+          console.log('Valid price timestamps:', validPriceTimes.size);
+          
+          // RSI typically starts after some price history (e.g., 14 periods for 14-period RSI)
+          // Match RSI values to price data timestamps - ONLY use timestamps that exist in priceData
+          rsiValues.forEach((rsi, rsiIndex) => {
+              // Skip invalid RSI values
+              if (rsi === null || rsi === undefined || isNaN(rsi) || !isFinite(rsi) || rsi < 0 || rsi > 100) {
+                  return;
+              }
+              
+              // Find corresponding timestamp - must exist in priceData
+              let matchedTime = null;
+              
+              // Strategy 1: If unixTimestamps available, try matching by index
+              if (unixTimestamps && rsiIndex < unixTimestamps.length) {
+                  const candidateTime = unixTimestamps[rsiIndex];
+                  // CRITICAL: Only use if this timestamp exists in priceData
+                  if (candidateTime && !isNaN(candidateTime) && isFinite(candidateTime) && validPriceTimes.has(candidateTime)) {
+                      matchedTime = candidateTime;
+                  }
+              }
+              
+              // Strategy 2: Try index offset (RSI usually starts at index ~14)
+              if (!matchedTime) {
+                  const estimatedPriceIndex = Math.min(rsiIndex + 14, priceData.length - 1);
+                  if (priceData[estimatedPriceIndex] && priceData[estimatedPriceIndex].time) {
+                      const candidateTime = priceData[estimatedPriceIndex].time;
+                      // CRITICAL: Verify this timestamp is valid
+                      if (candidateTime && !isNaN(candidateTime) && isFinite(candidateTime) && validPriceTimes.has(candidateTime)) {
+                          matchedTime = candidateTime;
+                      }
+                  }
+              }
+              
+              // Only add if we found a valid timestamp that exists in priceData
+              if (matchedTime && validPriceTimes.has(matchedTime)) {
                   rsiData.push({
-                      time: unixTimestamps[index],
+                      time: matchedTime,
                       value: rsi
                   });
               }
           });
+          
+          // CRITICAL: Sort RSI data by time (TradingView requirement)
+          rsiData.sort((a, b) => a.time - b.time);
+          
+          // Remove duplicates (same timestamp)
+          const seen = new Set();
+          const uniqueRsiData = [];
+          rsiData.forEach(point => {
+              if (!seen.has(point.time)) {
+                  seen.add(point.time);
+                  uniqueRsiData.push(point);
+              }
+          });
+          
+          // Replace rsiData with deduplicated version
+          rsiData.length = 0;
+          rsiData.push(...uniqueRsiData);
       }
       
-      console.log('RSI data prepared:', rsiData.length, 'points');
+      console.log('RSI data prepared:', rsiData.length, 'points (all timestamps verified against price data)');
 
       // Professional Dark Theme Configuration
       const chartOptions = {
@@ -1356,11 +1492,40 @@
       const chartContainer = document.getElementById('tradingview-chart');
       
       if (!chartContainer) {
-          console.error('Chart container not found!');
-      } else if (typeof LightweightCharts === 'undefined') {
-          console.error('TradingView Lightweight Charts library not loaded!');
+          console.error('❌ Chart container "tradingview-chart" not found!');
+          console.error('Available elements with "chart" in ID:', 
+              Array.from(document.querySelectorAll('[id*="chart"]')).map(el => el.id));
+          return;
+      }
+      
+      // Check container dimensions
+      const containerWidth = chartContainer.clientWidth || chartContainer.offsetWidth;
+      const containerHeight = chartContainer.clientHeight || chartContainer.offsetHeight;
+      console.log('Chart container dimensions:', { 
+          width: containerWidth, 
+          height: containerHeight,
+          computedWidth: window.getComputedStyle(chartContainer).width,
+          computedHeight: window.getComputedStyle(chartContainer).height
+      });
+      
+      if (containerWidth === 0 || containerHeight === 0) {
+          console.warn('⚠️ Chart container has zero dimensions, setting defaults');
+          chartContainer.style.width = chartContainer.style.width || '100%';
+          chartContainer.style.height = chartContainer.style.height || '500px';
+          console.log('Updated dimensions:', {
+              width: chartContainer.clientWidth,
+              height: chartContainer.clientHeight
+          });
+      }
+      
+      if (typeof LightweightCharts === 'undefined') {
+          console.error('❌ TradingView Lightweight Charts library not loaded!');
           chartContainer.innerHTML = '<div class="text-white p-4 text-center">Chart library failed to load. Please refresh the page.</div>';
-      } else if (priceData.length === 0) {
+          return;
+      }
+      console.log('✅ TradingView LightweightCharts library loaded');
+      
+      if (priceData.length === 0) {
           console.error('No price data available!');
           console.error('Debug info:', {
               timestampsLength: timestamps ? timestamps.length : 0,
@@ -1422,39 +1587,175 @@
                   throw new Error('Neither addLineSeries nor addSeries(LineSeries) is available. Chart library version issue.');
               }
 
-              // Set price data
+              // Final validation: filter out any null/invalid values (declare at higher scope)
+              let validPriceData = [];
+              let finalPriceData = []; // Declare at higher scope for use in markers and crosshair
               if (priceData.length > 0) {
-                  priceSeries.setData(priceData);
-                  console.log('Price data set successfully');
+                  validPriceData = priceData.filter(point => {
+                      return point && 
+                             point.time !== null && point.time !== undefined && !isNaN(point.time) &&
+                             point.value !== null && point.value !== undefined && !isNaN(point.value) && isFinite(point.value) && point.value > 0;
+                  });
+                  if (validPriceData.length > 0) {
+                      // Final validation: ensure data is sorted by time (TradingView requirement)
+                      validPriceData.sort((a, b) => a.time - b.time);
+                      
+                      // Remove duplicate timestamps (keep the last one for each timestamp)
+                      const seen = new Map();
+                      const deduplicatedPriceData = [];
+                      for (let i = validPriceData.length - 1; i >= 0; i--) {
+                          const point = validPriceData[i];
+                          if (!seen.has(point.time)) {
+                              seen.set(point.time, point);
+                              deduplicatedPriceData.unshift(point);
+                          }
+                      }
+                      validPriceData.length = 0;
+                      validPriceData.push(...deduplicatedPriceData);
+                      
+                      // Log sample data for debugging
+                      console.log('Sample valid price data (first 3):', validPriceData.slice(0, 3));
+                      console.log('Sample valid price data (last 3):', validPriceData.slice(-3));
+                      console.log('Time range:', {
+                          first: new Date(validPriceData[0].time * 1000).toISOString(),
+                          last: new Date(validPriceData[validPriceData.length - 1].time * 1000).toISOString(),
+                          span_hours: (validPriceData[validPriceData.length - 1].time - validPriceData[0].time) / 3600
+                      });
+                      
+                      // Final check: ensure no null/undefined values
+                      finalPriceData = validPriceData.filter(point => {
+                          return point && 
+                                 point.time !== null && point.time !== undefined && !isNaN(point.time) && isFinite(point.time) &&
+                                 point.value !== null && point.value !== undefined && !isNaN(point.value) && isFinite(point.value) && point.value > 0;
+                      });
+                      
+                      if (finalPriceData.length !== validPriceData.length) {
+                          console.warn(`Filtered out ${validPriceData.length - finalPriceData.length} invalid price points`);
+                      }
+                      
+                      try {
+                          priceSeries.setData(finalPriceData);
+                          console.log('✅ Price data set successfully:', finalPriceData.length, 'points (filtered from', priceData.length, ')');
+                          
+                          // Fit content to show all data
+                          try {
+                              chart.timeScale().fitContent();
+                              console.log('✅ Chart time scale fitted to content');
+                          } catch (fitError) {
+                              console.warn('Could not fit content:', fitError);
+                          }
+                          
+                          // Verify data was actually set
+                          setTimeout(() => {
+                              try {
+                                  // Try to get the visible time range to verify chart has data
+                                  const visibleRange = chart.timeScale().getVisibleRange();
+                                  if (visibleRange) {
+                                      console.log('✅ Chart has visible time range:', {
+                                          from: new Date(visibleRange.from * 1000).toISOString(),
+                                          to: new Date(visibleRange.to * 1000).toISOString()
+                                      });
+                                  } else {
+                                      console.warn('⚠️ Chart time scale not initialized - trying to set visible range manually');
+                                      // Try to set visible range manually
+                                      if (finalPriceData.length > 0) {
+                                          const firstTime = finalPriceData[0].time;
+                                          const lastTime = finalPriceData[finalPriceData.length - 1].time;
+                                          chart.timeScale().setVisibleRange({
+                                              from: firstTime,
+                                              to: lastTime
+                                          });
+                                          console.log('✅ Manually set visible range');
+                                      }
+                                  }
+                              } catch (e) {
+                                  console.warn('Could not verify chart time scale:', e);
+                              }
+                          }, 200);
+                      } catch (e) {
+                          console.error('❌ Error setting price data:', e);
+                          console.error('Error details:', e.message, e.stack);
+                          // Try to find which point is causing the issue
+                          validPriceData.forEach((point, idx) => {
+                              if (!point || point.time === null || point.value === null || isNaN(point.time) || isNaN(point.value)) {
+                                  console.error('Invalid price point at index', idx, ':', point);
+                              }
+                          });
+                          chartContainer.innerHTML = '<div class="text-white p-4 text-center">Error loading price data. Check console for details.</div>';
+                          return;
+                      }
+                  } else {
+                      console.error('❌ No valid price data to display (all points filtered out)');
+                      console.error('Original priceData length:', priceData.length);
+                      console.error('Sample of filtered out data:', priceData.slice(0, 5));
+                      chartContainer.innerHTML = '<div class="text-white p-4 text-center">No valid price data available for the selected time range.</div>';
+                      return;
+                  }
 
                   // Add markers for buy/sell/hold signals
-                  const allMarkers = [...buyMarkers, ...sellMarkers];
-                  if (allMarkers.length > 0) {
-                      priceSeries.setMarkers(allMarkers);
-                      console.log('RSI-based markers set:', allMarkers.length, '(Buy:', buyMarkers.length, 'Sell:', sellMarkers.length, ')');
+                  // Filter out any markers with null/invalid time values AND ensure time exists in price data
+                  const priceDataTimes = new Set(finalPriceData.map(p => p.time));
+                  const validMarkers = [...buyMarkers, ...sellMarkers].filter(marker => {
+                      if (!marker || 
+                          marker.time === null || marker.time === undefined || 
+                          isNaN(marker.time) || !isFinite(marker.time)) {
+                          return false;
+                      }
+                      // CRITICAL: Ensure the marker's time exists in the price data
+                      if (!priceDataTimes.has(marker.time)) {
+                          return false;
+                      }
+                      return true;
+                  });
+                  if (validMarkers.length > 0) {
+                      try {
+                          priceSeries.setMarkers(validMarkers);
+                          console.log('✅ RSI-based markers set:', validMarkers.length, '(Buy:', buyMarkers.filter(m => m && priceDataTimes.has(m.time)).length, 'Sell:', sellMarkers.filter(m => m && priceDataTimes.has(m.time)).length, ')');
+                      } catch (e) {
+                          console.error('❌ Error setting markers:', e);
+                          console.error('Error details:', e.message, e.stack);
+                          // Don't break the chart if markers fail - just log the error
+                      }
+                  } else {
+                      console.warn('⚠️ No valid markers to set (all markers filtered out due to null/invalid time values or missing price data)');
                   }
               } else {
                   console.error('No price data to display!');
                   // Show error message
                   chartContainer.innerHTML = '<div class="text-white p-4 text-center">No price data available for the selected time range.</div>';
+                  return;
               }
 
               // Update price display on crosshair move
+              // Store first price from filtered data for comparison
+              const firstValidPrice = finalPriceData.length > 0 ? finalPriceData[0].value : null;
+              
               chart.subscribeCrosshairMove(param => {
-                  if (param.point === undefined || !param.time || param.seriesData.size === 0) {
-                      return;
-                  }
-                  const price = param.seriesData.get(priceSeries);
-                  if (price) {
-                      const currentPrice = price.value;
-                      const firstPrice = prices[0];
-                      const change = currentPrice - firstPrice;
-                      const changePercent = ((change / firstPrice) * 100).toFixed(2);
-                      
-                      document.getElementById('chart-price').textContent = `$${currentPrice.toFixed(2)}`;
-                      const changeEl = document.getElementById('chart-change');
-                      changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
-                      changeEl.className = change >= 0 ? 'ml-2 text-green-400' : 'ml-2 text-red-400';
+                  try {
+                      if (param === null || param === undefined || param.point === undefined || !param.time || !param.seriesData || param.seriesData.size === 0) {
+                          return;
+                      }
+                      const price = param.seriesData.get(priceSeries);
+                      if (price && price.value !== null && price.value !== undefined && !isNaN(price.value) && isFinite(price.value)) {
+                          const currentPrice = price.value;
+                          if (firstValidPrice !== null && firstValidPrice !== undefined && !isNaN(firstValidPrice) && isFinite(firstValidPrice)) {
+                              const change = currentPrice - firstValidPrice;
+                              const changePercent = ((change / firstValidPrice) * 100).toFixed(2);
+                              
+                              const priceEl = document.getElementById('chart-price');
+                              const changeEl = document.getElementById('chart-change');
+                              if (priceEl) {
+                                  priceEl.textContent = `$${currentPrice.toFixed(2)}`;
+                              }
+                              if (changeEl) {
+                                  changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
+                                  changeEl.className = change >= 0 ? 'ml-2 text-green-400' : 'ml-2 text-red-400';
+                              }
+                          }
+                      }
+                  } catch (e) {
+                      // Silently ignore crosshair errors to prevent console spam
+                      // console.debug('Crosshair update error:', e);
                   }
               });
 
@@ -1503,26 +1804,63 @@
                   }
                   
                   if (rsiSeries && rsiData.length > 0) {
-                      rsiSeries.setData(rsiData);
-
-                      // Add RSI overbought/oversold lines
-                      rsiSeries.createPriceLine({
-                          price: 70,
-                          color: '#ef4444',
-                          lineWidth: 1,
-                          lineStyle: 2,
-                          axisLabelVisible: true,
-                          title: 'Overbought',
+                      // Final validation: filter out any null/invalid values AND ensure timestamps exist in price data
+                      const validPriceTimesSet = new Set(validPriceData.map(p => p.time));
+                      const validRsiData = rsiData.filter(point => {
+                          if (!point || 
+                              point.time === null || point.time === undefined || isNaN(point.time) || !isFinite(point.time) ||
+                              point.value === null || point.value === undefined || isNaN(point.value) || !isFinite(point.value) ||
+                              point.value < 0 || point.value > 100) {
+                              return false;
+                          }
+                          // CRITICAL: Only include if timestamp exists in price data
+                          return validPriceTimesSet.has(point.time);
                       });
+                      
+                      // Sort by time (required by TradingView)
+                      validRsiData.sort((a, b) => a.time - b.time);
+                      
+                      if (validRsiData.length > 0) {
+                          try {
+                              rsiSeries.setData(validRsiData);
+                              console.log('✅ RSI data set successfully:', validRsiData.length, 'points (filtered from', rsiData.length, ')');
+                              console.log('RSI time range:', {
+                                  first: new Date(validRsiData[0].time * 1000).toISOString(),
+                                  last: new Date(validRsiData[validRsiData.length - 1].time * 1000).toISOString()
+                              });
+                          } catch (e) {
+                              console.error('❌ Error setting RSI data:', e);
+                              console.error('Error details:', e.message, e.stack);
+                              // Don't break the chart if RSI fails - just log the error
+                          }
+                      } else {
+                          console.warn('⚠️ No valid RSI data to display (all points filtered out or timestamps don\'t match price data)');
+                      }
 
-                      rsiSeries.createPriceLine({
-                          price: 30,
-                          color: '#10b981',
-                          lineWidth: 1,
-                          lineStyle: 2,
-                          axisLabelVisible: true,
-                          title: 'Oversold',
-                      });
+                      // Add RSI overbought/oversold lines (only if RSI data was set successfully)
+                      if (validRsiData.length > 0) {
+                          try {
+                              rsiSeries.createPriceLine({
+                                  price: 70,
+                                  color: '#ef4444',
+                                  lineWidth: 1,
+                                  lineStyle: 2,
+                                  axisLabelVisible: true,
+                                  title: 'Overbought',
+                              });
+
+                              rsiSeries.createPriceLine({
+                                  price: 30,
+                                  color: '#10b981',
+                                  lineWidth: 1,
+                                  lineStyle: 2,
+                                  axisLabelVisible: true,
+                                  title: 'Oversold',
+                              });
+                          } catch (e) {
+                              console.error('Error creating RSI price lines:', e);
+                          }
+                      }
                   } else {
                       console.warn('No RSI data available');
                   }
