@@ -295,6 +295,59 @@ class NewsSentimentAnalyzer:
         text = (title + " " + description).lower()
         return any(keyword in text for keyword in CRYPTO_KEYWORDS)
     
+    def _keyword_based_sentiment(self, text: str) -> Tuple[float, str]:
+        """
+        Simple keyword-based sentiment analysis as fallback when classifier isn't trained.
+        
+        Args:
+            text: Article text (title + description)
+            
+        Returns:
+            Tuple of (sentiment_score, sentiment_label)
+        """
+        if not text:
+            return 0.0, "neutral"
+        
+        text_lower = text.lower()
+        
+        # Positive keywords
+        positive_keywords = [
+            "surge", "rally", "gain", "up", "rise", "soar", "jump", "boost", "growth",
+            "profit", "success", "breakthrough", "approval", "adoption", "partnership",
+            "launch", "announcement", "milestone", "record", "high", "bullish", "optimistic",
+            "increase", "expand", "positive", "strong", "win", "victory", "breakthrough"
+        ]
+        
+        # Negative keywords
+        negative_keywords = [
+            "crash", "drop", "fall", "down", "decline", "plunge", "loss", "risk",
+            "concern", "warning", "ban", "regulation", "lawsuit", "hack", "breach",
+            "scam", "fraud", "investigation", "crisis", "bearish", "pessimistic", "fear",
+            "decrease", "collapse", "failure", "negative", "weak", "defeat", "problem"
+        ]
+        
+        positive_count = sum(1 for keyword in positive_keywords if keyword in text_lower)
+        negative_count = sum(1 for keyword in negative_keywords if keyword in text_lower)
+        
+        # Calculate sentiment score
+        if positive_count > negative_count:
+            score = min(0.3 + (positive_count - negative_count) * 0.15, 1.0)
+            if score > 0.6:
+                label = "very_good"
+            else:
+                label = "good"
+        elif negative_count > positive_count:
+            score = max(-0.3 - (negative_count - positive_count) * 0.15, -1.0)
+            if score < -0.6:
+                label = "very_bad"
+            else:
+                label = "bad"
+        else:
+            score = 0.0
+            label = "neutral"
+        
+        return float(score), label
+    
     def generate_embedding(self, text: str) -> Optional[np.ndarray]:
         """
         Generate embedding for text using local sentence-transformers model.
@@ -315,12 +368,13 @@ class NewsSentimentAnalyzer:
             logger.error(f"Error generating embedding: {e}")
             return None
     
-    def predict_sentiment(self, embedding: np.ndarray) -> Tuple[float, str]:
+    def predict_sentiment(self, embedding: np.ndarray, text: str = "") -> Tuple[float, str]:
         """
         Predict sentiment (good/bad for trading) from embedding.
         
         Args:
             embedding: News article embedding
+            text: Optional text for keyword-based fallback
             
         Returns:
             Tuple of (sentiment_score, sentiment_label)
@@ -328,14 +382,14 @@ class NewsSentimentAnalyzer:
             sentiment_label: "very_bad", "bad", "neutral", "good", "very_good"
         """
         if not self.sentiment_classifier or not SKLEARN_AVAILABLE:
-            # Fallback: return neutral
-            return 0.0, "neutral"
+            # Fallback: use simple keyword-based sentiment
+            return self._keyword_based_sentiment(text)
         
         try:
             # Check if model is fitted
             if not hasattr(self.sentiment_classifier, 'classes_'):
-                logger.debug("Sentiment classifier not trained yet, returning neutral")
-                return 0.0, "neutral"
+                logger.debug("Sentiment classifier not trained yet, using keyword-based fallback")
+                return self._keyword_based_sentiment(text)
             
             # Predict probability of positive class
             prob = self.sentiment_classifier.predict_proba(embedding.reshape(1, -1))
@@ -363,8 +417,8 @@ class NewsSentimentAnalyzer:
             return float(sentiment_score), label
             
         except Exception as e:
-            logger.debug(f"Sentiment classifier not trained or error: {e}. Returning neutral.")
-            return 0.0, "neutral"
+            logger.debug(f"Sentiment classifier not trained or error: {e}. Using keyword-based fallback.")
+            return self._keyword_based_sentiment(text)
     
     def predict_topic(self, embedding: np.ndarray) -> str:
         """
@@ -430,8 +484,8 @@ class NewsSentimentAnalyzer:
                 if embedding is None:
                     continue
                 
-                # Predict sentiment
-                sentiment_score, sentiment_label = self.predict_sentiment(embedding)
+                # Predict sentiment (pass text for keyword fallback)
+                sentiment_score, sentiment_label = self.predict_sentiment(embedding, text)
                 
                 # Predict topic
                 topic_label = self.predict_topic(embedding)
