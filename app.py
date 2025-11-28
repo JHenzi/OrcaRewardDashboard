@@ -17,6 +17,14 @@ from river.tree import HoeffdingAdaptiveTreeRegressor
 import pickle
 from signal_performance_tracker import SignalPerformanceTracker
 
+# News sentiment analyzer (optional)
+try:
+    from news_sentiment import NewsSentimentAnalyzer
+    NEWS_ANALYZER_AVAILABLE = True
+except ImportError:
+    NEWS_ANALYZER_AVAILABLE = False
+    logger.warning("news_sentiment module not available. Install dependencies: pip install feedparser sentence-transformers scikit-learn")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -33,6 +41,11 @@ for var in required_env_vars:
 price_fetcher = None
 price_fetch_thread = None
 price_fetch_active = False
+
+# Global variables for news sentiment
+news_analyzer = None
+news_fetch_thread = None
+news_fetch_active = False
 
 # For timezones - which suck.
 utc = pytz.utc
@@ -1113,6 +1126,34 @@ def sol_tracker():
     bandit_buy_stats = signal_tracker.get_performance_stats('bandit_buy', hours_later=24)
     bandit_sell_stats = signal_tracker.get_performance_stats('bandit_sell', hours_later=24)
     bandit_hold_stats = signal_tracker.get_performance_stats('bandit_hold', hours_later=24)
+    
+    # Get news sentiment features
+    news_features = None
+    if NEWS_ANALYZER_AVAILABLE:
+        try:
+            global news_analyzer
+            if news_analyzer is None:
+                news_analyzer = NewsSentimentAnalyzer()
+            news_features = news_analyzer.get_recent_news_features(hours=24, crypto_only=True)
+        except Exception as e:
+            logger.warning(f"Failed to get news features: {e}")
+            news_features = {
+                "news_sentiment_score": 0.0,
+                "news_sentiment_label": "neutral",
+                "news_count": 0,
+                "news_positive_count": 0,
+                "news_negative_count": 0,
+                "news_crypto_count": 0,
+            }
+    else:
+        news_features = {
+            "news_sentiment_score": 0.0,
+            "news_sentiment_label": "neutral",
+            "news_count": 0,
+            "news_positive_count": 0,
+            "news_negative_count": 0,
+            "news_crypto_count": 0,
+        }
 
     # Final validation before passing to template
     if len(unix_timestamps) != len(timestamps):
@@ -1139,7 +1180,8 @@ def sol_tracker():
             'bandit_buy': bandit_buy_stats,
             'bandit_sell': bandit_sell_stats,
             'bandit_hold': bandit_hold_stats
-        }
+        },
+        news_features=news_features
     )
 
 
@@ -1396,6 +1438,72 @@ def start_background_fetch():
     fetch_thread = threading.Thread(target=background_fetch_loop, daemon=True)
     fetch_thread.start()
 
+def news_fetch_loop():
+    """Background loop to fetch and process news articles."""
+    global news_analyzer, news_fetch_active
+    
+    if not NEWS_ANALYZER_AVAILABLE:
+        logger.warning("News analyzer not available. Skipping news fetching.")
+        return
+    
+    # Fetch news every 6 hours
+    fetch_interval = 6 * 60 * 60  # 6 hours in seconds
+    
+    try:
+        news_analyzer = NewsSentimentAnalyzer()
+        logger.info("News sentiment analyzer initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize news analyzer: {e}")
+        return
+    
+    while news_fetch_active:
+        try:
+            # Get current SOL price for tracking
+            if price_fetcher:
+                price_data = price_fetcher.fetch_sol_price()
+                current_price = price_data.get('rate', 0.0) if price_data else 0.0
+            else:
+                # Fallback: get from database
+                conn = sqlite3.connect("sol_prices.db")
+                cursor = conn.cursor()
+                cursor.execute("SELECT rate FROM sol_prices ORDER BY timestamp DESC LIMIT 1")
+                result = cursor.fetchone()
+                current_price = result[0] if result else 0.0
+                conn.close()
+            
+            if current_price > 0:
+                logger.info("Fetching news articles...")
+                articles = news_analyzer.fetch_news(hours_back=24)
+                processed = news_analyzer.process_and_store_news(articles, current_price)
+                logger.info(f"Processed {processed} news articles")
+            
+        except Exception as e:
+            logger.error(f"Error in news fetch loop: {e}")
+            logger.error(traceback.format_exc())
+        
+        # Sleep for fetch_interval
+        for _ in range(fetch_interval):
+            if not news_fetch_active:
+                break
+            time.sleep(1)
+
+def start_news_fetch():
+    """Start the news fetching in a separate thread."""
+    global news_fetch_thread, news_fetch_active
+    
+    if not NEWS_ANALYZER_AVAILABLE:
+        logger.info("News analyzer not available. Skipping news fetch thread.")
+        return
+    
+    if news_fetch_active:
+        logger.info("News fetch already active")
+        return
+    
+    news_fetch_active = True
+    news_fetch_thread = threading.Thread(target=news_fetch_loop, daemon=True)
+    news_fetch_thread.start()
+    logger.info("Started news sentiment fetching")
+
 if __name__ == "__main__":
     # Only run startup tasks if we're in the actual Flask process (not the reloader parent)
     if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
@@ -1404,6 +1512,9 @@ if __name__ == "__main__":
 
         logger.info("Setting up SOL price fetcher...")
         setup_sol_price_fetcher()
+        
+        logger.info("Starting news sentiment fetching...")
+        start_news_fetch()
     else:
         logger.info("Skipping background tasks in parent process")
 

@@ -798,6 +798,38 @@ def process_bandit_step(data, volatility):
         "usd_balance_ratio": usd_balance_ratio,
         "sol_balance_ratio": sol_balance_ratio,
     })
+    
+    # Add news sentiment features (only numeric features for River)
+    try:
+        from news_sentiment import NewsSentimentAnalyzer
+        news_analyzer = NewsSentimentAnalyzer()
+        news_features = news_analyzer.get_recent_news_features(hours=24, crypto_only=True)
+        
+        # Only add numeric features to x (River doesn't handle strings well)
+        # Convert sentiment label to numeric: positive=1, negative=-1, neutral=0
+        sentiment_label = news_features.get("news_sentiment_label", "neutral")
+        sentiment_numeric = 1.0 if sentiment_label == "positive" else (-1.0 if sentiment_label == "negative" else 0.0)
+        
+        x.update({
+            "news_sentiment_score": float(news_features.get("news_sentiment_score", 0.0)),
+            "news_sentiment_numeric": float(sentiment_numeric),  # Numeric version of label
+            "news_count": int(news_features.get("news_count", 0)),
+            "news_positive_count": int(news_features.get("news_positive_count", 0)),
+            "news_negative_count": int(news_features.get("news_negative_count", 0)),
+            "news_crypto_count": int(news_features.get("news_crypto_count", 0)),
+        })
+        logger.info(f"Added news features: sentiment_score={news_features.get('news_sentiment_score', 0.0)}, count={news_features.get('news_count', 0)}")
+    except Exception as e:
+        logger.warning(f"Failed to add news features: {e}")
+        # Add neutral news features as fallback (all numeric)
+        x.update({
+            "news_sentiment_score": 0.0,
+            "news_sentiment_numeric": 0.0,
+            "news_count": 0,
+            "news_positive_count": 0,
+            "news_negative_count": 0,
+            "news_crypto_count": 0,
+        })
 
 
     agent = get_agent()

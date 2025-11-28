@@ -598,6 +598,92 @@
           </div>
         </div>
 
+        <!-- News Sentiment Analysis -->
+        {% if news_features %}
+        <div class="mb-8 fade-in">
+          <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-lg">
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center space-x-2">
+              <span>📰</span>
+              <span>News Sentiment Analysis (24h)</span>
+            </h2>
+            
+            {% if news_features.news_count > 0 %}
+              {% set sentiment_score = news_features.news_sentiment_score %}
+              {% set sentiment_label = news_features.news_sentiment_label %}
+              
+              {% if sentiment_score > 0.3 %}
+                {% set sentiment_color = 'green' %}
+                {% set sentiment_icon = '📈' %}
+                {% set sentiment_message = 'Positive news sentiment - generally bullish for crypto' %}
+              {% elif sentiment_score < -0.3 %}
+                {% set sentiment_color = 'red' %}
+                {% set sentiment_icon = '📉' %}
+                {% set sentiment_message = 'Negative news sentiment - generally bearish for crypto' %}
+              {% else %}
+                {% set sentiment_color = 'yellow' %}
+                {% set sentiment_icon = '➡️' %}
+                {% set sentiment_message = 'Neutral news sentiment - mixed signals' %}
+              {% endif %}
+              
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Main Sentiment Card -->
+                <div class="bg-gradient-to-br {% if sentiment_color == 'green' %}from-green-600 to-emerald-600{% elif sentiment_color == 'red' %}from-red-600 to-rose-600{% else %}from-yellow-600 to-amber-600{% endif %} rounded-xl p-6 border-2 {% if sentiment_color == 'green' %}border-green-400{% elif sentiment_color == 'red' %}border-red-400{% else %}border-yellow-400{% endif %}">
+                  <div class="flex items-center justify-between mb-4">
+                    <span class="text-4xl">{{ sentiment_icon }}</span>
+                    <span class="text-sm font-semibold text-white/80 uppercase tracking-wide">{{ sentiment_label }}</span>
+                  </div>
+                  <div class="mb-2">
+                    <p class="text-sm text-white/90 mb-1">Sentiment Score</p>
+                    <p class="text-3xl font-bold text-white">{{ "%.2f"|format(sentiment_score) }}</p>
+                    <p class="text-xs text-white/70 mt-1">Range: -1.0 (very bad) to +1.0 (very good)</p>
+                  </div>
+                  <p class="text-sm text-white/90 italic">{{ sentiment_message }}</p>
+                </div>
+                
+                <!-- News Statistics -->
+                <div class="bg-gray-700/50 rounded-xl p-6 border border-gray-600">
+                  <h3 class="text-lg font-semibold text-white mb-4">News Statistics</h3>
+                  <div class="space-y-3">
+                    <div class="flex justify-between items-center">
+                      <span class="text-gray-300">Total Articles</span>
+                      <span class="text-xl font-bold text-white">{{ news_features.news_count }}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                      <span class="text-gray-300">Crypto-Related</span>
+                      <span class="text-lg font-semibold text-blue-400">{{ news_features.news_crypto_count }}</span>
+                    </div>
+                    <div class="flex justify-between items-center pt-2 border-t border-gray-600">
+                      <span class="text-gray-300">Positive</span>
+                      <span class="text-lg font-semibold text-green-400">{{ news_features.news_positive_count }}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                      <span class="text-gray-300">Negative</span>
+                      <span class="text-lg font-semibold text-red-400">{{ news_features.news_negative_count }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="mt-6 pt-4 border-t border-gray-700">
+                <p class="text-xs text-gray-400 italic">
+                  News sentiment is analyzed using local embeddings and sentiment classification. 
+                  The system tracks news from multiple sources (crypto, finance, tech, general) and identifies 
+                  crypto-related articles. Sentiment scores are based on historical training data.
+                </p>
+              </div>
+            {% else %}
+              <div class="bg-gray-700/50 rounded-lg p-8 text-center border border-gray-600">
+                <div class="text-4xl mb-4">📰</div>
+                <div class="text-xl font-semibold text-gray-300 mb-2">No Recent News</div>
+                <div class="text-sm text-gray-400">
+                  News articles are being fetched in the background. Check back soon for sentiment analysis.
+                </div>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+
         <!-- Latest Bandit Recommendation -->
         {% if latest_bandit %}
         <div class="mb-8 fade-in">
