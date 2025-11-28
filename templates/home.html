@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orca Redemption Tracker - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.6s ease-out;
+        }
+        .gradient-border {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2px;
+            border-radius: 12px;
+        }
+        .gradient-border-inner {
+            background: #1a1a1a;
+            border-radius: 10px;
+            padding: 1.5rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <!-- Navigation Header -->
+    <nav class="bg-gray-800 border-b border-gray-700 sticky top-0 z-50">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center">
+                        <span class="text-2xl">🐋</span>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-white">Orca Tracker</h1>
+                        <p class="text-xs text-gray-400">Solana Rewards & Trading</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="/orca" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition text-sm font-medium">
+                        Rewards
+                    </a>
+                    <a href="/sol-tracker" class="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 rounded-lg transition text-sm font-medium">
+                        SOL Tracker
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mx-auto px-6 py-8">
+        <!-- Hero Metrics Section -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 fade-in">
+            <!-- Total Rewards Card -->
+            <div class="gradient-border">
+                <div class="gradient-border-inner">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Total Rewards</h3>
+                        <span class="text-2xl">💰</span>
+                    </div>
+                    <p class="text-4xl font-bold text-white mb-2">${{ '%.2f'|format(total_usd) }}</p>
+                    <p class="text-sm text-gray-400">Since {{ since_date }}</p>
+                </div>
+            </div>
+
+            <!-- SOL Rewards Card -->
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:border-purple-500 transition">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wide">SOL Collected</h3>
+                    <span class="text-2xl">🪙</span>
+                </div>
+                <p class="text-3xl font-bold text-purple-400 mb-2">{{ '%.4f'|format(sol) }} SOL</p>
+                <p class="text-sm text-gray-400">≈ ${{ '%.2f'|format(sol * sol_price) }} USD</p>
+            </div>
+
+            <!-- USDC Rewards Card -->
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:border-green-500 transition">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wide">USDC Collected</h3>
+                    <span class="text-2xl">💵</span>
+                </div>
+                <p class="text-3xl font-bold text-green-400 mb-2">{{ '%.2f'|format(usdc) }} USDC</p>
+                <p class="text-sm text-gray-400">≈ ${{ '%.2f'|format(usdc) }} USD</p>
+            </div>
+        </div>
+
+        <!-- Quick Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 fade-in">
+            <!-- Current SOL Price -->
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-sm text-gray-400">SOL Price</h4>
+                    <span class="text-xl">📈</span>
+                </div>
+                <p class="text-2xl font-bold text-yellow-400">${{ '%.2f'|format(sol_price) }}</p>
+                <div class="mt-2 flex space-x-2 text-xs">
+                    <span class="px-2 py-1 rounded {{ 'bg-green-900 text-green-300' if sol_deltas.hour > 1 else 'bg-red-900 text-red-300' }}">
+                        {{ '%.1f'|format((sol_deltas.hour - 1) * 100) }}% 1h
+                    </span>
+                    <span class="px-2 py-1 rounded {{ 'bg-green-900 text-green-300' if sol_deltas.day > 1 else 'bg-red-900 text-red-300' }}">
+                        {{ '%.1f'|format((sol_deltas.day - 1) * 100) }}% 24h
+                    </span>
+                </div>
+            </div>
+
+            <!-- Collection Sessions -->
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-sm text-gray-400">Sessions</h4>
+                    <span class="text-xl">📊</span>
+                </div>
+                <p class="text-2xl font-bold text-blue-400">{{ analytics.redemption_frequency|length }}</p>
+                <p class="text-xs text-gray-500 mt-1">Total collections</p>
+            </div>
+
+            <!-- Daily Average -->
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-sm text-gray-400">Daily Avg</h4>
+                    <span class="text-xl">📅</span>
+                </div>
+                <p class="text-2xl font-bold text-green-400">
+                    {% if analytics.daily_earnings %}
+                        {% set total_earnings = analytics.daily_earnings | sum(attribute=3) %}
+                        {% set days_count = analytics.daily_earnings | length %}
+                        ${{ '%.2f'|format(total_earnings / days_count) }}
+                    {% else %}
+                        $0.00
+                    {% endif %}
+                </p>
+                <p class="text-xs text-gray-500 mt-1">Per day</p>
+            </div>
+
+            <!-- Avg Days Between -->
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-sm text-gray-400">Frequency</h4>
+                    <span class="text-xl">⏱️</span>
+                </div>
+                <p class="text-2xl font-bold text-purple-400">{{ '%.1f'|format(analytics.avg_days_between_collections) }}</p>
+                <p class="text-xs text-gray-500 mt-1">Days between</p>
+            </div>
+        </div>
+
+        <!-- Quick Links Section -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 fade-in">
+            <!-- Rewards Dashboard Link -->
+            <a href="/orca" class="group bg-gradient-to-br from-purple-600 to-blue-600 rounded-xl p-8 hover:from-purple-700 hover:to-blue-700 transition transform hover:scale-105">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-2xl font-bold text-white">Rewards Dashboard</h3>
+                    <span class="text-4xl group-hover:scale-110 transition">💰</span>
+                </div>
+                <p class="text-gray-200 mb-4">View detailed rewards breakdown, analytics, and collection patterns</p>
+                <div class="flex items-center text-white font-medium">
+                    <span>View Details</span>
+                    <span class="ml-2 group-hover:translate-x-1 transition">→</span>
+                </div>
+            </a>
+
+            <!-- SOL Tracker Link -->
+            <a href="/sol-tracker" class="group bg-gradient-to-br from-blue-600 to-cyan-600 rounded-xl p-8 hover:from-blue-700 hover:to-cyan-700 transition transform hover:scale-105">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-2xl font-bold text-white">SOL Price Tracker</h3>
+                    <span class="text-4xl group-hover:scale-110 transition">📈</span>
+                </div>
+                <p class="text-gray-200 mb-4">Professional trading charts, RSI indicators, and AI trading signals</p>
+                <div class="flex items-center text-white font-medium">
+                    <span>View Charts</span>
+                    <span class="ml-2 group-hover:translate-x-1 transition">→</span>
+                </div>
+            </a>
+        </div>
+
+        <!-- Recent Activity Timeline -->
+        <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-8 fade-in">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold text-white">Recent Activity</h2>
+                <a href="/orca" class="text-sm text-blue-400 hover:text-blue-300">View All →</a>
+            </div>
+            
+            <!-- Monthly Summary Preview -->
+            <div class="space-y-4">
+                {% for item in monthly_summary[-3:] %}
+                <div class="flex items-center justify-between p-4 bg-gray-700 rounded-lg hover:bg-gray-600 transition">
+                    <div class="flex items-center space-x-4">
+                        <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center">
+                            <span class="text-xl">📅</span>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-white">{{ item.month }}</p>
+                            <p class="text-sm text-gray-400">Monthly total</p>
+                        </div>
+                    </div>
+                    <p class="text-xl font-bold text-green-400">${{ '%.2f'|format(item.usd_value) }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- System Status -->
+        <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 fade-in">
+            <h2 class="text-xl font-bold text-white mb-4">System Status</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="flex items-center space-x-3">
+                    <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                    <div>
+                        <p class="text-sm font-medium text-white">API Status</p>
+                        <p class="text-xs text-gray-400">LiveCoinWatch Connected</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                    <div>
+                        <p class="text-sm font-medium text-white">Database</p>
+                        <p class="text-xs text-gray-400">Operational</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                    <div>
+                        <p class="text-sm font-medium text-white">Price Fetcher</p>
+                        <p class="text-xs text-gray-400">Active</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 border-t border-gray-700 mt-12">
+        <div class="container mx-auto px-6 py-6">
+            <div class="flex items-center justify-between text-sm text-gray-400">
+                <p>Orca Redemption Tracker v1.0</p>
+                <p>Tracking since {{ since_date }}</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
+

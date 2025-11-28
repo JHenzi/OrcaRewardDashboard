@@ -1,5 +1,7 @@
 # 🧠 Solana Rewards & Trading Bot Tracker
 
+> **📢 AI-Assisted Development Disclosure:** This project was initially created as a personal pet project and has been significantly enhanced through the use of **Cursor**, an AI-powered coding assistant. We believe in full transparency about our development process. [Read our full disclosure →](VibeCoded.md)
+
 A Flask web application that tracks and displays Solana rewards from [**Orca** liquidity pools](https://docs.orca.so/) using the [Helius API](https://docs.helius.dev/). **Now featuring an experimental automated trading bot for SOL/USDC swaps via the [Jupiter Ultra API](https://dev.jup.ag/docs/ultra-api/)!** In addition to passive liquidity tracking, the app now includes:
 
 - 💸 **Real-time SOL/USDC Liquidity Pool Monitoring** - Tracks token redemptions and rewards from Orca's concentrated liquidity pools using CLMM tech [at Orca.so](https://docs.orca.so/).
@@ -268,11 +270,16 @@ A brief overview of the project structure:
 
 ### Web Dashboard
 
-Visit `http://localhost:5030` to view:
+Visit `http://localhost:5030` to view the **Home Dashboard** with:
+- Summary metrics and quick links
+- Total value collected overview
+- Recent activity timeline
 
+Visit `http://localhost:5030/orca` to view the **Detailed Rewards Dashboard** with:
 - Total SOL and USDC rewards collected
 - Current SOL price and USD value of rewards
 - Collection analytics (frequency, sessions, daily rate, patterns)
+- Daily and monthly breakdowns
 
 ### SOL Price & Trading Signals
 
@@ -378,6 +385,10 @@ The application provides the following API endpoints for programmatic access to 
 ## License
 
 This project is open source and available under the [MIT License](LICENSE).
+
+## AI-Assisted Development
+
+This project uses AI coding assistants (primarily Cursor) for implementation while maintaining human oversight for planning, architecture, and code review. We are committed to transparency about our development process. [Read our full disclosure →](VibeCoded.md)
 
 ---
 

@@ -167,11 +167,24 @@ def parse_collect_fees_event(event):
 
 
 def insert_collect_fee(event):
+    """
+    Insert collect_fee event with USD value tracking.
+    Now captures USD value at time of redemption for accurate portfolio tracking.
+    """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     if 'tokenTransfers' not in event:
         conn.close()
         return
+    
+    # Get current SOL price for USD conversion
+    try:
+        sol_price_data = get_sol_price_data()
+        current_sol_price = sol_price_data.get('rate', 0) if sol_price_data else 0
+    except Exception as e:
+        logger.warning(f"Could not fetch SOL price for redemption value: {e}")
+        current_sol_price = 0
+    
     for t in event['tokenTransfers']:
         amount = t.get('tokenAmount')
         mint = t.get('mint')
@@ -179,26 +192,78 @@ def insert_collect_fee(event):
         to_token_account = t.get('toTokenAccount')
         from_user_account = t.get('fromUserAccount')
         to_user_account = t.get('toUserAccount')
+        
+        # Calculate USD value at redemption
+        usd_value = 0.0
+        sol_price_at_redemption = 0.0
+        usdc_price_at_redemption = 1.0
+        
+        SOL_MINT = 'So11111111111111111111111111111111111111112'
+        USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+        
+        if mint == SOL_MINT:
+            # SOL redemption
+            sol_price_at_redemption = current_sol_price
+            usd_value = amount * current_sol_price if current_sol_price > 0 else 0
+        elif mint == USDC_MINT:
+            # USDC redemption (1:1 with USD)
+            usd_value = amount
+            sol_price_at_redemption = current_sol_price  # Store for reference
+            usdc_price_at_redemption = 1.0
+        
+        redemption_date = datetime.utcfromtimestamp(event['timestamp']).isoformat() if event.get('timestamp') else None
+        
         try:
-            cursor.execute('''
-                INSERT OR IGNORE INTO collect_fees (
-                    signature, timestamp, fee_payer, token_mint,
-                    token_amount, from_token_account, to_token_account,
-                    from_user_account, to_user_account
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                event['signature'],
-                event['timestamp'],
-                event['feePayer'],
-                mint,
-                amount,
-                from_token_account,
-                to_token_account,
-                from_user_account,
-                to_user_account
-            ))
+            # Check if columns exist (for backward compatibility)
+            cursor.execute("PRAGMA table_info(collect_fees)")
+            columns = [col[1] for col in cursor.fetchall()]
+            has_usd_columns = 'usd_value_at_redemption' in columns
+            
+            if has_usd_columns:
+                cursor.execute('''
+                    INSERT OR IGNORE INTO collect_fees (
+                        signature, timestamp, fee_payer, token_mint,
+                        token_amount, from_token_account, to_token_account,
+                        from_user_account, to_user_account,
+                        usd_value_at_redemption, sol_price_at_redemption,
+                        usdc_price_at_redemption, redemption_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    event['signature'],
+                    event['timestamp'],
+                    event['feePayer'],
+                    mint,
+                    amount,
+                    from_token_account,
+                    to_token_account,
+                    from_user_account,
+                    to_user_account,
+                    usd_value,
+                    sol_price_at_redemption,
+                    usdc_price_at_redemption,
+                    redemption_date
+                ))
+            else:
+                # Fallback for old schema
+                cursor.execute('''
+                    INSERT OR IGNORE INTO collect_fees (
+                        signature, timestamp, fee_payer, token_mint,
+                        token_amount, from_token_account, to_token_account,
+                        from_user_account, to_user_account
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    event['signature'],
+                    event['timestamp'],
+                    event['feePayer'],
+                    mint,
+                    amount,
+                    from_token_account,
+                    to_token_account,
+                    from_user_account,
+                    to_user_account
+                ))
         except Exception as e:
-            logger.info(f"DB insert error: {e}")
+            logger.error(f"DB insert error: {e}")
     conn.commit()
     conn.close()
 
@@ -337,6 +402,97 @@ def get_collection_patterns():
     return results
 
 @app.route('/')
+def home():
+    """New modern home page with summary and quick links"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    # Get totals
+    c.execute('''
+        SELECT token_mint, SUM(token_amount)
+        FROM collect_fees
+        WHERE token_mint IN ('So11111111111111111111111111111111111111112', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')
+        GROUP BY token_mint
+    ''')
+    results = c.fetchall()
+
+    c.execute('SELECT MIN(timestamp) FROM collect_fees')
+    since_timestamp = c.fetchone()[0]
+
+    # Monthly summary
+    c.execute('''
+        SELECT strftime('%Y-%m', timestamp, 'unixepoch') AS month,
+               token_mint,
+               SUM(token_amount) AS total_amount
+        FROM collect_fees
+        WHERE token_mint IN (
+            'So11111111111111111111111111111111111111112',
+            'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+        )
+        GROUP BY month, token_mint
+        ORDER BY month
+    ''')
+    monthly_rows = c.fetchall()
+
+    conn.close()
+
+    totals = {}
+    for mint, amount in results:
+        if mint == 'So11111111111111111111111111111111111111112':
+            totals['SOL'] = amount
+        elif mint == 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v':
+            totals['USDC'] = amount
+
+    since_date = datetime.utcfromtimestamp(since_timestamp).strftime('%Y-%m-%d') if since_timestamp else 'N/A'
+    sol_data = get_sol_price_data()
+    sol_price = sol_data.get('rate', 0)
+    
+    # Calculate deltas
+    sol_deltas = {
+        'hour': sol_data.get('delta', {}).get('hour', 1.0),
+        'day': sol_data.get('delta', {}).get('day', 1.0),
+        'week': sol_data.get('delta', {}).get('week', 1.0)
+    }
+
+    # Analytics - reuse logic from index route
+    analytics = {
+        'avg_days_between_collections': get_average_redemption_frequency(),
+        'daily_earnings': get_daily_earning_rates(),
+        'collection_patterns': get_collection_patterns(),
+        'redemption_frequency': get_redemption_frequency()
+    }
+
+    # Monthly summary
+    monthly_summary = []
+    monthly_data = {}
+    for month, mint, amount in monthly_rows:
+        if month not in monthly_data:
+            monthly_data[month] = {'SOL': 0, 'USDC': 0}
+        if mint == 'So11111111111111111111111111111111111111112':
+            monthly_data[month]['SOL'] = amount
+        elif mint == 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v':
+            monthly_data[month]['USDC'] = amount
+
+    for month, values in monthly_data.items():
+        usd_value = (values['SOL'] * sol_price) + values['USDC']
+        monthly_summary.append({
+            'month': month,
+            'usd_value': usd_value
+        })
+
+    return render_template(
+        "home.html",
+        sol=totals.get('SOL', 0),
+        usdc=totals.get('USDC', 0),
+        sol_price=sol_price,
+        total_usd=(totals.get('SOL', 0) * sol_price) + totals.get('USDC', 0),
+        since_date=since_date,
+        sol_deltas=sol_deltas,
+        analytics=analytics,
+        monthly_summary=monthly_summary
+    )
+
+@app.route('/orca')
 def index():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -354,7 +510,13 @@ def index():
     since_timestamp = c.fetchone()[0]
 
 
+    # Get SOL price data first (needed for calculations)
+    sol_data = get_sol_price_data()
+    sol_price = sol_data.get('rate', 0)
+    
     # --- Summarize USD per day (combine SOL + USDC) ---
+    # Use USD value if available, otherwise calculate using current SOL price
+    # Note: Can't join sol_prices table (different database), so use current price for fallback
     c.execute('''
         SELECT date(timestamp, 'unixepoch') AS day,
                token_mint,
@@ -394,7 +556,7 @@ def index():
             totals['USDC'] = amount
 
     since_date = datetime.utcfromtimestamp(since_timestamp).strftime('%Y-%m-%d') if since_timestamp else 'N/A'
-    sol_data = get_sol_price_data()
+    # sol_data already fetched above for daily summary calculation
 
     # Add analytics data
     analytics = {

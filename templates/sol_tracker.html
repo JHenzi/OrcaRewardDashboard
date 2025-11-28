@@ -43,7 +43,37 @@
         .signal-hold { background: #f59e0b; }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-100">
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <!-- Navigation Header -->
+    <nav class="bg-gray-800 border-b border-gray-700 sticky top-0 z-50">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="flex items-center space-x-4">
+                        <div class="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg flex items-center justify-center">
+                            <span class="text-2xl">🐋</span>
+                        </div>
+                        <div>
+                            <h1 class="text-xl font-bold text-white">Orca Tracker</h1>
+                            <p class="text-xs text-gray-400">Solana Rewards & Trading</p>
+                        </div>
+                    </a>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition text-sm font-medium">
+                        Home
+                    </a>
+                    <a href="/orca" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition text-sm font-medium">
+                        Rewards
+                    </a>
+                    <a href="/sol-tracker" class="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 rounded-lg transition text-sm font-medium">
+                        SOL Tracker
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
     <div class="container mx-auto p-6">
         <h1 class="text-5xl font-bold mb-4 text-center text-white">SOL Price Tracker</h1>
         
