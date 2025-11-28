@@ -25,8 +25,10 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Get database path from environment
-DB_PATH = os.getenv("DATABASE_PATH", "sol_prices.db")
+# Get database paths from environment
+# Price data is in sol_prices.db (separate from rewards.db)
+PRICE_DB = "sol_prices.db"  # Price data is always in sol_prices.db
+DECISIONS_DB = os.getenv("DATABASE_PATH", "rewards.db")  # Decisions stored in rewards.db
 NEWS_DB = "news_sentiment.db"
 
 
@@ -54,7 +56,8 @@ class RLAgentIntegration:
         self.device = device
         
         # Initialize supporting components
-        self.attention_logger = AttentionLogger()
+        # AttentionLogger uses rewards.db (same as decisions)
+        self.attention_logger = AttentionLogger(db_path=DECISIONS_DB)
         self.risk_manager = RiskManager()
         
         # Track current state
@@ -73,7 +76,8 @@ class RLAgentIntegration:
         Returns:
             Tuple of (price_list, price_features_dict)
         """
-        conn = sqlite3.connect(DB_PATH)
+        # Price data is always in sol_prices.db (not rewards.db)
+        conn = sqlite3.connect(PRICE_DB)
         cursor = conn.cursor()
         
         cutoff_time = (datetime.now() - timedelta(hours=hours)).isoformat()
@@ -287,7 +291,10 @@ class RLAgentIntegration:
                     price_tensor, news_emb_tensor, news_sent_tensor,
                     position_tensor, time_tensor, news_mask
                 )
-                action_probs = output["action_probs"][0].cpu().numpy()
+                # Model returns action_logits, need to convert to probabilities
+                import torch.nn.functional as F
+                action_logits = output["action_logits"]
+                action_probs = F.softmax(action_logits, dim=-1)[0].cpu().numpy()
                 action_idx = np.argmax(action_probs)
                 actions = ["BUY", "SELL", "HOLD"]
                 action = actions[action_idx]
@@ -321,29 +328,81 @@ class RLAgentIntegration:
         )
         
         # Store decision in database
-        decision_id = self._store_decision(
-            action=action,
-            confidence=confidence if not force_action else 0.8,
-            state_features=state_dict,
-            price_features=price_features,
-            current_price=current_price,
-            pred_1h=pred_1h,
-            pred_24h=pred_24h,
-            conf_1h=conf_1h,
-            conf_24h=conf_24h,
-        )
+        decision_id = None
+        try:
+            decision_id = self._store_decision(
+                action=action,
+                confidence=confidence if not force_action else 0.8,
+                state_features=state_dict,
+                price_features=price_features,
+                current_price=current_price,
+                pred_1h=pred_1h,
+                pred_24h=pred_24h,
+                conf_1h=conf_1h,
+                conf_24h=conf_24h,
+            )
+            
+            # Validate decision_id - ensure it's an integer
+            if decision_id is None:
+                logger.warning("Failed to store decision (decision_id is None)")
+                decision_id = 0  # Use 0 as fallback
+            else:
+                # Ensure decision_id is an integer
+                try:
+                    decision_id = int(decision_id)
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Invalid decision_id type: {type(decision_id)}, value: {decision_id}, error: {e}")
+                    decision_id = 0
+        except Exception as e:
+            logger.error(f"Error storing decision: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            decision_id = 0  # Use 0 as fallback
         
-        # Log attention weights (if available)
+        # Log attention weights (if available and decision_id is valid)
+        # Only log if decision_id is a valid integer > 0
         if news_data and not force_action:
+            # Ensure decision_id is valid before logging
             try:
-                # Get attention weights from model (would need to modify model to return these)
-                # For now, use equal weights as placeholder
-                headlines = [{"headline_text": item.get("headline", ""), "headline_id": item.get("article_id")} 
-                            for item in news_data]
-                attention_weights = np.ones((len(headlines), len(headlines))) / len(headlines)
-                self.attention_logger.log_attention(decision_id, headlines, attention_weights)
+                # decision_id should already be an int at this point, but double-check
+                if decision_id is None:
+                    logger.debug("Skipping attention logging: decision_id is None")
+                elif not isinstance(decision_id, int):
+                    logger.warning(f"Skipping attention logging: decision_id is not int ({type(decision_id)})")
+                elif decision_id > 0:
+                    # Get attention weights from model output if available
+                    attention_weights = None
+                    if "attention_weights" in output:
+                        attention_weights = output["attention_weights"].cpu().numpy()
+                    else:
+                        # Fallback: use equal weights as placeholder
+                        attention_weights = np.ones((len(news_data), len(news_data))) / len(news_data)
+                    
+                    # Prepare headlines with proper handling of None values
+                    headlines = []
+                    for item in news_data:
+                        headline_id = item.get("article_id")
+                        # Convert to int if not None, otherwise use None
+                        if headline_id is not None:
+                            try:
+                                headline_id = int(headline_id)
+                            except (ValueError, TypeError):
+                                headline_id = None
+                        
+                        headlines.append({
+                            "headline_text": item.get("headline", ""),
+                            "headline_id": headline_id,
+                        })
+                    
+                    # Don't pass cluster_ids (they might contain None values)
+                    # cluster_ids will be None by default in log_attention
+                    self.attention_logger.log_attention(decision_id, headlines, attention_weights, cluster_ids=None)
+                else:
+                    logger.debug(f"Skipping attention logging: invalid decision_id ({decision_id})")
             except Exception as e:
                 logger.warning(f"Failed to log attention: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
         
         return {
             "decision_id": decision_id,
@@ -368,35 +427,88 @@ class RLAgentIntegration:
         pred_24h: float,
         conf_1h: float,
         conf_24h: float,
-    ) -> int:
+    ) -> Optional[int]:
         """Store decision in database."""
-        conn = sqlite3.connect(DB_PATH)
+        # Decisions are stored in rewards.db (same as app.py)
+        conn = sqlite3.connect(DECISIONS_DB)
         cursor = conn.cursor()
         
         import json
         
-        cursor.execute("""
-            INSERT INTO rl_agent_decisions (
-                timestamp, action, confidence, state_features, price_features,
-                current_price, predicted_return_1h, predicted_return_24h,
-                predicted_confidence_1h, predicted_confidence_24h
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            datetime.now().isoformat(),
-            action,
-            confidence,
-            json.dumps(state_features),
-            json.dumps(price_features),
-            current_price,
-            pred_1h,
-            pred_24h,
-            conf_1h,
-            conf_24h,
-        ))
+        # Helper function to convert numpy arrays to lists for JSON serialization
+        def convert_numpy_to_list(obj):
+            """Recursively convert numpy arrays to lists."""
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, (np.integer, np.floating)):
+                return obj.item()
+            elif isinstance(obj, dict):
+                return {key: convert_numpy_to_list(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_to_list(item) for item in obj]
+            else:
+                return obj
         
-        decision_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        
-        return decision_id
+        try:
+            # Convert numpy arrays to lists for JSON serialization
+            state_features_serializable = convert_numpy_to_list(state_features)
+            price_features_serializable = convert_numpy_to_list(price_features)
+            
+            cursor.execute("""
+                INSERT INTO rl_agent_decisions (
+                    timestamp, action, confidence, state_features, price_features,
+                    current_price, predicted_return_1h, predicted_return_24h,
+                    predicted_confidence_1h, predicted_confidence_24h
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                datetime.now().isoformat(),
+                action,
+                confidence,
+                json.dumps(state_features_serializable),
+                json.dumps(price_features_serializable),
+                current_price,
+                pred_1h,
+                pred_24h,
+                conf_1h,
+                conf_24h,
+            ))
+            
+            decision_id = cursor.lastrowid
+            conn.commit()
+            
+            # Validate decision_id - should never be None after successful INSERT
+            if decision_id is None:
+                logger.error("INSERT succeeded but lastrowid is None - trying alternative method")
+                # Try to get the last inserted ID manually
+                cursor.execute("SELECT last_insert_rowid()")
+                row = cursor.fetchone()
+                if row and row[0] is not None:
+                    decision_id = int(row[0])
+                else:
+                    logger.error("Could not retrieve decision_id after INSERT")
+                    conn.close()
+                    return None
+            
+            # Ensure decision_id is an integer
+            if not isinstance(decision_id, int):
+                try:
+                    decision_id = int(decision_id)
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Cannot convert decision_id to int: {decision_id}, type: {type(decision_id)}, error: {e}")
+                    conn.close()
+                    return None
+            
+            conn.close()
+            return decision_id
+            
+        except sqlite3.Error as e:
+            conn.rollback()
+            conn.close()
+            logger.error(f"Database error storing decision: {e}")
+            raise
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            logger.error(f"Unexpected error storing decision: {e}")
+            raise
 

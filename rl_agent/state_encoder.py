@@ -143,7 +143,16 @@ class StateEncoder:
                     continue
                 embeddings.append(np.array(embedding, dtype=np.float32))
                 sentiment_scores.append(item.get("sentiment_score", 0.0))
-                cluster_ids.append(item.get("cluster_id", -1))
+                # Handle cluster_id - ensure it's an int, default to -1 if None
+                cluster_id = item.get("cluster_id", -1)
+                if cluster_id is None:
+                    cluster_id = -1
+                else:
+                    try:
+                        cluster_id = int(cluster_id)
+                    except (ValueError, TypeError):
+                        cluster_id = -1
+                cluster_ids.append(cluster_id)
         
         # Pad to max_news_headlines
         while len(embeddings) < self.max_news_headlines:
@@ -153,7 +162,8 @@ class StateEncoder:
         
         embeddings_array = np.array(embeddings, dtype=np.float32)
         sentiment_array = np.array(sentiment_scores, dtype=np.float32)
-        cluster_array = np.array(cluster_ids, dtype=np.int32)
+        # Ensure all cluster_ids are integers (no None values)
+        cluster_array = np.array([int(cid) if cid is not None else -1 for cid in cluster_ids], dtype=np.int32)
         
         # Replace NaN and inf with 0
         embeddings_array = np.nan_to_num(embeddings_array, nan=0.0, posinf=0.0, neginf=0.0)

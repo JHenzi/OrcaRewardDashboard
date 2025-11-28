@@ -19,7 +19,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Get database path from environment or use default
-DB_PATH = os.getenv("DATABASE_PATH", "sol_prices.db")
+# Attention logs are stored in rewards.db (same as decisions)
+DB_PATH = os.getenv("DATABASE_PATH", "rewards.db")
 
 
 class AttentionLogger:
@@ -96,10 +97,15 @@ class AttentionLogger:
             headline_weights = attn_avg.sum(axis=0)  # (num_headlines,)
         elif len(attention_weights.shape) == 2:
             # (num_headlines, num_headlines) - already averaged
-            headline_weights = attention_weights.sum(axis=0)
+            headline_weights = attention_weights.sum(axis=0)  # (num_headlines,)
         else:
             # (num_headlines,) - already processed
             headline_weights = attention_weights
+        
+        # Ensure headline_weights is 1D
+        if len(headline_weights.shape) > 1:
+            # Flatten if needed
+            headline_weights = headline_weights.flatten()
         
         # Normalize weights
         if headline_weights.sum() > 0:
@@ -110,10 +116,29 @@ class AttentionLogger:
             if i >= len(headline_weights):
                 break
             
-            weight = float(headline_weights[i])
+            # Extract scalar weight value - handle both scalar and array cases
+            weight_val = headline_weights[i]
+            if isinstance(weight_val, np.ndarray):
+                # If it's an array, get the first element or mean
+                if weight_val.size == 1:
+                    weight = float(weight_val.item())
+                else:
+                    # If it's a multi-element array, use the mean
+                    weight = float(np.mean(weight_val))
+            else:
+                # It's already a scalar
+                weight = float(weight_val)
             headline_text = headline.get("headline_text", "")
             headline_id = headline.get("headline_id")
-            cluster_id = cluster_ids[i] if cluster_ids and i < len(cluster_ids) else None
+            # Handle cluster_id - ensure it's an int or None
+            cluster_id = None
+            if cluster_ids and i < len(cluster_ids):
+                cluster_id_val = cluster_ids[i]
+                if cluster_id_val is not None:
+                    try:
+                        cluster_id = int(cluster_id_val)
+                    except (ValueError, TypeError):
+                        cluster_id = None
             
             cursor.execute("""
                 INSERT INTO rl_attention_logs (
@@ -226,7 +251,11 @@ class AttentionLogger:
         
         # Sort headlines by attention weight for each decision
         for decision in decisions.values():
-            decision["headlines"].sort(key=lambda x: x["attention_weight"], reverse=True)
+            # Handle None values in attention_weight when sorting
+            decision["headlines"].sort(
+                key=lambda x: x["attention_weight"] if x["attention_weight"] is not None else 0.0, 
+                reverse=True
+            )
             decision["headlines"] = decision["headlines"][:5]  # Top 5
         
         return list(decisions.values())

@@ -1,6 +1,14 @@
 {
-  "models": [],
-  "current_version": null,
+  "models": [
+    {
+      "version": "20251128_180539",
+      "deployed_at": "2025-11-28T18:05:39.037407",
+      "source_path": "models/rl_agent/checkpoint_epoch_10.pt",
+      "active_path": "models/rl_agent/checkpoint_20251128_180539.pt",
+      "auto_deployed": true
+    }
+  ],
+  "current_version": "20251128_180539",
   "last_retrain_time": null,
   "next_retrain_time": "2025-12-05T17:17:15.630549"
 }

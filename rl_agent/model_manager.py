@@ -167,21 +167,35 @@ class ModelManager:
             try:
                 with torch.no_grad():
                     # Create dummy inputs matching expected shapes
+                    # Based on StateEncoder output shapes
                     batch_size = 1
-                    price_window = 60
+                    price_window_size = model_kwargs.get('price_window_size', 60)
                     num_indicators = model_kwargs.get('num_indicators', 10)
                     embedding_dim = model_kwargs.get('embedding_dim', 384)
                     max_news = model_kwargs.get('max_news_headlines', 20)
                     
-                    price_tensor = torch.randn(batch_size, price_window, num_indicators)
+                    # Price features: (batch_size, price_window_size + num_indicators)
+                    # StateEncoder.encode_price_features() returns flattened array
+                    # with returns (60) + indicators (10) = 70 total
+                    price_features = torch.randn(batch_size, price_window_size + num_indicators)
+                    
+                    # News embeddings: (batch_size, max_headlines, embedding_dim)
                     news_emb = torch.randn(batch_size, max_news, embedding_dim)
+                    
+                    # News sentiment: (batch_size, max_headlines)
                     news_sent = torch.randn(batch_size, max_news)
+                    
+                    # Position features: (batch_size, 5) - from StateEncoder.encode_position_features()
                     position = torch.randn(batch_size, 5)
-                    time_features = torch.randn(batch_size, 2)
+                    
+                    # Time features: (batch_size, 4) - from StateEncoder.encode_time_features()
+                    time_features = torch.randn(batch_size, 4)
+                    
+                    # News mask: (batch_size, max_headlines) - 1 for valid, 0 for padding
                     news_mask = torch.ones(batch_size, max_news)
                     
                     output = model(
-                        price_tensor, news_emb, news_sent,
+                        price_features, news_emb, news_sent,
                         position, time_features, news_mask
                     )
                     

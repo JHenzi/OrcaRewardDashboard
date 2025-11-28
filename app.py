@@ -2309,6 +2309,17 @@ def initialize_rl_agent():
                 device="cpu",
             )
             logger.info("✅ RL agent model loaded and ready")
+            
+            # Make an initial decision on startup so the model is immediately useful
+            try:
+                logger.info("Making initial RL agent decision...")
+                initial_decision = rl_agent_integration.make_decision()
+                logger.info(f"✅ Initial decision made: {initial_decision.get('action', 'N/A')} "
+                          f"(confidence: {initial_decision.get('confidence', 0):.2f})")
+            except Exception as e:
+                logger.warning(f"Failed to make initial decision: {e}")
+                import traceback
+                logger.error(traceback.format_exc())  # Use error level to see full traceback
         else:
             logger.info("⚠️ No trained RL agent model found. Will wait for scheduled training.")
         

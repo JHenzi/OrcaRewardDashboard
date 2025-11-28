@@ -1347,6 +1347,7 @@ def process_bandit_step(data, volatility):
         # Calculate EMA
         ema_12 = exponential_moving_average(prices, 12) if len(prices) >= 12 else None
         ema_26 = exponential_moving_average(prices, 26) if len(prices) >= 26 else None
+        ema_50 = exponential_moving_average(prices, 50) if len(prices) >= 50 else None
         
         # Add MACD features
         if macd_line is not None:
@@ -1390,19 +1391,31 @@ def process_bandit_step(data, volatility):
             price_vs_ema_26 = price_now / ema_26 if ema_26 != 0 else 1.0
             ema_12_vs_ema_26 = ema_12 / ema_26 if ema_26 != 0 else 1.0
             
-            x.update({
+            ema_features = {
                 "ema_12": float(ema_12),
                 "ema_26": float(ema_26),
                 "price_vs_ema_12": float(price_vs_ema_12),
                 "price_vs_ema_26": float(price_vs_ema_26),
                 "ema_12_vs_ema_26": float(ema_12_vs_ema_26),
-            })
+            }
+            
+            # Add EMA_50 if available
+            if ema_50 is not None:
+                ema_features["ema_50"] = float(ema_50)
+                ema_features["price_vs_ema_50"] = float(price_now / ema_50 if ema_50 != 0 else 1.0)
+            else:
+                ema_features["ema_50"] = float(price_now)
+                ema_features["price_vs_ema_50"] = 1.0
+            
+            x.update(ema_features)
         else:
             x.update({
                 "ema_12": float(price_now),
                 "ema_26": float(price_now),
+                "ema_50": float(price_now),
                 "price_vs_ema_12": 1.0,
                 "price_vs_ema_26": 1.0,
+                "price_vs_ema_50": 1.0,
                 "ema_12_vs_ema_26": 1.0,
             })
         
@@ -1564,6 +1577,129 @@ def process_bandit_step(data, volatility):
             "momentum_4h": 0.0,
         })
 
+    # Add historical performance features from signal_performance_tracker
+    try:
+        from signal_performance_tracker import SignalPerformanceTracker
+        signal_tracker = SignalPerformanceTracker()
+        
+        # Get performance stats for different signal types
+        rsi_buy_stats = signal_tracker.get_performance_stats("rsi_buy", hours_later=24)
+        rsi_sell_stats = signal_tracker.get_performance_stats("rsi_sell", hours_later=24)
+        bandit_buy_stats = signal_tracker.get_performance_stats("bandit_buy", hours_later=24)
+        bandit_sell_stats = signal_tracker.get_performance_stats("bandit_sell", hours_later=24)
+        
+        # Calculate win rates (convert from percentage to 0-1)
+        rsi_buy_win_rate = (rsi_buy_stats.get("win_rate", 0.0) / 100.0) if rsi_buy_stats.get("total_signals", 0) > 0 else 0.5
+        rsi_sell_win_rate = (rsi_sell_stats.get("win_rate", 0.0) / 100.0) if rsi_sell_stats.get("total_signals", 0) > 0 else 0.5
+        bandit_buy_win_rate = (bandit_buy_stats.get("win_rate", 0.0) / 100.0) if bandit_buy_stats.get("total_signals", 0) > 0 else 0.5
+        bandit_sell_win_rate = (bandit_sell_stats.get("win_rate", 0.0) / 100.0) if bandit_sell_stats.get("total_signals", 0) > 0 else 0.5
+        
+        # Calculate recent signal accuracy (last N signals)
+        # This is a simplified version - could be enhanced to track actual recent signals
+        recent_signal_accuracy = (rsi_buy_win_rate + rsi_sell_win_rate + bandit_buy_win_rate + bandit_sell_win_rate) / 4.0
+        
+        # Signal confidence based on sample size and win rate
+        def calculate_confidence(win_rate, sample_size):
+            """Calculate confidence based on win rate and sample size"""
+            if sample_size == 0:
+                return 0.5  # Neutral confidence with no data
+            # Higher sample size and win rate = higher confidence
+            # Normalize: confidence = win_rate * min(sample_size / 100, 1.0)
+            confidence = win_rate * min(sample_size / 100.0, 1.0)
+            return min(max(confidence, 0.0), 1.0)
+        
+        signal_confidence = calculate_confidence(recent_signal_accuracy, 
+                                                 max(rsi_buy_stats.get("total_signals", 0),
+                                                     rsi_sell_stats.get("total_signals", 0),
+                                                     bandit_buy_stats.get("total_signals", 0),
+                                                     bandit_sell_stats.get("total_signals", 0)))
+        
+        x.update({
+            "rsi_buy_win_rate": float(rsi_buy_win_rate),
+            "rsi_sell_win_rate": float(rsi_sell_win_rate),
+            "bandit_buy_win_rate": float(bandit_buy_win_rate),
+            "bandit_sell_win_rate": float(bandit_sell_win_rate),
+            "recent_signal_accuracy": float(recent_signal_accuracy),
+            "signal_confidence": float(signal_confidence),
+        })
+        
+        logger.debug(f"Added historical performance: RSI_buy_win={rsi_buy_win_rate:.2f}, signal_confidence={signal_confidence:.2f}")
+    except Exception as e:
+        logger.warning(f"Failed to add historical performance features: {e}")
+        x.update({
+            "rsi_buy_win_rate": 0.5,
+            "rsi_sell_win_rate": 0.5,
+            "bandit_buy_win_rate": 0.5,
+            "bandit_sell_win_rate": 0.5,
+            "recent_signal_accuracy": 0.5,
+            "signal_confidence": 0.5,
+        })
+
+    # Add volume features if available in data
+    try:
+        volume = data.get("volume")
+        if volume is not None and volume > 0:
+            # Calculate volume ratio (current vs average)
+            # Get recent volumes from database if available, otherwise use current volume as baseline
+            conn = sqlite3.connect("sol_prices.db")
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT volume FROM sol_prices 
+                WHERE volume IS NOT NULL AND volume > 0
+                ORDER BY timestamp DESC LIMIT 100
+            """)
+            volume_rows = cursor.fetchall()
+            conn.close()
+            
+            if volume_rows:
+                recent_volumes = [row[0] for row in volume_rows]
+                avg_volume = mean(recent_volumes) if recent_volumes else volume
+                volume_ratio = volume / avg_volume if avg_volume > 0 else 1.0
+                
+                # Volume trend: compare current to previous volumes
+                if len(recent_volumes) >= 2:
+                    prev_volume = recent_volumes[1] if len(recent_volumes) > 1 else volume
+                    if volume > prev_volume * 1.1:
+                        volume_trend = 1.0  # Increasing
+                    elif volume < prev_volume * 0.9:
+                        volume_trend = -1.0  # Decreasing
+                    else:
+                        volume_trend = 0.0  # Stable
+                else:
+                    volume_trend = 0.0
+                
+                # Price-volume divergence: price up but volume down (bearish)
+                price_change = (price_now - prices[-2]) / prices[-2] if len(prices) >= 2 else 0.0
+                volume_change = (volume - prev_volume) / prev_volume if len(recent_volumes) >= 2 and prev_volume > 0 else 0.0
+                price_volume_divergence = 1.0 if (price_change > 0 and volume_change < -0.1) or (price_change < 0 and volume_change > 0.1) else 0.0
+                
+                x.update({
+                    "volume_ratio": float(volume_ratio),
+                    "volume_trend": float(volume_trend),
+                    "price_volume_divergence": float(price_volume_divergence),
+                })
+                logger.debug(f"Added volume features: ratio={volume_ratio:.2f}, trend={volume_trend}")
+            else:
+                # No historical volume data, use current volume as baseline
+                x.update({
+                    "volume_ratio": 1.0,
+                    "volume_trend": 0.0,
+                    "price_volume_divergence": 0.0,
+                })
+        else:
+            # No volume data available
+            x.update({
+                "volume_ratio": 1.0,
+                "volume_trend": 0.0,
+                "price_volume_divergence": 0.0,
+            })
+    except Exception as e:
+        logger.warning(f"Failed to add volume features: {e}")
+        x.update({
+            "volume_ratio": 1.0,
+            "volume_trend": 0.0,
+            "price_volume_divergence": 0.0,
+        })
 
     agent = get_agent()
     predictions = {a: agent.models[a].predict_one(x) for a in agent.actions}
@@ -1920,28 +2056,53 @@ class SOLPriceFetcher:
             # Store price data in database
             timestamp = datetime.now().isoformat()
             # Create a fresh cursor for this operation to avoid recursive cursor issues
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                INSERT INTO sol_prices (
-                    timestamp, rate, volume, market_cap, liquidity,
-                    delta_hour, delta_day, delta_week, delta_month, delta_quarter, delta_year
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                timestamp,
-                data['rate'],
-                data['volume'],
-                data['cap'],
-                data['liquidity'],
-                data['delta']['hour'],
-                data['delta']['day'],
-                data['delta']['week'],
-                data['delta']['month'],
-                data['delta']['quarter'],
-                data['delta']['year']
-            ))
-            self.conn.commit()
-            cursor.close()
-            logger.info(f"SOL price: ${data['rate']:.2f} - Data stored successfully")
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    INSERT INTO sol_prices (
+                        timestamp, rate, volume, market_cap, liquidity,
+                        delta_hour, delta_day, delta_week, delta_month, delta_quarter, delta_year
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    timestamp,
+                    data['rate'],
+                    data['volume'],
+                    data['cap'],
+                    data['liquidity'],
+                    data['delta']['hour'],
+                    data['delta']['day'],
+                    data['delta']['week'],
+                    data['delta']['month'],
+                    data['delta']['quarter'],
+                    data['delta']['year']
+                ))
+                try:
+                    self.conn.commit()
+                except sqlite3.OperationalError as e:
+                    # If commit fails, try to rollback and reconnect
+                    logger.warning(f"Commit failed, attempting rollback: {e}")
+                    try:
+                        self.conn.rollback()
+                    except:
+                        pass
+                    # Reconnect if needed
+                    try:
+                        self.conn.close()
+                    except:
+                        pass
+                    self.conn = sqlite3.connect('sol_prices.db', check_same_thread=False)
+                    logger.info("Reconnected to database")
+                cursor.close()
+                logger.info(f"SOL price: ${data['rate']:.2f} - Data stored successfully")
+            except sqlite3.Error as e:
+                logger.error(f"Database error storing price: {e}")
+                # Try to reconnect
+                try:
+                    self.conn.close()
+                except:
+                    pass
+                self.conn = sqlite3.connect('sol_prices.db', check_same_thread=False)
+                logger.info("Reconnected to database after error")
 #########################################################################
 #                    LOOP                                               #
 #########################################################################

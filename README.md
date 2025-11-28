@@ -43,33 +43,99 @@ python sol_price_fetcher.py
 
 Intead launch `app.py` with python on a `screen` session. This will count the API calls that remain for the day and ask you how often it should fetch prices based on the math it does. I have it fetching the price of SOL every five minutes. You can then see a chart of the last 288 price fetches (24 hours @ 5 minutes between fetches), the standard deviation, 24 hour range, low, high and so forth at `http://localhost:5030/sol-tracker`.
 
-### SOL Price Tracking & Trading Signals
+### 🚀 SOL Price Tracking & Trading Intelligence Dashboard
 
-The SOL Tracker provides professional-grade price analysis with clear, actionable trading signals and **signal reliability tracking** to help you make informed decisions.
+**The Ultimate Solana Trading Analytics Platform** - Transform raw price data into actionable trading intelligence with our comprehensive SOL Tracker dashboard. This isn't just another price chart—it's a complete trading decision support system powered by machine learning, technical analysis, and real-time market intelligence.
 
-**Key Features:**
-- ✅ **TradingView Lightweight Charts** - Professional-grade interactive price charts
-- ✅ **RSI Indicator** - Relative Strength Index (14-period) with overbought/oversold levels
-- ✅ **RSI-Based Trading Signals** - Clear buy/sell/hold recommendations:
-  - **Buy Signal**: RSI < 30 (oversold conditions)
-  - **Sell Signal**: RSI > 70 (overbought conditions)
-  - **Hold Signal**: RSI 30-70 (neutral conditions)
-- ✅ **Technical Indicators** - Moving averages (SMA 1h, 4h, 24h), MACD, Bollinger Bands, momentum indicators, and volatility metrics
-- ✅ **Signal Performance Tracker** - **Track signal reliability!** See which signals have been profitable:
-  - **Win Rate**: Percentage of signals that resulted in profitable outcomes
-  - **Average Return**: Expected performance for each signal type (24-hour horizon)
-  - **Best/Worst Cases**: Historical performance ranges
-  - **Color-Coded Reliability**: Green (≥60% win rate), Yellow (≥50%), Red (<50%)
-  - Tracks: RSI Buy/Sell/Hold signals
-- ✅ **Time Range Selection** - View data for 1 hour, 1 day, 1 week, 1 month, or 1 year
-- ✅ **Dark Theme UI** - Modern, professional trading platform aesthetic
+#### 📊 What You'll See on the SOL Tracker Page
 
-Visit `http://localhost:5030/sol-tracker` to view:
-- Interactive price charts with RSI overlay
-- Real-time RSI-based trading signals
-- **Signal reliability metrics** - Know which signals to trust!
-- Comprehensive technical indicator panel (RSI, MACD, Bollinger Bands, Momentum, SMA)
-- Price statistics and volatility metrics
+**1. Real-Time Price Intelligence Header**
+- **Live SOL Price** with 24h change percentage (color-coded: green/red)
+- **4-Card Stats Grid** showing:
+  - **Price Range**: 24h high/low with visual indicators
+  - **Volatility**: Standard deviation with risk-level color coding (green/yellow/red)
+  - **RSI Status**: Current RSI (14-period) with overbought/oversold warnings
+  - **Current Signal**: BUY/SELL/HOLD recommendation based on RSI
+- **Signal Performance Trends**: 24h win rates for RSI Buy/Sell/Hold signals with color-coded reliability
+
+**2. Professional Trading Charts**
+- **TradingView Lightweight Charts** - Industry-standard interactive candlestick charts
+- **RSI Overlay** - Visual RSI indicator with overbought (>70) and oversold (<30) zones
+- **Multi-Timeframe Analysis** - Switch between 1 hour, 1 day, 1 week, 1 month, or 1 year views
+- **Real-Time Price Updates** - Live price display as you hover over the chart
+
+**3. Technical Analysis Dashboard**
+- **Moving Averages**: SMA 1h, 4h, 24h with price position indicators
+- **MACD Analysis**: MACD line, signal line, histogram, and cross signals (bullish/bearish/neutral)
+- **Bollinger Bands**: Upper/middle/lower bands with position indicators (overbought/oversold/neutral)
+- **Momentum Indicators**: 5, 10, 30-period momentum with rate of change
+- **Volatility Metrics**: ATR (Average True Range) with normalized percentages
+- **Stochastic Oscillator**: %K and %D with overbought/oversold signals
+
+**4. Signal Performance Tracker** ⭐ **Game Changer**
+- **Historical Win Rates**: See which signals actually work:
+  - RSI Buy signals: X% win rate with +Y% average return
+  - RSI Sell signals: X% win rate with +Y% average return  
+  - RSI Hold signals: X% win rate
+- **Color-Coded Reliability**: 
+  - 🟢 Green (≥60% win rate) - High confidence signals
+  - 🟡 Yellow (≥50% win rate) - Moderate confidence
+  - 🔴 Red (<50% win rate) - Low confidence, be cautious
+- **Performance Metrics**: Average return, best/worst cases, sample sizes
+- **Why This Matters**: Don't just see a signal—know if it's historically profitable!
+
+**5. RL Agent AI Predictions** 🤖 **Powered by Deep Learning**
+- **Multi-Horizon Forecasts**: 
+  - **1-Hour Return Prediction**: Expected price change in 1 hour with confidence score
+  - **24-Hour Return Prediction**: Expected price change in 24 hours with confidence score
+- **Prediction Accuracy Tracking**: See how accurate past predictions were
+- **Attention Visualization**: See which news headlines influenced the AI's decisions
+- **Risk Management Dashboard**: Real-time monitoring of position limits, trade frequency, and daily loss caps
+- **Discovered Trading Rules**: Human-readable rules extracted from the AI's learned behavior
+- **Feature Importance Analysis**: SHAP-based analysis showing which factors matter most
+
+**6. News Sentiment Integration** 📰
+- **24-Hour News Sentiment**: Aggregate sentiment score from crypto news sources
+- **Sentiment Breakdown**: Positive/negative/neutral news counts
+- **Crypto-Specific News**: Filtered news relevant to cryptocurrency markets
+- **Topic Clustering**: News automatically grouped by topic for pattern recognition
+
+**7. Enhanced Contextual Bandit Features** 🎯 **Recently Added**
+- **50+ Technical Indicators**: MACD, Bollinger Bands, EMA (12/26/50), Stochastic Oscillator, ATR
+- **Market Regime Detection**: Trending up/down, ranging markets, volatility regimes
+- **Price Pattern Recognition**: Support/resistance levels, consecutive periods, reversal candidates
+- **Cross-Timeframe Analysis**: Multi-timeframe SMA alignment, RSI across timeframes
+- **Historical Performance Context**: Win rates for RSI and bandit signals inform current decisions
+- **Volume Analysis**: Volume ratios, trends, and price-volume divergence (when available)
+
+**8. Comprehensive Price Statistics**
+- Current price, 24h change, high/low ranges
+- Standard deviation (volatility measure)
+- Average delta per 5-minute period
+- Price position within 24h range
+
+#### 🎯 Why This Dashboard is Different
+
+**Most trading dashboards show you signals. We show you which signals actually work.**
+
+- ✅ **Data-Driven Confidence**: Every signal comes with historical performance data
+- ✅ **Multi-Model Intelligence**: Combines RSI technical analysis with RL agent predictions
+- ✅ **Explainable AI**: See exactly why the AI made a decision (attention weights, rules, feature importance)
+- ✅ **Risk-Aware**: Built-in risk management prevents overexposure
+- ✅ **Real-Time Updates**: Live price data, news sentiment, and predictions update automatically
+- ✅ **Professional Grade**: TradingView charts, industry-standard indicators, institutional-quality analytics
+
+#### 🔮 What's Next: The Combined Intelligence Model
+
+We're working on an even smarter system that will:
+
+- **🎯 Unified Signal Fusion**: Combine RSI signals, RL agent predictions, and contextual bandit recommendations into a single confidence-weighted decision
+- **🧠 Meta-Learning**: A higher-level model that learns which signals work best in different market conditions
+- **📊 Ensemble Predictions**: Weighted combination of multiple models for more robust forecasts
+- **🔄 Adaptive Learning**: Automatically adjust signal weights based on recent performance
+- **⚡ Real-Time Optimization**: Continuously optimize the combination strategy as new data arrives
+
+**The Future of Trading Intelligence**: Instead of choosing between RSI, RL agent, or bandit signals, you'll get a unified recommendation that intelligently combines all three based on what's working right now.
 
 ### Why Signal Performance Tracking Matters
 
@@ -189,13 +255,40 @@ The application now includes a **Reinforcement Learning (RL) Trading Agent** bui
 
 ### Future Enhancements
 
-See [SOL_TRACKER_IMPROVEMENT_PLAN.md](SOL_TRACKER_IMPROVEMENT_PLAN.md) for detailed roadmap including:
-- **Model Training** - Train RL agent on historical data
-- **Paper Trading** - Test agent decisions in simulation
-- **Production Deployment** - Deploy trained model for live trading
-- **Advanced Features** - Enhanced clustering, rule validation, performance optimization
-- **Security Hardening** - Additional safety constraints and validation
-- **Additional Technical Indicators** - More features for state encoding
+**🚀 Coming Soon: The Combined Intelligence Model**
+
+We're building a next-generation trading intelligence system that unifies all our models:
+
+- **🎯 Unified Signal Fusion** - A meta-model that intelligently combines:
+  - RSI technical analysis signals
+  - RL agent deep learning predictions  
+  - Contextual bandit adaptive recommendations
+  - News sentiment analysis
+  - Historical performance context
+- **🧠 Meta-Learning Architecture** - A higher-level model that learns:
+  - Which signals work best in trending markets vs ranging markets
+  - Optimal signal weights based on current volatility regimes
+  - When to trust RSI vs RL agent vs bandit recommendations
+- **📊 Ensemble Predictions** - Weighted combination of multiple models:
+  - Confidence-weighted averaging based on recent accuracy
+  - Dynamic model selection based on market conditions
+  - Adaptive learning that adjusts weights in real-time
+- **🔄 Continuous Optimization** - The system gets smarter over time:
+  - Automatically adjusts signal fusion weights
+  - Learns from prediction errors
+  - Adapts to changing market dynamics
+
+**The Vision**: Instead of choosing between different signals, you'll get a single, unified recommendation that intelligently combines all available intelligence sources. The system will tell you not just what to do, but why—and how confident it is based on historical performance.
+
+**Current Roadmap:**
+- ✅ Enhanced contextual bandit with 50+ technical indicators (completed)
+- ✅ RL agent infrastructure with explainable AI (completed)
+- 🎯 **Next**: Combined intelligence model (in development)
+- 🎯 Paper trading validation
+- 🎯 Production deployment
+- 🎯 Advanced features (enhanced clustering, rule validation)
+
+See [SOL_TRACKER_IMPROVEMENT_PLAN.md](SOL_TRACKER_IMPROVEMENT_PLAN.md) for the complete technical roadmap.
 
 ---
 
@@ -357,21 +450,22 @@ Visit `http://localhost:5030/orca` to view the **Detailed Rewards Dashboard** wi
 
 ### SOL Price & Trading Signals
 
-Visit `http://localhost:5030/sol-tracker` to view:
+**Visit `http://localhost:5030/sol-tracker` to experience the full trading intelligence dashboard.**
 
-- **Professional Trading Charts**: Interactive price charts using TradingView Lightweight Charts
-- **RSI Indicator**: Relative Strength Index (14-period) with overbought/oversold levels
-- **RSI-Based Trading Signals**: Clear buy/sell/hold recommendations based on RSI levels
-- **Signal Performance Tracker**: See win rates, average returns, and reliability metrics for each signal type
-- **Technical Indicators Summary**: Moving averages (SMA 1h, 4h, 24h), MACD, Bollinger Bands, momentum indicators
-- **Time Range Selection**: View data for 1 hour, 1 day, 1 week, 1 month, or 1 year
-- **Price Statistics**: Current price, 24h change, high/low ranges, standard deviation
-- **RL Agent Features** (see [RL Agent Features](#rl-agent-features) section below):
-  - Multi-horizon return predictions (1h/24h)
-  - Influential news headlines with attention weights
-  - Risk management dashboard
-  - Discovered trading rules
-  - Feature importance analysis
+The SOL Tracker is your command center for Solana trading decisions. It combines:
+
+- **📈 Professional Trading Charts** - TradingView Lightweight Charts with RSI overlay
+- **🎯 RSI-Based Trading Signals** - Buy/sell/hold recommendations with historical win rates
+- **📊 50+ Technical Indicators** - MACD, Bollinger Bands, EMA, Stochastic, ATR, momentum, volatility
+- **🤖 AI-Powered Predictions** - RL agent forecasts for 1h/24h returns with confidence scores
+- **📰 News Sentiment Analysis** - Real-time crypto news sentiment with topic clustering
+- **🛡️ Risk Management** - Position limits, trade frequency caps, daily loss monitoring
+- **🔍 Explainable AI** - See which headlines influenced decisions, extracted trading rules, feature importance
+- **📈 Signal Performance Tracking** - Know which signals actually work (win rates, average returns)
+- **⚡ Enhanced Contextual Bandit** - Market regime detection, price patterns, cross-timeframe analysis
+- **📊 Multi-Timeframe Views** - 1 hour, 1 day, 1 week, 1 month, or 1 year analysis
+
+**See the [SOL Price Tracking & Trading Intelligence Dashboard](#-sol-price-tracking--trading-intelligence-dashboard) section above for complete details.**
 
 ### Backfill Historical Data
 
