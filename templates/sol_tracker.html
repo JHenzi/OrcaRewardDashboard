@@ -2,7 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SOL Price Tracker</title>
+    <title>SOL Price Tracker - RSI Trading Signals</title>
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.6s ease-out;
+        }
+    </style>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <!-- TradingView Lightweight Charts - Professional Trading Chart Library -->
@@ -75,22 +84,77 @@
     </nav>
 
     <div class="container mx-auto p-6">
-        <h1 class="text-5xl font-bold mb-4 text-center text-white">SOL Price Tracker</h1>
-        
-        <!-- Info Notice: Focus on Trading Signals -->
-        <div class="mb-4 bg-blue-900 border-l-4 border-blue-500 text-blue-200 p-4 rounded">
-          <div class="flex">
-            <div class="flex-shrink-0">
-              <svg class="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
-              </svg>
+        <!-- Modern Header Section -->
+        <div class="mb-8 fade-in">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+                <div>
+                    <h1 class="text-4xl md:text-5xl font-bold text-white mb-2">SOL Price Tracker</h1>
+                    <p class="text-gray-400">Professional trading charts with technical indicators</p>
+                </div>
+                <div class="mt-4 md:mt-0">
+                    <form method="get" action="/sol-tracker" class="flex items-center space-x-2">
+                        <label for="range" class="text-sm font-medium text-gray-300">Time Range:</label>
+                        <select id="range" name="range" onchange="this.form.submit()" class="bg-gray-700 border border-gray-600 text-gray-100 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block px-4 py-2 shadow-sm hover:bg-gray-600 transition">
+                            <option value="hour" {% if selected_range == 'hour' %}selected{% endif %}>1 Hour</option>
+                            <option value="day" {% if selected_range == 'day' %}selected{% endif %}>1 Day</option>
+                            <option value="week" {% if selected_range == 'week' %}selected{% endif %}>1 Week</option>
+                            <option value="month" {% if selected_range == 'month' %}selected{% endif %}>1 Month</option>
+                            <option value="year" {% if selected_range == 'year' %}selected{% endif %}>1 Year</option>
+                        </select>
+                    </form>
+                </div>
             </div>
-            <div class="ml-3">
-              <p class="text-sm font-medium">
-                <strong>📊 Intelligent Price Analysis:</strong> This page focuses on trading signals (buy/sell/hold) from our contextual bandit algorithm. Price prediction has been disabled, but we're actively working on improvements including technical indicators, signal performance analysis, and enhanced charting. See <code>SOL_TRACKER_IMPROVEMENT_PLAN.md</code> for details.
-              </p>
+            
+            <!-- Key Metrics Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <!-- Current Price -->
+                <div class="bg-gradient-to-br from-purple-600 to-blue-600 rounded-xl p-4 shadow-lg">
+                    <div class="text-sm text-purple-200 mb-1">Current Price</div>
+                    <div class="text-2xl font-bold text-white">${{ "%.2f"|format(stats.current_price) if stats.current_price is not none else 'N/A' }}</div>
+                </div>
+                
+                <!-- RSI Signal -->
+                <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-purple-500 transition">
+                    <div class="text-sm text-gray-400 mb-1">RSI (14)</div>
+                    {% if stats.rsi is not none %}
+                        {% if stats.rsi > 70 %}
+                            <div class="text-2xl font-bold text-red-400">{{ "%.1f"|format(stats.rsi) }}</div>
+                            <div class="text-xs text-red-300 mt-1">Overbought</div>
+                        {% elif stats.rsi < 30 %}
+                            <div class="text-2xl font-bold text-green-400">{{ "%.1f"|format(stats.rsi) }}</div>
+                            <div class="text-xs text-green-300 mt-1">Oversold</div>
+                        {% else %}
+                            <div class="text-2xl font-bold text-gray-300">{{ "%.1f"|format(stats.rsi) }}</div>
+                            <div class="text-xs text-gray-400 mt-1">Neutral</div>
+                        {% endif %}
+                    {% else %}
+                        <div class="text-2xl font-bold text-gray-500">N/A</div>
+                    {% endif %}
+                </div>
+                
+                <!-- Price Change -->
+                <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-blue-500 transition">
+                    <div class="text-sm text-gray-400 mb-1">24h Change</div>
+                    {% if stats.percent_change is not none %}
+                        <div class="text-2xl font-bold {% if stats.percent_change > 0 %}text-green-400{% elif stats.percent_change < 0 %}text-red-400{% else %}text-gray-300{% endif %}">
+                            {{ "%.2f"|format(stats.percent_change) }}%
+                        </div>
+                    {% else %}
+                        <div class="text-2xl font-bold text-gray-500">N/A</div>
+                    {% endif %}
+                </div>
+                
+                <!-- High/Low Range -->
+                <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 hover:border-green-500 transition">
+                    <div class="text-sm text-gray-400 mb-1">Range</div>
+                    {% if stats.high is not none and stats.low is not none %}
+                        <div class="text-lg font-bold text-white">${{ "%.2f"|format(stats.high) }}</div>
+                        <div class="text-xs text-gray-400">High / ${{ "%.2f"|format(stats.low) }} Low</div>
+                    {% else %}
+                        <div class="text-2xl font-bold text-gray-500">N/A</div>
+                    {% endif %}
+                </div>
             </div>
-          </div>
         </div>
 
         <!-- DEPRECATED: Price Prediction Display (Commented Out) -->
@@ -125,62 +189,98 @@
         </div>
         #}
 
-        <!-- Active: Latest Trading Signal Display -->
-        <div class="mb-8 bg-gradient-to-r from-gray-800 to-gray-700 text-white rounded-xl shadow-xl p-8 border border-gray-600">
-          {% if bandit_logs and bandit_logs|length > 0 %}
-            {% set b = bandit_logs[0] %}
-            <div class="text-center">
-              <div class="text-4xl font-extrabold mb-4">Current Trading Signal</div>
-              <div class="text-6xl font-extrabold flex justify-center items-center space-x-4 mb-4">
-                {% if b.action == 'buy' %}
-                  <span class="text-green-300">Buy 🟢</span>
-                {% elif b.action == 'sell' %}
-                  <span class="text-red-300">Sell 🔴</span>
-                {% else %}
-                  <span class="text-yellow-300">Hold 🟡</span>
-                {% endif %}
-              </div>
-              <div class="text-lg opacity-90 mt-4">
-                <div class="grid grid-cols-4 gap-4 text-center">
-                  <div>
-                    <div class="text-sm opacity-70">Reward</div>
-                    <div class="text-xl font-bold">{{ "%.4f"|format(b.reward) }}</div>
+        <!-- RSI-Based Trading Signal -->
+        <div class="mb-8 fade-in">
+          {% if stats.rsi is not none %}
+            {% if stats.rsi < 30 %}
+              <!-- BUY Signal - RSI Oversold -->
+              <div class="bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl shadow-2xl p-8 border-2 border-green-400 animate-pulse">
+                <div class="text-center">
+                  <div class="text-5xl font-extrabold mb-4 flex items-center justify-center space-x-4">
+                    <span>🟢 BUY SIGNAL</span>
                   </div>
-                  <div>
-                    <div class="text-sm opacity-70">Buy Score</div>
-                    <div class="text-xl font-bold">{{ "%.4f"|format(b.prediction_buy) if b.prediction_buy is not none else 'N/A' }}</div>
+                  <div class="text-2xl mb-4 opacity-90">RSI indicates oversold conditions</div>
+                  <div class="grid grid-cols-3 gap-6 mt-6">
+                    <div class="bg-white/10 rounded-lg p-4">
+                      <div class="text-sm opacity-80 mb-1">RSI Value</div>
+                      <div class="text-3xl font-bold">{{ "%.1f"|format(stats.rsi) }}</div>
+                    </div>
+                    <div class="bg-white/10 rounded-lg p-4">
+                      <div class="text-sm opacity-80 mb-1">Current Price</div>
+                      <div class="text-3xl font-bold">${{ "%.2f"|format(stats.current_price) if stats.current_price is not none else 'N/A' }}</div>
+                    </div>
+                    <div class="bg-white/10 rounded-lg p-4">
+                      <div class="text-sm opacity-80 mb-1">Signal Strength</div>
+                      <div class="text-3xl font-bold">Strong</div>
+                    </div>
                   </div>
-                  <div>
-                    <div class="text-sm opacity-70">Sell Score</div>
-                    <div class="text-xl font-bold">{{ "%.4f"|format(b.prediction_sell) if b.prediction_sell is not none else 'N/A' }}</div>
-                  </div>
-                  <div>
-                    <div class="text-sm opacity-70">Hold Score</div>
-                    <div class="text-xl font-bold">{{ "%.4f"|format(b.prediction_hold) if b.prediction_hold is not none else 'N/A' }}</div>
+                  <div class="mt-6 text-sm opacity-75 italic">
+                    RSI below 30 suggests potential buying opportunity. Consider entering long positions.
                   </div>
                 </div>
               </div>
-              <div class="text-sm opacity-70 italic mt-4">
-                Last updated: {{ b.timestamp }}
+            {% elif stats.rsi > 70 %}
+              <!-- SELL Signal - RSI Overbought -->
+              <div class="bg-gradient-to-r from-red-600 to-pink-600 text-white rounded-xl shadow-2xl p-8 border-2 border-red-400 animate-pulse">
+                <div class="text-center">
+                  <div class="text-5xl font-extrabold mb-4 flex items-center justify-center space-x-4">
+                    <span>🔴 SELL SIGNAL</span>
+                  </div>
+                  <div class="text-2xl mb-4 opacity-90">RSI indicates overbought conditions</div>
+                  <div class="grid grid-cols-3 gap-6 mt-6">
+                    <div class="bg-white/10 rounded-lg p-4">
+                      <div class="text-sm opacity-80 mb-1">RSI Value</div>
+                      <div class="text-3xl font-bold">{{ "%.1f"|format(stats.rsi) }}</div>
+                    </div>
+                    <div class="bg-white/10 rounded-lg p-4">
+                      <div class="text-sm opacity-80 mb-1">Current Price</div>
+                      <div class="text-3xl font-bold">${{ "%.2f"|format(stats.current_price) if stats.current_price is not none else 'N/A' }}</div>
+                    </div>
+                    <div class="bg-white/10 rounded-lg p-4">
+                      <div class="text-sm opacity-80 mb-1">Signal Strength</div>
+                      <div class="text-3xl font-bold">Strong</div>
+                    </div>
+                  </div>
+                  <div class="mt-6 text-sm opacity-75 italic">
+                    RSI above 70 suggests potential selling opportunity. Consider taking profits or entering short positions.
+                  </div>
+                </div>
               </div>
-            </div>
+            {% else %}
+              <!-- HOLD Signal - RSI Neutral -->
+              <div class="bg-gradient-to-r from-gray-700 to-gray-800 text-white rounded-xl shadow-xl p-8 border border-gray-600">
+                <div class="text-center">
+                  <div class="text-5xl font-extrabold mb-4 flex items-center justify-center space-x-4">
+                    <span>🟡 HOLD SIGNAL</span>
+                  </div>
+                  <div class="text-2xl mb-4 opacity-90">RSI indicates neutral conditions</div>
+                  <div class="grid grid-cols-3 gap-6 mt-6">
+                    <div class="bg-gray-600/30 rounded-lg p-4">
+                      <div class="text-sm opacity-80 mb-1">RSI Value</div>
+                      <div class="text-3xl font-bold">{{ "%.1f"|format(stats.rsi) }}</div>
+                    </div>
+                    <div class="bg-gray-600/30 rounded-lg p-4">
+                      <div class="text-sm opacity-80 mb-1">Current Price</div>
+                      <div class="text-3xl font-bold">${{ "%.2f"|format(stats.current_price) if stats.current_price is not none else 'N/A' }}</div>
+                    </div>
+                    <div class="bg-gray-600/30 rounded-lg p-4">
+                      <div class="text-sm opacity-80 mb-1">Signal Strength</div>
+                      <div class="text-3xl font-bold">Neutral</div>
+                    </div>
+                  </div>
+                  <div class="mt-6 text-sm opacity-75 italic">
+                    RSI between 30-70 suggests neutral market conditions. Wait for clearer signals before taking action.
+                  </div>
+                </div>
+              </div>
+            {% endif %}
           {% else %}
-            <div class="text-xl font-semibold text-center">No trading signals available yet</div>
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-8 text-center">
+              <div class="text-xl font-semibold text-gray-400">Insufficient data for RSI calculation</div>
+              <div class="text-sm text-gray-500 mt-2">Need at least 15 price points to calculate RSI</div>
+            </div>
           {% endif %}
         </div>
-        <!-- Range Selector -->
-      <div class="flex justify-end items-center mb-4">
-        <form method="get" action="/sol-tracker" class="flex items-center space-x-2">
-          <label for="range" class="text-sm font-medium text-gray-200">🕒 Time Range:</label>
-          <select id="range" name="range" onchange="this.form.submit()" class="bg-gray-700 border border-gray-600 text-gray-100 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block px-3 py-1.5 shadow-sm">
-            <option value="hour" {% if selected_range == 'hour' %}selected{% endif %}>1 Hour</option>
-            <option value="day" {% if selected_range == 'day' %}selected{% endif %}>1 Day</option>
-            <option value="week" {% if selected_range == 'week' %}selected{% endif %}>1 Week</option>
-            <option value="month" {% if selected_range == 'month' %}selected{% endif %}>1 Month</option>
-            <option value="year" {% if selected_range == 'year' %}selected{% endif %}>1 Year</option>
-          </select>
-        </form>
-      </div>
 
 
         <!-- Professional Trading Chart -->
@@ -292,191 +392,71 @@
           </div>
           #}
 
-          <!-- Bandit Strategy State -->
-          <div class="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
-            <h2 class="text-xl font-semibold mb-4 text-white">📡 Bandit Strategy State</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <table class="w-full text-sm text-left text-gray-200 border border-gray-600 rounded-lg overflow-hidden shadow">
-                  <thead class="bg-indigo-800 text-gray-100 text-xs uppercase font-semibold">
-                    <tr>
-                      <th colspan="2" class="px-4 py-2 text-center">⚙️ Strategy Info</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr class="border-t border-gray-600">
-                      <td class="px-4 py-2 font-medium text-gray-200">🧠 Last Action</td>
-                      <td class="px-4 py-2 text-gray-100">{{ bandit_state.last_action | capitalize }}</td>
-                    </tr>
-                    <tr class="border-t border-gray-600">
-                      <td class="px-4 py-2 font-medium text-gray-200">💵 Entry Price</td>
-                      <td class="px-4 py-2 text-gray-100">${{ "%.2f" | format(bandit_state.portfolio.entry_price | float) }}</td>
-                    </tr>
-                    <tr class="border-t border-gray-600">
-                      <td class="px-4 py-2 font-medium text-gray-200">📍 Position Open</td>
-                      <td class="px-4 py-2 text-gray-100">{{ "Yes ✅" if bandit_state.position_open else "No ❌" }}</td>
-                    </tr>
-                    <tr class="border-t border-gray-600">
-                      <td class="px-4 py-2 font-medium text-gray-200">📉 Fee</td>
-                      <td class="px-4 py-2 text-gray-100">{{ "%.2f" | format(bandit_state.fee) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+          <!-- Technical Indicators Summary -->
+          <div class="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700 fade-in">
+            <h2 class="text-xl font-semibold mb-6 text-white">📊 Technical Indicators Summary</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <!-- Moving Averages -->
+              <div class="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                <h3 class="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wide">Moving Averages</h3>
+                <div class="space-y-2">
+                  <div class="flex justify-between">
+                    <span class="text-gray-400">SMA (1h)</span>
+                    <span class="text-white font-semibold">${{ stats.sma_1h if stats.sma_1h is not none else 'N/A' }}</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-gray-400">SMA (4h)</span>
+                    <span class="text-white font-semibold">${{ stats.sma_4h if stats.sma_4h is not none else 'N/A' }}</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-gray-400">SMA (24h)</span>
+                    <span class="text-white font-semibold">${{ stats.sma_24h if stats.sma_24h is not none else 'N/A' }}</span>
+                  </div>
+                </div>
               </div>
-
-              <div>
-                <table class="w-full text-sm text-left text-gray-200 border border-gray-600 rounded-lg overflow-hidden shadow">
-                  <thead class="bg-indigo-800 text-gray-100 text-xs uppercase font-semibold">
-                    <tr>
-                      <th colspan="2" class="px-4 py-2 text-center">💼 Portfolio</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr class="border-t border-gray-600">
-                      <td class="px-4 py-2 font-medium text-gray-200">🪙 SOL Balance</td>
-                      <td class="px-4 py-2 text-gray-100">{{ "%2.f" | format(bandit_state.portfolio.sol_balance) }}</td>
-                    </tr>
-                    <tr class="border-t border-gray-600">
-                      <td class="px-4 py-2 font-medium text-gray-200">💰 USD Balance</td>
-                      <td class="px-4 py-2 text-gray-100">${{ "%.2f" | format(bandit_state.portfolio.usd_balance) }}</td>
-                    </tr>
-                    <tr class="border-t border-gray-600">
-                      <td class="px-4 py-2 font-medium text-gray-200">🧾 Cost Basis</td>
-                      <td class="px-4 py-2 text-gray-100">${{ "%.2f" | format(bandit_state.portfolio.total_cost_basis) }}
-                        {% if bandit_state.portfolio.sol_balance > 0 %}
-                          (${{ "%.2f"|format(bandit_state.portfolio.total_cost_basis / bandit_state.portfolio.sol_balance) }})
-                        {% endif %}</td>
-                    </tr>
-                    <tr class="border-t border-gray-600">
-                      <td class="px-4 py-2 font-medium text-gray-200">📈 Realized PnL</td>
-                      <td class="px-4 py-2 text-green-400">${{ "%.2f" | format(bandit_state.portfolio.realized_pnl) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+              
+              <!-- RSI Details -->
+              <div class="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                <h3 class="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wide">RSI Analysis</h3>
+                <div class="space-y-2">
+                  {% if stats.rsi is not none %}
+                    <div class="flex justify-between">
+                      <span class="text-gray-400">RSI (14)</span>
+                      <span class="{% if stats.rsi > 70 %}text-red-400{% elif stats.rsi < 30 %}text-green-400{% else %}text-gray-300{% endif %} font-semibold">
+                        {{ "%.2f"|format(stats.rsi) }}
+                      </span>
+                    </div>
+                    <div class="mt-3">
+                      {% if stats.rsi > 70 %}
+                        <div class="text-xs text-red-300 bg-red-900/30 px-2 py-1 rounded">Overbought Zone</div>
+                      {% elif stats.rsi < 30 %}
+                        <div class="text-xs text-green-300 bg-green-900/30 px-2 py-1 rounded">Oversold Zone</div>
+                      {% else %}
+                        <div class="text-xs text-gray-400 bg-gray-600/30 px-2 py-1 rounded">Neutral Zone</div>
+                      {% endif %}
+                    </div>
+                  {% else %}
+                    <div class="text-gray-500">Insufficient data</div>
+                  {% endif %}
+                </div>
               </div>
-            </div>
-          </div>
-
-        <!-- Bandit Model Summary -->
-        <div class="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
-          <h2 class="text-xl font-semibold mb-4 text-white">🤖 Bandit Model Summary</h2>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <table class="w-full text-sm text-left text-gray-200 border border-gray-600 rounded-lg overflow-hidden shadow">
-                <thead class="bg-indigo-800 text-gray-100 text-xs uppercase font-semibold border-b border-indigo-600">
-                  <tr>
-                    <th colspan="2" class="px-4 py-2 text-center">⚙️ Strategy Info</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr class="border-t border-gray-600">
-                    <td class="px-4 py-3 font-medium text-gray-200">📋 Logged Actions</td>
-                    <td class="px-4 py-3 text-right font-mono text-gray-100">{{ bandit_stats.num_rows }}</td>
-                  </tr>
-                  <tr class="border-t border-gray-600">
-                    <td class="px-4 py-3 font-medium text-gray-200">🎯 Average Reward</td>
-                    <td class="px-4 py-3 text-right font-mono text-gray-100">{{ "%.4f"|format(bandit_stats.avg_reward) }}</td>
-                  </tr>
-                  <tr class="border-t border-gray-600">
-                    <td class="px-4 py-3 font-medium text-gray-200">📊 Reward Std Dev</td>
-                    <td class="px-4 py-3 text-right font-mono text-gray-100">{{ "%.4f"|format(bandit_stats.std_reward) }}</td>
-                  </tr>
-                  <tr class="border-t border-gray-600">
-                    <td class="px-4 py-3 font-medium text-gray-200">❌ Average Regret</td>
-                    <td class="px-4 py-3 text-right font-mono text-gray-100">{{ "%.4f"|format(bandit_stats.avg_regret) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <!--<table class="w-full mt-6 text-sm text-left text-gray-700 border border-gray-200 rounded-lg overflow-hidden shadow">
-                <thead class="bg-indigo-100 text-gray-800 text-xs uppercase font-semibold">
-                  <tr>
-                    <th colspan="2" class="px-4 py-2 text-center">🏆 Top 5 Rewards</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for trade in bandit_stats.top_rewards %}
-                  <tr class="border-t">
-                    <td class="px-4 py-2">{{ trade.timestamp }}</td>
-                    <td class="px-4 py-2">{{ trade.action }}: {{ trade.reward }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>-->
-            </div>
-
-            <div>
-              <table class="w-full text-sm text-left text-gray-200 border border-gray-600 rounded-lg overflow-hidden shadow">
-                <thead class="bg-indigo-800 text-gray-100 text-xs uppercase font-semibold">
-                  <tr>
-                    <th colspan="2" class="px-4 py-2 text-center">📊 Action Counts</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for action, count in bandit_stats.action_counts.items() %}
-                  <tr class="border-t border-gray-600">
-                    <td class="px-4 py-2 font-medium text-gray-200">{{ action }}</td>
-                    <td class="px-4 py-2 text-gray-100">{{ count }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-
-              <table class="w-full mt-6 text-sm text-left text-gray-200 border border-gray-600 rounded-lg overflow-hidden shadow">
-                <thead class="bg-indigo-800 text-gray-100 text-xs uppercase font-semibold">
-                  <tr>
-                    <th colspan="2" class="px-4 py-2 text-center">📈 Avg Reward by Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for action, reward in bandit_stats.avg_reward_by_action.items() %}
-                  <tr class="border-t border-gray-600">
-                    <td class="px-4 py-2 font-medium text-gray-200">{{ action }}</td>
-                    <td class="px-4 py-2 text-gray-100">{{ reward }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-
-          </div>
-        </div>
-
-
-          <!-- Contextual Bandit Logs -->
-          <div x-data="{ showAllLogs: false }" class="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
-            <h2 class="text-xl font-semibold mb-4 text-white">🤖 Contextual Bandit Logs</h2>
-            <div class="overflow-x-auto">
-              <table class="min-w-full text-sm text-left text-gray-200 border border-gray-600">
-                <thead class="bg-gray-700 text-xs uppercase font-semibold text-gray-100">
-                  <tr>
-                    <th class="px-4 py-2 border-b border-gray-600">⏱️ Timestamp</th>
-                    <th class="px-4 py-2 border-b border-gray-600">🎯 Action</th>
-                    <th class="px-4 py-2 border-b border-gray-600">🎁 Reward</th>
-                    <th class="px-4 py-2 border-b border-gray-600">🔮 Buy Prediction</th>
-                    <th class="px-4 py-2 border-b border-gray-600">🔮 Sell Prediction</th>
-                    <th class="px-4 py-2 border-b border-gray-600">🔮 Hold Prediction</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for log in bandit_logs %}
-                  <template x-if="showAllLogs || {{ loop.index }} <= 5">
-                    <tr class="hover:bg-gray-700 border-b border-gray-600">
-                      <td class="px-4 py-2 border-b border-gray-600 text-gray-100">{{ log.timestamp }}</td>
-                      <td class="px-4 py-2 border-b border-gray-600 font-semibold text-indigo-300">{{ log.action | capitalize }}</td>
-                      <td class="px-4 py-2 border-b border-gray-600 text-gray-100">{{ log.reward }}</td>
-                      <td class="px-4 py-2 border-b border-gray-600 text-gray-100">{{ log.prediction_buy if log.prediction_buy is not none else 'N/A' }}</td>
-                      <td class="px-4 py-2 border-b border-gray-600 text-gray-100">{{ log.prediction_sell if log.prediction_sell is not none else 'N/A' }}</td>
-                      <td class="px-4 py-2 border-b border-gray-600 text-gray-100">{{ log.prediction_hold if log.prediction_hold is not none else 'N/A' }}</td>
-                    </tr>
-                  </template>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-            <div class="mt-4 text-center">
-              <button @click="showAllLogs = !showAllLogs" class="text-sm text-blue-400 hover:text-blue-300 hover:underline focus:outline-none">
-                <span x-text="showAllLogs ? 'Show Less' : 'Show All'"></span>
-              </button>
+              
+              <!-- Volatility -->
+              <div class="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                <h3 class="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wide">Volatility</h3>
+                <div class="space-y-2">
+                  <div class="flex justify-between">
+                    <span class="text-gray-400">Std Dev</span>
+                    <span class="{% if stats.std_dev is not none and stats.std_dev > 2 %}text-red-400{% elif stats.std_dev is not none and stats.std_dev > 1 %}text-yellow-400{% else %}text-green-400{% endif %} font-semibold">
+                      ${{ stats.std_dev if stats.std_dev is not none else 'N/A' }}
+                    </span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-gray-400">Avg Δ / 5min</span>
+                    <span class="text-white font-semibold">${{ stats.avg_delta if stats.avg_delta is not none else 'N/A' }}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -489,7 +469,6 @@
       // Data from Flask
       const timestamps = {{ timestamps|tojson }};
       const prices = {{ prices|tojson }};
-      const banditLogs = {{ bandit_logs|tojson }};
       const rsiValues = {{ rsi_values|tojson }};
       const unixTimestamps = {{ unix_timestamps|tojson }};
 
@@ -571,30 +550,41 @@
           console.log('Last price point:', priceData[priceData.length - 1]);
       }
 
-      // Create signal markers
+      // Create RSI-based signal markers
       const buyMarkers = [];
       const sellMarkers = [];
-      const holdMarkers = [];
-
-      banditLogs.forEach(log => {
-          const ts = log.timestamp;
-          const index = timestampToIndex[ts];
-          if (index !== undefined && prices[index] !== undefined && unixTimestamps[index]) {
-              const unixTime = unixTimestamps[index];
-              const marker = {
-                  time: unixTime,
-                  position: 'belowBar',
-                  color: log.action === 'buy' ? '#10b981' : log.action === 'sell' ? '#ef4444' : '#f59e0b',
-                  shape: log.action === 'buy' ? 'arrowUp' : log.action === 'sell' ? 'arrowDown' : 'circle',
-                  text: log.action.toUpperCase(),
-                  size: 1
-              };
-              
-              if (log.action === 'buy') buyMarkers.push(marker);
-              else if (log.action === 'sell') sellMarkers.push(marker);
-              else holdMarkers.push(marker);
-          }
-      });
+      
+      // Add markers based on RSI values (oversold = buy, overbought = sell)
+      if (rsiValues && unixTimestamps && prices) {
+          rsiValues.forEach((rsi, index) => {
+              if (rsi !== null && rsi !== undefined && index < unixTimestamps.length && unixTimestamps[index]) {
+                  const unixTime = unixTimestamps[index];
+                  
+                  // Buy signal: RSI < 30 (oversold)
+                  if (rsi < 30) {
+                      buyMarkers.push({
+                          time: unixTime,
+                          position: 'belowBar',
+                          color: '#10b981',
+                          shape: 'arrowUp',
+                          text: 'BUY',
+                          size: 1
+                      });
+                  }
+                  // Sell signal: RSI > 70 (overbought)
+                  else if (rsi > 70) {
+                      sellMarkers.push({
+                          time: unixTime,
+                          position: 'aboveBar',
+                          color: '#ef4444',
+                          shape: 'arrowDown',
+                          text: 'SELL',
+                          size: 1
+                      });
+                  }
+              }
+          });
+      }
 
       // Prepare RSI data
       const rsiData = [];
@@ -724,10 +714,10 @@
                   console.log('Price data set successfully');
 
                   // Add markers for buy/sell/hold signals
-                  const allMarkers = [...buyMarkers, ...sellMarkers, ...holdMarkers];
+                  const allMarkers = [...buyMarkers, ...sellMarkers];
                   if (allMarkers.length > 0) {
                       priceSeries.setMarkers(allMarkers);
-                      console.log('Markers set:', allMarkers.length);
+                      console.log('RSI-based markers set:', allMarkers.length, '(Buy:', buyMarkers.length, 'Sell:', sellMarkers.length, ')');
                   }
               } else {
                   console.error('No price data to display!');

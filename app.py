@@ -787,18 +787,8 @@ def sol_tracker():
     conn = sqlite3.connect("sol_prices.db")
     cursor = conn.cursor()
 
-    # Pass time_threshold to get_predictions and get_bandits
-    predictions = get_predictions(cursor, time_threshold=time_threshold.isoformat())
-    # Map selected_range (e.g., "day") to the format get_bandits expects (e.g., "24h")
-    bandit_range_map = {
-        "hour": "1h", # Assuming get_bandits can handle "1h"
-        "day": "24h",
-        "week": "1w",
-        "month": "1m",
-        "year": "1y"
-    }
-    bandit_limit_arg = bandit_range_map.get(selected_range, "24h")
-    bandit_logs = get_bandits(cursor, limit=bandit_limit_arg)
+    # Removed bandit logs - now using RSI-based signals only
+    bandit_logs = []  # Empty list for backward compatibility
 
     conn.close()
 
@@ -884,10 +874,7 @@ def sol_tracker():
     stats["sma_24h"] = sma_24h
 
     # Load bandit state
-    bandit_state = load_bandit_state()
-    # Load Model stats - TODO
-    bandit_stats = fetcher.get_bandit_stats(db_path="sol_prices.db", limit=5000)
-
+    # Removed bandit_state and bandit_stats - using RSI-based signals only
     fetcher.close()
 
     # Final validation before passing to template
@@ -905,8 +892,6 @@ def sol_tracker():
         predictions=predictions,
         bandit_logs=bandit_logs,
         selected_range=selected_range,
-        bandit_state=bandit_state,
-        bandit_stats=bandit_stats,
         rsi_values=rsi_values,  # Add RSI values for chart
         unix_timestamps=unix_timestamps  # Add Unix timestamps for TradingView
     )
