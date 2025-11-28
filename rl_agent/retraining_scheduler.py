@@ -74,11 +74,25 @@ class RetrainingScheduler:
                 with open(metadata_file, 'r') as f:
                     metadata = json.load(f)
                     last_retrain = metadata.get("last_retrain_time")
+                    next_retrain = metadata.get("next_retrain_time")
+                    
                     if last_retrain:
                         self.last_retrain_time = datetime.fromisoformat(last_retrain)
                         self._calculate_next_retrain()
+                    elif next_retrain:
+                        # If we have a scheduled time but no last retrain, use it
+                        self.next_retrain_time = datetime.fromisoformat(next_retrain)
+            
+            # If no state loaded, initialize to future date (don't train immediately)
+            if self.next_retrain_time is None:
+                self._calculate_next_retrain()
+                self._save_schedule_state()  # Persist the initial schedule
+                logger.info(f"📅 Initialized retraining schedule: next retrain at {self.next_retrain_time}")
         except Exception as e:
             logger.warning(f"Error loading schedule state: {e}")
+            # On error, still initialize to prevent immediate training
+            if self.next_retrain_time is None:
+                self._calculate_next_retrain()
     
     def _save_schedule_state(self):
         """Save schedule state to metadata."""
@@ -106,8 +120,13 @@ class RetrainingScheduler:
         if self.is_training:
             return False  # Already training
         
+        # Never trigger training if next_retrain_time is None
+        # This should not happen if state is properly initialized
         if self.next_retrain_time is None:
-            return True  # Never trained
+            logger.warning("next_retrain_time is None - initializing schedule to prevent immediate training")
+            self._calculate_next_retrain()
+            self._save_schedule_state()
+            return False  # Don't train immediately
         
         return datetime.now() >= self.next_retrain_time
     
@@ -244,18 +263,24 @@ class RetrainingScheduler:
             self.is_training = False
             logger.info("🔄 Retraining thread finished")
     
-    def trigger_retrain(self, run_async: bool = True):
+    def trigger_retrain(self, run_async: bool = True, force: bool = False):
         """
         Manually trigger retraining.
         
         Args:
             run_async: Whether to run asynchronously (default: True)
+            force: If True, trigger even if already training (default: False)
         """
-        if self.is_training:
-            logger.warning("Retraining already in progress")
+        if self.is_training and not force:
+            logger.warning("Retraining already in progress - skipping")
             return
         
         if run_async:
+            # Check if a training thread is already running
+            if self.training_thread and self.training_thread.is_alive():
+                logger.warning("Training thread already running - skipping duplicate trigger")
+                return
+            
             self.training_thread = threading.Thread(target=self._retrain_async, daemon=True)
             self.training_thread.start()
             logger.info("🔄 Retraining triggered (async)")

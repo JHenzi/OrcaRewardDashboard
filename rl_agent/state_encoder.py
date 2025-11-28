@@ -214,17 +214,22 @@ class StateEncoder:
         
         return features_array
     
-    def encode_time_features(self, timestamp: datetime) -> np.ndarray:
+    def encode_time_features(self, timestamp: Optional[datetime]) -> np.ndarray:
         """
         Encode temporal features.
         
         Args:
-            timestamp: Current timestamp
+            timestamp: Current timestamp (or None for default)
             
         Returns:
             Feature vector for time features
         """
         features = []
+        
+        # Use current time if timestamp is None
+        if timestamp is None:
+            from datetime import datetime
+            timestamp = datetime.now()
         
         # Hour of day (0-23, normalize to 0-1)
         features.append(timestamp.hour / 24.0)

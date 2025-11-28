@@ -1912,7 +1912,12 @@ def make_rl_agent_decision():
                 return jsonify({
                     'success': False,
                     'error': 'RL agent model not loaded. Train model first.',
-                    'note': 'Use /api/rl-agent/status to check model availability'
+                    'note': 'Use /api/rl-agent/status to check model availability',
+                    'steps': [
+                        '1. Train model: python train_rl_agent.py --epochs 10',
+                        '2. Restart app to load trained model',
+                        '3. Make decision: POST /api/rl-agent/decision'
+                    ]
                 }), 503
             
             # Make decision
@@ -1924,15 +1929,32 @@ def make_rl_agent_decision():
             })
         else:
             # GET: Return latest decision
-            conn = sqlite3.connect(os.getenv("DATABASE_PATH", "sol_prices.db"))
+            # Use same database as integration (rewards.db by default)
+            db_path = os.getenv("DATABASE_PATH", "rewards.db")
+            conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, timestamp, action, confidence, current_price,
-                       predicted_return_1h, predicted_return_24h
-                FROM rl_agent_decisions
-                ORDER BY timestamp DESC
-                LIMIT 1
-            """)
+            # Check if confidence column exists (for backward compatibility)
+            cursor.execute("PRAGMA table_info(rl_agent_decisions)")
+            columns = [col[1] for col in cursor.fetchall()]
+            has_confidence = 'confidence' in columns
+            
+            if has_confidence:
+                cursor.execute("""
+                    SELECT id, timestamp, action, confidence, current_price,
+                           predicted_return_1h, predicted_return_24h
+                    FROM rl_agent_decisions
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """)
+            else:
+                # Fallback: use action_probabilities or default confidence
+                cursor.execute("""
+                    SELECT id, timestamp, action, action_probabilities, current_price,
+                           predicted_return_1h, predicted_return_24h
+                    FROM rl_agent_decisions
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """)
             row = cursor.fetchone()
             conn.close()
             
@@ -1952,7 +1974,9 @@ def make_rl_agent_decision():
             else:
                 return jsonify({
                     'success': False,
-                    'error': 'No decisions found'
+                    'error': 'No decisions found',
+                    'message': 'No RL agent decisions have been made yet. Train the model and make a decision via POST /api/rl-agent/decision',
+                    'note': 'This is expected if the model has not been trained or no decisions have been made yet.'
                 }), 404
                 
     except Exception as e:
@@ -2286,7 +2310,7 @@ def initialize_rl_agent():
             )
             logger.info("✅ RL agent model loaded and ready")
         else:
-            logger.info("⚠️ No trained RL agent model found. Train model first.")
+            logger.info("⚠️ No trained RL agent model found. Will wait for scheduled training.")
         
         # Initialize retraining scheduler
         logger.info("Initializing RL agent retraining scheduler...")
@@ -2296,9 +2320,18 @@ def initialize_rl_agent():
             enabled=True,
         )
         
+        # Log scheduler status
+        status = rl_retraining_scheduler.get_status()
+        if status["next_retrain_time"]:
+            logger.info(f"📅 Next retraining scheduled for: {status['next_retrain_time']}")
+        else:
+            logger.info("📅 Retraining schedule initialized (no immediate training)")
+        
         # Start scheduler (checks every hour)
+        # NOTE: Scheduler will NOT trigger training on startup if no model exists
+        # It will wait for the scheduled time or manual trigger
         rl_retraining_scheduler.start_scheduler(check_interval_seconds=3600)
-        logger.info("✅ RL agent retraining scheduler started (weekly)")
+        logger.info("✅ RL agent retraining scheduler started (weekly, non-blocking)")
         
     except Exception as e:
         logger.error(f"Error initializing RL agent: {e}")

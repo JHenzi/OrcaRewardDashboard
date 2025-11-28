@@ -28,12 +28,17 @@ def create_rl_agent_tables(db_path: str = DB_PATH):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
             action TEXT NOT NULL,  -- BUY, SELL, HOLD
+            confidence REAL,  -- Confidence in the action (0.0 to 1.0)
             action_probabilities TEXT,  -- JSON: {BUY: 0.3, SELL: 0.1, HOLD: 0.6}
             state_features TEXT,  -- JSON of state at decision time
+            price_features TEXT,  -- JSON of price features at decision time
+            current_price REAL,  -- Price at time of decision
             predicted_return_1h REAL,
             predicted_return_24h REAL,
             predicted_return_1h_confidence REAL,
+            predicted_confidence_1h REAL,  -- Alias for predicted_return_1h_confidence
             predicted_return_24h_confidence REAL,
+            predicted_confidence_24h REAL,  -- Alias for predicted_return_24h_confidence
             value_estimate REAL,
             entropy REAL,
             portfolio_value REAL,

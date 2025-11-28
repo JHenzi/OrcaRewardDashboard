@@ -219,14 +219,38 @@ def train_on_historical_data(
                 action_probs = torch.softmax(output["action_logits"], dim=-1)
                 log_prob = torch.log(action_probs[0, action] + 1e-8)
                 
+                # Validate values before storing (replace NaN/inf)
+                value_item = output["value"].item()
+                log_prob_item = log_prob.item()
+                pred_1h_item = output["pred_1h"].item()
+                pred_24h_item = output["pred_24h"].item()
+                
+                if not np.isfinite(value_item):
+                    logger.warning(f"Invalid value detected: {value_item}, replacing with 0")
+                    value_item = 0.0
+                if not np.isfinite(log_prob_item):
+                    logger.warning(f"Invalid log_prob detected: {log_prob_item}, replacing with -10")
+                    log_prob_item = -10.0
+                if not np.isfinite(pred_1h_item):
+                    pred_1h_item = 0.0
+                if not np.isfinite(pred_24h_item):
+                    pred_24h_item = 0.0
+                if not np.isfinite(reward):
+                    logger.warning(f"Invalid reward detected: {reward}, replacing with 0")
+                    reward = 0.0
+                if not np.isfinite(return_1h):
+                    return_1h = 0.0
+                if not np.isfinite(return_24h):
+                    return_24h = 0.0
+                
                 episode_states.append(state_dict)
                 episode_actions.append(action)
                 episode_rewards.append(reward)
-                episode_values.append(output["value"].item())
-                episode_log_probs.append(log_prob.item())
+                episode_values.append(value_item)
+                episode_log_probs.append(log_prob_item)
                 episode_dones.append(False)  # Not terminal within episode
-                episode_pred_1h.append(output["pred_1h"].item())
-                episode_pred_24h.append(output["pred_24h"].item())
+                episode_pred_1h.append(pred_1h_item)
+                episode_pred_24h.append(pred_24h_item)
                 episode_returns_1h.append(return_1h)
                 episode_returns_24h.append(return_24h)
                 
@@ -295,8 +319,9 @@ def train_on_historical_data(
                 logger.info(f"  {key}: {value:.6f}")
         
         # Save checkpoint
-        checkpoint_path = Path(checkpoint_dir) / f"checkpoint_epoch_{epoch + 1}.pt"
-        trainer.save_checkpoint(str(checkpoint_path), epoch=epoch + 1, total_steps=total_steps)
+        checkpoint_filename = f"checkpoint_epoch_{epoch + 1}.pt"
+        trainer.save_checkpoint(checkpoint_filename)
+        checkpoint_path = Path(checkpoint_dir) / checkpoint_filename
         logger.info(f"Saved checkpoint: {checkpoint_path}")
     
     logger.info("\n" + "=" * 60)

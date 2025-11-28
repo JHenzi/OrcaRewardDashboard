@@ -15,6 +15,7 @@ import logging
 from collections import deque
 import json
 from pathlib import Path
+import os
 from datetime import datetime
 
 from .model import TradingActorCritic
@@ -209,6 +210,15 @@ class PPOTrainer:
         values = np.array(self.buffer["values"])
         dones = np.array(self.buffer["dones"])
         
+        # Validate inputs - replace NaN/inf with 0
+        rewards = np.nan_to_num(rewards, nan=0.0, posinf=0.0, neginf=0.0)
+        values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        # Check for empty buffer
+        if len(rewards) == 0:
+            logger.warning("Empty buffer in GAE computation")
+            return np.array([]), np.array([])
+        
         advantages = np.zeros_like(rewards)
         returns = np.zeros_like(rewards)
         
@@ -217,6 +227,7 @@ class PPOTrainer:
         if len(values) > 0 and not dones[-1]:
             # Use last value as bootstrap if not done
             next_value = values[-1]
+            next_value = np.nan_to_num(next_value, nan=0.0, posinf=0.0, neginf=0.0)
         
         last_advantage = 0
         last_return = next_value
@@ -230,16 +241,22 @@ class PPOTrainer:
             else:
                 # Non-terminal: bootstrap with next value
                 next_val = values[t + 1] if t + 1 < len(values) else next_value
+                next_val = np.nan_to_num(next_val, nan=0.0, posinf=0.0, neginf=0.0)
                 delta = rewards[t] + self.gamma * next_val - values[t]
                 last_advantage = delta + self.gamma * self.gae_lambda * last_advantage
                 last_return = rewards[t] + self.gamma * last_return
+            
+            # Ensure no NaN/inf
+            last_advantage = np.nan_to_num(last_advantage, nan=0.0, posinf=0.0, neginf=0.0)
+            last_return = np.nan_to_num(last_return, nan=0.0, posinf=0.0, neginf=0.0)
             
             advantages[t] = last_advantage
             returns[t] = last_return
         
         # Normalize advantages (only if std > 0)
-        if advantages.std() > 1e-8:
+        if len(advantages) > 0 and advantages.std() > 1e-8:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            advantages = np.nan_to_num(advantages, nan=0.0, posinf=0.0, neginf=0.0)
         
         return advantages, returns
     
@@ -307,18 +324,45 @@ class PPOTrainer:
         """
         self.model.train()
         
-        advantages = torch.FloatTensor(rollout_data["advantages"]).to(self.device)
-        returns = torch.FloatTensor(rollout_data["returns"]).to(self.device)
-        old_log_probs = torch.FloatTensor(self.buffer["log_probs"]).to(self.device)
+        # Validate and convert to tensors
+        advantages_array = np.array(rollout_data["advantages"])
+        returns_array = np.array(rollout_data["returns"])
+        log_probs_array = np.array(self.buffer["log_probs"])
+        
+        # Replace NaN/inf with 0
+        advantages_array = np.nan_to_num(advantages_array, nan=0.0, posinf=0.0, neginf=0.0)
+        returns_array = np.nan_to_num(returns_array, nan=0.0, posinf=0.0, neginf=0.0)
+        log_probs_array = np.nan_to_num(log_probs_array, nan=-10.0, posinf=-10.0, neginf=-10.0)  # Use -10 for log probs
+        
+        advantages = torch.FloatTensor(advantages_array).to(self.device)
+        returns = torch.FloatTensor(returns_array).to(self.device)
+        old_log_probs = torch.FloatTensor(log_probs_array).to(self.device)
         actions = torch.LongTensor(self.buffer["actions"]).to(self.device)
+        
+        # Check for empty or invalid data
+        if len(advantages) == 0 or len(returns) == 0:
+            logger.warning("Empty advantages or returns, skipping training step")
+            return {
+                "policy_loss": 0.0,
+                "value_loss": 0.0,
+                "entropy": 0.0,
+                "aux_1h_loss": 0.0,
+                "aux_24h_loss": 0.0,
+                "clip_fraction": 0.0,
+                "total_loss": 0.0,
+            }
         
         # Get actual returns for auxiliary losses (if available)
         actual_returns_1h = None
         actual_returns_24h = None
         if len(self.buffer["returns_1h"]) > 0 and len(self.buffer["returns_1h"]) == len(actions):
-            actual_returns_1h = torch.FloatTensor(self.buffer["returns_1h"]).to(self.device)
+            returns_1h_array = np.array(self.buffer["returns_1h"])
+            returns_1h_array = np.nan_to_num(returns_1h_array, nan=0.0, posinf=0.0, neginf=0.0)
+            actual_returns_1h = torch.FloatTensor(returns_1h_array).to(self.device)
         if len(self.buffer["returns_24h"]) > 0 and len(self.buffer["returns_24h"]) == len(actions):
-            actual_returns_24h = torch.FloatTensor(self.buffer["returns_24h"]).to(self.device)
+            returns_24h_array = np.array(self.buffer["returns_24h"])
+            returns_24h_array = np.nan_to_num(returns_24h_array, nan=0.0, posinf=0.0, neginf=0.0)
+            actual_returns_24h = torch.FloatTensor(returns_24h_array).to(self.device)
         
         states = self.buffer["states"]
         num_samples = len(states)
@@ -420,13 +464,37 @@ class PPOTrainer:
                 # Optimize
                 self.optimizer.step()
                 
-                # Accumulate metrics
-                total_policy_loss += policy_loss.item()
-                total_value_loss += value_loss.item()
-                total_entropy += entropy.item()
-                total_aux_1h_loss += aux_1h_loss.item() if isinstance(aux_1h_loss, torch.Tensor) else aux_1h_loss
-                total_aux_24h_loss += aux_24h_loss.item() if isinstance(aux_24h_loss, torch.Tensor) else aux_24h_loss
-                total_clip_fraction += clip_fraction.item()
+                # Accumulate metrics (check for NaN before adding)
+                policy_loss_val = policy_loss.item()
+                value_loss_val = value_loss.item()
+                entropy_val = entropy.item()
+                aux_1h_loss_val = aux_1h_loss.item() if isinstance(aux_1h_loss, torch.Tensor) else aux_1h_loss
+                aux_24h_loss_val = aux_24h_loss.item() if isinstance(aux_24h_loss, torch.Tensor) else aux_24h_loss
+                clip_fraction_val = clip_fraction.item()
+                
+                # Replace NaN with 0
+                if np.isnan(policy_loss_val) or np.isinf(policy_loss_val):
+                    logger.warning(f"NaN/inf policy_loss detected, replacing with 0")
+                    policy_loss_val = 0.0
+                if np.isnan(value_loss_val) or np.isinf(value_loss_val):
+                    logger.warning(f"NaN/inf value_loss detected, replacing with 0")
+                    value_loss_val = 0.0
+                if np.isnan(entropy_val) or np.isinf(entropy_val):
+                    logger.warning(f"NaN/inf entropy detected, replacing with 0")
+                    entropy_val = 0.0
+                if np.isnan(aux_1h_loss_val) or np.isinf(aux_1h_loss_val):
+                    aux_1h_loss_val = 0.0
+                if np.isnan(aux_24h_loss_val) or np.isinf(aux_24h_loss_val):
+                    aux_24h_loss_val = 0.0
+                if np.isnan(clip_fraction_val) or np.isinf(clip_fraction_val):
+                    clip_fraction_val = 0.0
+                
+                total_policy_loss += policy_loss_val
+                total_value_loss += value_loss_val
+                total_entropy += entropy_val
+                total_aux_1h_loss += aux_1h_loss_val
+                total_aux_24h_loss += aux_24h_loss_val
+                total_clip_fraction += clip_fraction_val
         
         # Average metrics over all batches and epochs
         num_batches = (num_samples + batch_size - 1) // batch_size
@@ -457,7 +525,14 @@ class PPOTrainer:
         if filename is None:
             filename = f"checkpoint_step_{self.training_step}.pt"
         
-        checkpoint_path = self.checkpoint_dir / filename
+        # Handle both absolute paths and relative paths
+        if os.path.isabs(filename):
+            checkpoint_path = Path(filename)
+        else:
+            checkpoint_path = self.checkpoint_dir / filename
+        
+        # Ensure parent directory exists
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         
         torch.save({
             "model_state_dict": self.model.state_dict(),

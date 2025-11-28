@@ -289,6 +289,9 @@ class ModelManager:
         """
         Load the current active model.
         
+        First tries to load from metadata (deployed model).
+        If no deployed model exists, looks for the latest checkpoint file.
+        
         Args:
             model_class: Model class to instantiate
             model_kwargs: Keyword arguments for model initialization
@@ -300,20 +303,71 @@ class ModelManager:
         try:
             # Get current version from metadata
             current_version = self.metadata.get("current_version")
-            if not current_version:
-                logger.warning("No current model version in metadata")
-                return None
             
-            # Try to load from active location
-            active_model_path = self._get_model_path(current_version, archived=False)
-            if not active_model_path.exists():
-                # Try archive
-                archive_model_path = self._get_model_path(current_version, archived=True)
-                if archive_model_path.exists():
-                    active_model_path = archive_model_path
-                else:
-                    logger.error(f"Current model {current_version} not found")
+            if current_version:
+                # Try to load from active location
+                active_model_path = self._get_model_path(current_version, archived=False)
+                if not active_model_path.exists():
+                    # Try archive
+                    archive_model_path = self._get_model_path(current_version, archived=True)
+                    if archive_model_path.exists():
+                        active_model_path = archive_model_path
+                    else:
+                        logger.warning(f"Current model {current_version} not found, looking for latest checkpoint")
+                        current_version = None  # Fall through to auto-detect
+            
+            # If no current version in metadata, look for latest checkpoint
+            if not current_version:
+                logger.info("No model registered in metadata, looking for latest checkpoint...")
+                checkpoints = list(self.model_dir.glob("checkpoint_*.pt"))
+                if not checkpoints:
+                    logger.warning("No checkpoints found in model directory")
                     return None
+                
+                # Get the most recently modified checkpoint
+                latest_checkpoint = max(checkpoints, key=lambda p: p.stat().st_mtime)
+                logger.info(f"Found latest checkpoint: {latest_checkpoint.name}")
+                
+                # Try to auto-deploy it (register in metadata)
+                try:
+                    is_valid, error_msg = self.validate_model(latest_checkpoint, model_class, model_kwargs)
+                    if is_valid:
+                        # Auto-deploy the latest checkpoint
+                        version = self._generate_version()
+                        active_model_path = self._get_model_path(version, archived=False)
+                        shutil.copy2(str(latest_checkpoint), str(active_model_path))
+                        
+                        # Update metadata
+                        model_info = {
+                            "version": version,
+                            "deployed_at": datetime.now().isoformat(),
+                            "source_path": str(latest_checkpoint),
+                            "active_path": str(active_model_path),
+                            "auto_deployed": True,  # Flag to indicate auto-deployment
+                        }
+                        
+                        self.metadata["models"].append(model_info)
+                        self.metadata["current_version"] = version
+                        self._save_metadata()
+                        
+                        logger.info(f"✅ Auto-deployed latest checkpoint as version {version}")
+                        current_version = version
+                    else:
+                        logger.error(f"Latest checkpoint validation failed: {error_msg}")
+                        return None
+                except Exception as e:
+                    logger.warning(f"Failed to auto-deploy checkpoint: {e}, loading directly")
+                    # Load directly without registering
+                    active_model_path = latest_checkpoint
+            else:
+                active_model_path = self._get_model_path(current_version, archived=False)
+                if not active_model_path.exists():
+                    archive_model_path = self._get_model_path(current_version, archived=True)
+                    if archive_model_path.exists():
+                        active_model_path = archive_model_path
+                    else:
+                        logger.error(f"Current model {current_version} not found")
+                        return None
             
             # Load model
             checkpoint = torch.load(active_model_path, map_location=device)
@@ -323,13 +377,15 @@ class ModelManager:
             model.to(device)
             
             self.current_model_path = active_model_path
-            self.current_model_version = current_version
+            self.current_model_version = current_version or "auto-detected"
             
-            logger.info(f"✅ Loaded current model version {current_version}")
+            logger.info(f"✅ Loaded model from {active_model_path.name}")
             return model
             
         except Exception as e:
             logger.error(f"Error loading current model: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
     def cleanup_old_models(self):

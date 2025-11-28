@@ -317,21 +317,42 @@ class TradingActorCritic(nn.Module):
                 - 'pred_24h': (batch_size, 1)
                 - 'attention_weights': (batch_size, num_heads, max_headlines, max_headlines)
         """
+        # Validate inputs - replace NaN/inf
+        price_features = torch.where(torch.isfinite(price_features), price_features, torch.zeros_like(price_features))
+        news_embeddings = torch.where(torch.isfinite(news_embeddings), news_embeddings, torch.zeros_like(news_embeddings))
+        news_sentiment = torch.where(torch.isfinite(news_sentiment), news_sentiment, torch.zeros_like(news_sentiment))
+        position_features = torch.where(torch.isfinite(position_features), position_features, torch.zeros_like(position_features))
+        time_features = torch.where(torch.isfinite(time_features), time_features, torch.zeros_like(time_features))
+        
         # Process each branch
         price_latent = self.price_branch(price_features)
         news_latent, attention_weights = self.news_branch(news_embeddings, news_sentiment, news_mask)
         position_latent = self.position_branch(position_features)
         time_latent = self.time_branch(time_features)
         
+        # Validate branch outputs
+        price_latent = torch.where(torch.isfinite(price_latent), price_latent, torch.zeros_like(price_latent))
+        news_latent = torch.where(torch.isfinite(news_latent), news_latent, torch.zeros_like(news_latent))
+        position_latent = torch.where(torch.isfinite(position_latent), position_latent, torch.zeros_like(position_latent))
+        time_latent = torch.where(torch.isfinite(time_latent), time_latent, torch.zeros_like(time_latent))
+        
         # Concatenate
         shared_input = torch.cat([price_latent, news_latent, position_latent, time_latent], dim=1)
+        shared_input = torch.where(torch.isfinite(shared_input), shared_input, torch.zeros_like(shared_input))
         shared_latent = self.shared(shared_input)
+        shared_latent = torch.where(torch.isfinite(shared_latent), shared_latent, torch.zeros_like(shared_latent))
         
         # Heads
         action_logits = self.actor(shared_latent)
         value = self.critic(shared_latent)
         pred_1h = self.aux_1h(shared_latent)
         pred_24h = self.aux_24h(shared_latent)
+        
+        # Validate outputs
+        action_logits = torch.where(torch.isfinite(action_logits), action_logits, torch.zeros_like(action_logits))
+        value = torch.where(torch.isfinite(value), value, torch.zeros_like(value))
+        pred_1h = torch.where(torch.isfinite(pred_1h), pred_1h, torch.zeros_like(pred_1h))
+        pred_24h = torch.where(torch.isfinite(pred_24h), pred_24h, torch.zeros_like(pred_24h))
         
         return {
             "action_logits": action_logits,
