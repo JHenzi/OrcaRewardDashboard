@@ -24,6 +24,9 @@ try:
     from rl_agent.risk_manager import RiskManager
     from rl_agent.explainability import RuleExtractor, SHAPExplainer
     from rl_agent.integration import RLAgentIntegration
+    from rl_agent.model_manager import ModelManager
+    from rl_agent.retraining_scheduler import RetrainingScheduler
+    from rl_agent.model import TradingActorCritic
     RL_AGENT_AVAILABLE = True
 except ImportError:
     RL_AGENT_AVAILABLE = False
@@ -31,6 +34,8 @@ except ImportError:
 
 # Global RL agent integration instance
 rl_agent_integration = None
+rl_model_manager = None
+rl_retraining_scheduler = None
 
 # News sentiment analyzer (optional)
 try:
@@ -1565,6 +1570,72 @@ def get_rl_agent_rules():
             'error': str(e)
         }), 500
 
+@app.route('/api/rl-agent/status', methods=['GET'])
+def get_rl_agent_status():
+    """Get RL agent status including model info and scheduler status."""
+    global rl_model_manager, rl_retraining_scheduler
+    
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    try:
+        status = {
+            'model_loaded': rl_agent_integration is not None,
+        }
+        
+        if rl_model_manager:
+            status['model_info'] = rl_model_manager.get_model_info()
+        
+        if rl_retraining_scheduler:
+            status['scheduler'] = rl_retraining_scheduler.get_status()
+        
+        return jsonify({
+            'success': True,
+            'status': status
+        })
+    except Exception as e:
+        logger.error(f"Error getting RL agent status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/rl-agent/retrain', methods=['POST'])
+def trigger_retrain():
+    """Manually trigger RL agent retraining."""
+    global rl_retraining_scheduler
+    
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    if rl_retraining_scheduler is None:
+        return jsonify({
+            'success': False,
+            'error': 'Retraining scheduler not initialized'
+        }), 503
+    
+    try:
+        run_async = request.json.get('async', True) if request.is_json else True
+        rl_retraining_scheduler.trigger_retrain(run_async=run_async)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Retraining triggered',
+            'async': run_async
+        })
+    except Exception as e:
+        logger.error(f"Error triggering retrain: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/rl-agent/decision', methods=['POST', 'GET'])
 def make_rl_agent_decision():
     """
@@ -1585,11 +1656,10 @@ def make_rl_agent_decision():
         if request.method == 'POST':
             # Initialize integration if needed
             if rl_agent_integration is None:
-                # For now, return placeholder - would need trained model
                 return jsonify({
                     'success': False,
                     'error': 'RL agent model not loaded. Train model first.',
-                    'note': 'Model training integration pending'
+                    'note': 'Use /api/rl-agent/status to check model availability'
                 }), 503
             
             # Make decision

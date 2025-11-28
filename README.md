@@ -164,15 +164,23 @@ The application now includes a **Reinforcement Learning (RL) Trading Agent** bui
 - ✅ News system with clustering
 - ✅ Risk management system
 - ✅ Explainability features
+- ✅ **Training pipeline ready** - Historical data preparation and training scripts
+- ✅ **Automated retraining** - Periodic retraining with adaptive scheduling
 
-**What's Next:**
-- 🎯 Model training on historical data
+**Training & Retraining:**
+- 🎯 **Initial Training**: Train on 200K+ historical price points (see [Training Guide](#training-the-rl-agent))
+  - ⚠️ **Note**: News data is limited (2 days) vs price data (5 months)
+  - ✅ **System handles missing news gracefully** - pads with zeros automatically
+  - ✅ **Model learns from price patterns first**, news enhances later as data accumulates
+- 🎯 **Periodic Retraining**: Automated weekly/monthly retraining (see [Retraining Strategy](#retraining-strategy))
 - 🎯 Paper trading validation (1-2 weeks)
 - 🎯 Production deployment (after validation)
 
 **Documentation:**
 - [RL_AGENT_IMPLEMENTATION_STATUS.md](RL_AGENT_IMPLEMENTATION_STATUS.md) - Detailed implementation status
 - [NewAgent.md](NewAgent.md) - Original design specification
+- [TRAINING_GUIDE.md](TRAINING_GUIDE.md) - Complete training guide with historical data
+- [RETRAINING_STRATEGY.md](RETRAINING_STRATEGY.md) - Automated retraining strategies and setup
 - [WHAT_REMAINS.md](WHAT_REMAINS.md) - What's left to do (training, validation, deployment)
 - [SOL_TRACKER_IMPROVEMENT_PLAN.md](SOL_TRACKER_IMPROVEMENT_PLAN.md) - Complete improvement plan with status
 
@@ -316,12 +324,15 @@ A brief overview of the project structure:
   - `environment.py`: Trading environment (Gym-style interface)
   - `state_encoder.py`: Feature encoding for market state
   - `trainer.py`: PPO training loop
+  - `training_data_prep.py`: Historical data preparation for training
   - `prediction_manager.py`: Prediction storage and accuracy tracking
   - `prediction_generator.py`: Prediction generation helpers
   - `attention_logger.py`: Attention weight logging
   - `risk_manager.py`: Risk constraint management
   - `explainability.py`: Rule extraction and SHAP analysis
   - `integration.py`: System integration layer
+- `train_rl_agent.py`: Main script to train RL agent on historical data
+- `retrain_rl_agent.py`: Automated retraining script with adaptive scheduling
 - `migrate_rl_agent_tables.py`: Database migration for RL agent tables.
 - `DEPRECATED.md`: Documentation of deprecated features (price prediction, contextual bandit, automated trading).
 - `trading_bot.py`: (Deprecated) Jupiter ULTRA Trading API function class. Code exists but is disabled. See [DEPRECATED.md](DEPRECATED.md) for details.
@@ -362,6 +373,49 @@ Visit `http://localhost:5030/sol-tracker` to view:
 ### Backfill Historical Data
 
 Visit `http://localhost:5030/backfill_newer` to manually trigger fetching newer transactions.
+
+### Training the RL Agent
+
+The RL agent can be trained on historical data and retrained periodically to stay current with market patterns.
+
+**Important: News Data Availability**
+- ⚠️ **News data is limited** (2 days) compared to price data (5 months)
+- ✅ **System handles missing news gracefully** - automatically pads with zeros
+- ✅ **Model learns from price patterns first** - news enhances decisions later as data accumulates
+- See [TRAINING_GUIDE.md](TRAINING_GUIDE.md) for details on handling missing news
+
+**Initial Training:**
+```bash
+# Step 1: Prepare training data from historical databases
+python -m rl_agent.training_data_prep
+
+# Step 2: Train the model
+python train_rl_agent.py --epochs 10
+```
+
+**What happens during training:**
+- For timestamps with news (Nov 27-28): Uses actual news embeddings and sentiment
+- For timestamps without news (July - Nov 26): Pads with zeros (model learns to ignore)
+- Model trains successfully on price patterns, news enhances later
+
+**Periodic Retraining:**
+```bash
+# Adaptive retraining (recommended - retrains when enough new data)
+python retrain_rl_agent.py --mode adaptive
+
+# Weekly retraining
+python retrain_rl_agent.py --mode weekly --epochs 5
+
+# Monthly retraining
+python retrain_rl_agent.py --mode monthly --epochs 10
+```
+
+**Automation:**
+Set up automated retraining with cron or systemd (see [RETRAINING_STRATEGY.md](RETRAINING_STRATEGY.md) for details).
+
+**Documentation:**
+- [TRAINING_GUIDE.md](TRAINING_GUIDE.md) - Complete guide to training on historical data
+- [RETRAINING_STRATEGY.md](RETRAINING_STRATEGY.md) - Automated retraining strategies and setup
 
 ### API Endpoints
 

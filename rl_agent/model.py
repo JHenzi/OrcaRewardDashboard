@@ -272,6 +272,23 @@ class TradingActorCritic(nn.Module):
             nn.Linear(64, 1),
         )
         
+        # Initialize weights properly to prevent extreme values
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """Initialize model weights with proper scaling."""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                # Xavier/Glorot initialization for linear layers
+                nn.init.xavier_uniform_(module.weight, gain=0.5)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+            elif isinstance(module, nn.Conv1d):
+                # Kaiming initialization for conv layers
+                nn.init.kaiming_uniform_(module.weight, mode='fan_in', nonlinearity='relu')
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0.0)
+        
     def forward(
         self,
         price_features: torch.Tensor,
@@ -352,11 +369,24 @@ class TradingActorCritic(nn.Module):
             
             action_logits = output["action_logits"]
             
+            # Clamp logits to prevent inf/nan
+            action_logits = torch.clamp(action_logits, min=-50, max=50)
+            
+            # Check for NaN or inf
+            if torch.isnan(action_logits).any() or torch.isinf(action_logits).any():
+                # Fallback to uniform distribution
+                action_logits = torch.zeros_like(action_logits)
+            
             if deterministic:
                 action = torch.argmax(action_logits, dim=1).item()
             else:
                 # Sample from softmax
                 action_probs = F.softmax(action_logits, dim=-1)
+                
+                # Ensure probabilities are valid
+                action_probs = torch.clamp(action_probs, min=1e-8, max=1.0)
+                action_probs = action_probs / action_probs.sum(dim=-1, keepdim=True)  # Renormalize
+                
                 action = torch.multinomial(action_probs, 1).item()
             
             return action, output

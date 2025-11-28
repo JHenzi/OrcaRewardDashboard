@@ -100,6 +100,9 @@ class StateEncoder:
         # Combine returns and features
         price_features_array = np.concatenate([returns, np.array(features)])
         
+        # Replace NaN and inf with 0
+        price_features_array = np.nan_to_num(price_features_array, nan=0.0, posinf=0.0, neginf=0.0)
+        
         return price_features_array.astype(np.float32)
     
     def encode_news_features(
@@ -152,6 +155,10 @@ class StateEncoder:
         sentiment_array = np.array(sentiment_scores, dtype=np.float32)
         cluster_array = np.array(cluster_ids, dtype=np.int32)
         
+        # Replace NaN and inf with 0
+        embeddings_array = np.nan_to_num(embeddings_array, nan=0.0, posinf=0.0, neginf=0.0)
+        sentiment_array = np.nan_to_num(sentiment_array, nan=0.0, posinf=0.0, neginf=0.0)
+        
         return embeddings_array, sentiment_array, cluster_array
     
     def encode_position_features(
@@ -200,7 +207,12 @@ class StateEncoder:
         # Time since last trade (normalized to hours)
         features.append(time_since_last_trade / 60.0)
         
-        return np.array(features, dtype=np.float32)
+        features_array = np.array(features, dtype=np.float32)
+        
+        # Replace NaN and inf with 0
+        features_array = np.nan_to_num(features_array, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        return features_array
     
     def encode_time_features(self, timestamp: datetime) -> np.ndarray:
         """
