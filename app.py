@@ -15,6 +15,7 @@ import traceback
 import pytz
 from river.tree import HoeffdingAdaptiveTreeRegressor
 import pickle
+from signal_performance_tracker import SignalPerformanceTracker
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1021,9 +1022,97 @@ def sol_tracker():
     stats["sma_4h"] = sma_4h
     stats["sma_24h"] = sma_24h
 
-    # Load bandit state
-    # Removed bandit_state and bandit_stats - using RSI-based signals only
-    fetcher.close()
+    # Initialize signal performance tracker and update metrics
+    signal_tracker = SignalPerformanceTracker()
+    
+    # Log RSI signals if we have RSI data (only log if signal changed or is new)
+    if rsi_value is not None and actual_current_price is not None:
+        # Determine current RSI signal
+        current_rsi_signal = None
+        if rsi_value < 30:
+            current_rsi_signal = 'rsi_buy'
+        elif rsi_value > 70:
+            current_rsi_signal = 'rsi_sell'
+        else:
+            current_rsi_signal = 'rsi_hold'
+        
+        # Check if this signal is different from the last logged signal
+        # (to avoid logging duplicates on every page load)
+        try:
+            recent_signals = signal_tracker.get_recent_signals(limit=1, signal_type=current_rsi_signal)
+            should_log = True
+            if recent_signals:
+                # Check if last signal was within last 5 minutes (likely same signal)
+                last_signal_time = datetime.fromisoformat(recent_signals[0]['timestamp'])
+                time_diff = (datetime.utcnow() - last_signal_time).total_seconds()
+                if time_diff < 300:  # 5 minutes
+                    should_log = False
+            
+            if should_log:
+                signal_tracker.log_signal(
+                    current_rsi_signal,
+                    actual_current_price,
+                    metadata={'rsi': rsi_value, 'signal_strength': 'strong' if (rsi_value < 30 or rsi_value > 70) else 'neutral'}
+                )
+        except Exception as e:
+            logger.warning(f"Error checking recent RSI signals: {e}")
+            # Log anyway if check fails
+            signal_tracker.log_signal(
+                current_rsi_signal,
+                actual_current_price,
+                metadata={'rsi': rsi_value, 'signal_strength': 'strong' if (rsi_value < 30 or rsi_value > 70) else 'neutral'}
+            )
+    
+    # Log bandit signal if available (only if different from last)
+    if latest_bandit and latest_bandit.get('action') and actual_current_price is not None:
+        bandit_signal_type = f"bandit_{latest_bandit['action']}"
+        try:
+            recent_bandit_signals = signal_tracker.get_recent_signals(limit=1, signal_type=bandit_signal_type)
+            should_log_bandit = True
+            if recent_bandit_signals:
+                last_signal_time = datetime.fromisoformat(recent_bandit_signals[0]['timestamp'])
+                time_diff = (datetime.utcnow() - last_signal_time).total_seconds()
+                if time_diff < 300:  # 5 minutes
+                    should_log_bandit = False
+            
+            if should_log_bandit:
+                signal_tracker.log_signal(
+                    bandit_signal_type,
+                    actual_current_price,
+                    metadata={
+                        'reward': latest_bandit.get('reward'),
+                        'prediction_buy': latest_bandit.get('prediction_buy'),
+                        'prediction_sell': latest_bandit.get('prediction_sell'),
+                        'prediction_hold': latest_bandit.get('prediction_hold')
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"Error checking recent bandit signals: {e}")
+            # Log anyway if check fails
+            signal_tracker.log_signal(
+                bandit_signal_type,
+                actual_current_price,
+                metadata={
+                    'reward': latest_bandit.get('reward'),
+                    'prediction_buy': latest_bandit.get('prediction_buy'),
+                    'prediction_sell': latest_bandit.get('prediction_sell'),
+                    'prediction_hold': latest_bandit.get('prediction_hold')
+                }
+            )
+    
+    # Update performance metrics (for signals that are old enough)
+    signal_tracker.update_performance_metrics()
+    
+    # Get performance statistics for display
+    performance_stats = signal_tracker.get_performance_stats()
+    
+    # Get stats for each signal type we care about
+    rsi_buy_stats = signal_tracker.get_performance_stats('rsi_buy', hours_later=24)
+    rsi_sell_stats = signal_tracker.get_performance_stats('rsi_sell', hours_later=24)
+    rsi_hold_stats = signal_tracker.get_performance_stats('rsi_hold', hours_later=24)
+    bandit_buy_stats = signal_tracker.get_performance_stats('bandit_buy', hours_later=24)
+    bandit_sell_stats = signal_tracker.get_performance_stats('bandit_sell', hours_later=24)
+    bandit_hold_stats = signal_tracker.get_performance_stats('bandit_hold', hours_later=24)
 
     # Final validation before passing to template
     if len(unix_timestamps) != len(timestamps):
@@ -1042,7 +1131,15 @@ def sol_tracker():
         latest_bandit=latest_bandit,  # Latest bandit recommendation
         selected_range=selected_range,
         rsi_values=rsi_values,  # Add RSI values for chart
-        unix_timestamps=unix_timestamps  # Add Unix timestamps for TradingView
+        unix_timestamps=unix_timestamps,  # Add Unix timestamps for TradingView
+        performance_stats={
+            'rsi_buy': rsi_buy_stats,
+            'rsi_sell': rsi_sell_stats,
+            'rsi_hold': rsi_hold_stats,
+            'bandit_buy': bandit_buy_stats,
+            'bandit_sell': bandit_sell_stats,
+            'bandit_hold': bandit_hold_stats
+        }
     )
 
 
@@ -1090,6 +1187,35 @@ def get_latest_prediction():
         logger.error(f"Unexpected error fetching latest prediction: {e}")
         return jsonify({"error": "An unexpected error occurred"}), 500
 
+
+@app.route('/api/signal-performance', methods=['GET'])
+def get_signal_performance():
+    """
+    Get performance statistics for trading signals
+    
+    Query parameters:
+    - signal_type: Optional filter by signal type (e.g., 'rsi_buy', 'bandit_sell')
+    - hours_later: Time horizon for performance (1, 4, 24, or 168 for 7d). Default: 24
+    """
+    try:
+        signal_type = request.args.get('signal_type', None)
+        hours_later = int(request.args.get('hours_later', 24))
+        
+        tracker = SignalPerformanceTracker()
+        stats = tracker.get_performance_stats(signal_type, hours_later)
+        
+        return jsonify({
+            'success': True,
+            'signal_type': signal_type,
+            'hours_later': hours_later,
+            'stats': stats
+        })
+    except Exception as e:
+        logger.error(f"Error fetching signal performance: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/latest-bandit-action', methods=['GET'])
 def get_latest_bandit_action():

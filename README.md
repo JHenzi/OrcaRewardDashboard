@@ -249,7 +249,11 @@ The application provides API endpoints for programmatic access to data. Some end
 
 ## License
 
-This project is open source and available under the [MIT License](LICENSE).
+This project is open source and available under the [GNU GPL](LICENSE).
+
+```bash
+curl -o LICENSE https://www.gnu.org/licenses/gpl-3.0.txt
+```
 
 ## AI-Assisted Development
 

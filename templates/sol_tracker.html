@@ -671,6 +671,258 @@
         </div>
         {% endif %}
 
+        <!-- Signal Performance & Reliability -->
+        <div class="mb-8 fade-in">
+          <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-lg">
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center space-x-2">
+              <span>📈</span>
+              <span>Signal Reliability & Performance</span>
+            </h2>
+            <p class="text-sm text-gray-400 mb-6">Track how reliable each signal type has been over time (24-hour performance)</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              
+              <!-- RSI Buy Signal Performance -->
+              {% if performance_stats.rsi_buy and performance_stats.rsi_buy.signals_with_outcome > 0 %}
+                {% set rsi_buy = performance_stats.rsi_buy %}
+                <div class="bg-gray-700/50 rounded-lg p-4 border {% if rsi_buy.win_rate >= 60 %}border-green-500/50{% elif rsi_buy.win_rate >= 50 %}border-yellow-500/50{% else %}border-red-500/50{% endif %}">
+                  <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-semibold text-gray-300">RSI Buy Signal</span>
+                    <span class="text-xs px-2 py-1 rounded {% if rsi_buy.win_rate >= 60 %}bg-green-500/20 text-green-400{% elif rsi_buy.win_rate >= 50 %}bg-yellow-500/20 text-yellow-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                      {{ "%.0f"|format(rsi_buy.win_rate) }}% Win Rate
+                    </span>
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Total Signals:</span>
+                      <span class="text-white font-medium">{{ rsi_buy.total_signals }}</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Avg Return (24h):</span>
+                      <span class="{% if rsi_buy.avg_return > 0 %}text-green-400{% else %}text-red-400{% endif %} font-bold">
+                        {{ "%+.2f"|format(rsi_buy.avg_return) }}%
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Best:</span>
+                      <span class="text-green-400 font-medium">{{ "%+.2f"|format(rsi_buy.max_return) }}%</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Worst:</span>
+                      <span class="text-red-400 font-medium">{{ "%+.2f"|format(rsi_buy.min_return) }}%</span>
+                    </div>
+                  </div>
+                </div>
+              {% else %}
+                <div class="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
+                  <div class="text-sm font-semibold text-gray-400 mb-2">RSI Buy Signal</div>
+                  <div class="text-xs text-gray-500">Insufficient data</div>
+                </div>
+              {% endif %}
+
+              <!-- RSI Sell Signal Performance -->
+              {% if performance_stats.rsi_sell and performance_stats.rsi_sell.signals_with_outcome > 0 %}
+                {% set rsi_sell = performance_stats.rsi_sell %}
+                <div class="bg-gray-700/50 rounded-lg p-4 border {% if rsi_sell.win_rate >= 60 %}border-green-500/50{% elif rsi_sell.win_rate >= 50 %}border-yellow-500/50{% else %}border-red-500/50{% endif %}">
+                  <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-semibold text-gray-300">RSI Sell Signal</span>
+                    <span class="text-xs px-2 py-1 rounded {% if rsi_sell.win_rate >= 60 %}bg-green-500/20 text-green-400{% elif rsi_sell.win_rate >= 50 %}bg-yellow-500/20 text-yellow-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                      {{ "%.0f"|format(rsi_sell.win_rate) }}% Win Rate
+                    </span>
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Total Signals:</span>
+                      <span class="text-white font-medium">{{ rsi_sell.total_signals }}</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Avg Return (24h):</span>
+                      <span class="{% if rsi_sell.avg_return > 0 %}text-green-400{% else %}text-red-400{% endif %} font-bold">
+                        {{ "%+.2f"|format(rsi_sell.avg_return) }}%
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Best:</span>
+                      <span class="text-green-400 font-medium">{{ "%+.2f"|format(rsi_sell.max_return) }}%</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Worst:</span>
+                      <span class="text-red-400 font-medium">{{ "%+.2f"|format(rsi_sell.min_return) }}%</span>
+                    </div>
+                  </div>
+                </div>
+              {% else %}
+                <div class="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
+                  <div class="text-sm font-semibold text-gray-400 mb-2">RSI Sell Signal</div>
+                  <div class="text-xs text-gray-500">Insufficient data</div>
+                </div>
+              {% endif %}
+
+              <!-- RSI Hold Signal Performance -->
+              {% if performance_stats.rsi_hold and performance_stats.rsi_hold.signals_with_outcome > 0 %}
+                {% set rsi_hold = performance_stats.rsi_hold %}
+                <div class="bg-gray-700/50 rounded-lg p-4 border {% if rsi_hold.win_rate >= 60 %}border-green-500/50{% elif rsi_hold.win_rate >= 50 %}border-yellow-500/50{% else %}border-red-500/50{% endif %}">
+                  <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-semibold text-gray-300">RSI Hold Signal</span>
+                    <span class="text-xs px-2 py-1 rounded {% if rsi_hold.win_rate >= 60 %}bg-green-500/20 text-green-400{% elif rsi_hold.win_rate >= 50 %}bg-yellow-500/20 text-yellow-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                      {{ "%.0f"|format(rsi_hold.win_rate) }}% Win Rate
+                    </span>
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Total Signals:</span>
+                      <span class="text-white font-medium">{{ rsi_hold.total_signals }}</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Avg Return (24h):</span>
+                      <span class="{% if rsi_hold.avg_return > 0 %}text-green-400{% else %}text-red-400{% endif %} font-bold">
+                        {{ "%+.2f"|format(rsi_hold.avg_return) }}%
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Best:</span>
+                      <span class="text-green-400 font-medium">{{ "%+.2f"|format(rsi_hold.max_return) }}%</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Worst:</span>
+                      <span class="text-red-400 font-medium">{{ "%+.2f"|format(rsi_hold.min_return) }}%</span>
+                    </div>
+                  </div>
+                </div>
+              {% else %}
+                <div class="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
+                  <div class="text-sm font-semibold text-gray-400 mb-2">RSI Hold Signal</div>
+                  <div class="text-xs text-gray-500">Insufficient data</div>
+                </div>
+              {% endif %}
+
+              <!-- Bandit Buy Signal Performance -->
+              {% if performance_stats.bandit_buy and performance_stats.bandit_buy.signals_with_outcome > 0 %}
+                {% set bandit_buy = performance_stats.bandit_buy %}
+                <div class="bg-gray-700/50 rounded-lg p-4 border {% if bandit_buy.win_rate >= 60 %}border-green-500/50{% elif bandit_buy.win_rate >= 50 %}border-yellow-500/50{% else %}border-red-500/50{% endif %}">
+                  <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-semibold text-gray-300">Bandit Buy Signal</span>
+                    <span class="text-xs px-2 py-1 rounded {% if bandit_buy.win_rate >= 60 %}bg-green-500/20 text-green-400{% elif bandit_buy.win_rate >= 50 %}bg-yellow-500/20 text-yellow-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                      {{ "%.0f"|format(bandit_buy.win_rate) }}% Win Rate
+                    </span>
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Total Signals:</span>
+                      <span class="text-white font-medium">{{ bandit_buy.total_signals }}</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Avg Return (24h):</span>
+                      <span class="{% if bandit_buy.avg_return > 0 %}text-green-400{% else %}text-red-400{% endif %} font-bold">
+                        {{ "%+.2f"|format(bandit_buy.avg_return) }}%
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Best:</span>
+                      <span class="text-green-400 font-medium">{{ "%+.2f"|format(bandit_buy.max_return) }}%</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Worst:</span>
+                      <span class="text-red-400 font-medium">{{ "%+.2f"|format(bandit_buy.min_return) }}%</span>
+                    </div>
+                  </div>
+                </div>
+              {% else %}
+                <div class="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
+                  <div class="text-sm font-semibold text-gray-400 mb-2">Bandit Buy Signal</div>
+                  <div class="text-xs text-gray-500">Insufficient data</div>
+                </div>
+              {% endif %}
+
+              <!-- Bandit Sell Signal Performance -->
+              {% if performance_stats.bandit_sell and performance_stats.bandit_sell.signals_with_outcome > 0 %}
+                {% set bandit_sell = performance_stats.bandit_sell %}
+                <div class="bg-gray-700/50 rounded-lg p-4 border {% if bandit_sell.win_rate >= 60 %}border-green-500/50{% elif bandit_sell.win_rate >= 50 %}border-yellow-500/50{% else %}border-red-500/50{% endif %}">
+                  <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-semibold text-gray-300">Bandit Sell Signal</span>
+                    <span class="text-xs px-2 py-1 rounded {% if bandit_sell.win_rate >= 60 %}bg-green-500/20 text-green-400{% elif bandit_sell.win_rate >= 50 %}bg-yellow-500/20 text-yellow-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                      {{ "%.0f"|format(bandit_sell.win_rate) }}% Win Rate
+                    </span>
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Total Signals:</span>
+                      <span class="text-white font-medium">{{ bandit_sell.total_signals }}</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Avg Return (24h):</span>
+                      <span class="{% if bandit_sell.avg_return > 0 %}text-green-400{% else %}text-red-400{% endif %} font-bold">
+                        {{ "%+.2f"|format(bandit_sell.avg_return) }}%
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Best:</span>
+                      <span class="text-green-400 font-medium">{{ "%+.2f"|format(bandit_sell.max_return) }}%</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Worst:</span>
+                      <span class="text-red-400 font-medium">{{ "%+.2f"|format(bandit_sell.min_return) }}%</span>
+                    </div>
+                  </div>
+                </div>
+              {% else %}
+                <div class="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
+                  <div class="text-sm font-semibold text-gray-400 mb-2">Bandit Sell Signal</div>
+                  <div class="text-xs text-gray-500">Insufficient data</div>
+                </div>
+              {% endif %}
+
+              <!-- Bandit Hold Signal Performance -->
+              {% if performance_stats.bandit_hold and performance_stats.bandit_hold.signals_with_outcome > 0 %}
+                {% set bandit_hold = performance_stats.bandit_hold %}
+                <div class="bg-gray-700/50 rounded-lg p-4 border {% if bandit_hold.win_rate >= 60 %}border-green-500/50{% elif bandit_hold.win_rate >= 50 %}border-yellow-500/50{% else %}border-red-500/50{% endif %}">
+                  <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-semibold text-gray-300">Bandit Hold Signal</span>
+                    <span class="text-xs px-2 py-1 rounded {% if bandit_hold.win_rate >= 60 %}bg-green-500/20 text-green-400{% elif bandit_hold.win_rate >= 50 %}bg-yellow-500/20 text-yellow-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                      {{ "%.0f"|format(bandit_hold.win_rate) }}% Win Rate
+                    </span>
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Total Signals:</span>
+                      <span class="text-white font-medium">{{ bandit_hold.total_signals }}</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Avg Return (24h):</span>
+                      <span class="{% if bandit_hold.avg_return > 0 %}text-green-400{% else %}text-red-400{% endif %} font-bold">
+                        {{ "%+.2f"|format(bandit_hold.avg_return) }}%
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Best:</span>
+                      <span class="text-green-400 font-medium">{{ "%+.2f"|format(bandit_hold.max_return) }}%</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Worst:</span>
+                      <span class="text-red-400 font-medium">{{ "%+.2f"|format(bandit_hold.min_return) }}%</span>
+                    </div>
+                  </div>
+                </div>
+              {% else %}
+                <div class="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
+                  <div class="text-sm font-semibold text-gray-400 mb-2">Bandit Hold Signal</div>
+                  <div class="text-xs text-gray-500">Insufficient data</div>
+                </div>
+              {% endif %}
+
+            </div>
+
+            <!-- Summary Note -->
+            <div class="mt-6 pt-4 border-t border-gray-700">
+              <p class="text-xs text-gray-400 italic">
+                Performance metrics are calculated based on price movement 24 hours after each signal. 
+                Win rate indicates the percentage of signals that resulted in profitable outcomes. 
+                Data accumulates over time as signals age and outcomes are measured.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div class="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
             <h2 class="text-xl font-semibold mb-4 text-white">📊 {{ selected_range|capitalize }} Price Summary</h2>
             <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-gray-200">
