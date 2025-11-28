@@ -18,9 +18,19 @@
 
 ### 3. UI/UX Improvements
 - [x] Created new modern home page (`templates/home.html`)
-- [x] Added `/home` route in `app.py`
+- [x] Added `/home` route in `app.py` (now default `/` route)
 - [x] Fixed all dark text issues on sol-tracker page
+- [x] Modernized `/orca` page with scrollable card-based daily rewards timeline
 - [x] Updated documentation (README.md, CHANGELOG_SOL_TRACKER.md)
+- [x] Created DEPRECATED.md for historical feature documentation
+
+### 4. SOL Tracker Modernization
+- [x] Removed all bandit log references from sol_tracker.html
+- [x] Modernized header with key metrics cards
+- [x] Implemented clear RSI-based Buy/Sell signals
+- [x] Removed bandit-related data from app.py route
+- [x] Added Technical Indicators Summary section
+- [x] Updated chart markers to use RSI-based signals
 
 ## 🔄 Next Steps (Priority Order)
 
@@ -47,11 +57,15 @@
    - [x] Fix analytics function call in `/home` route
    - [x] Test new home page
    - [x] Add navigation links between pages
+   - [x] Made `/home` the default route (`/`)
+   - [x] Moved detailed rewards page to `/orca`
 
 2. **Modernize Existing Pages**
    - [x] Update `index.html` with modern design
    - [x] Ensure consistent styling across all pages
    - [x] Add responsive design improvements
+   - [x] Redesigned daily rewards list as scrollable card timeline
+   - [x] Modernized SOL Tracker page with RSI-based signals
 
 ### Phase 3: Security Hardening
 
@@ -113,12 +127,15 @@
 - `database_indexes.sql` - Database optimization
 - `migrate_add_redemption_values.py` - Redemption value migration
 - `templates/home.html` - New modern home page
+- `DEPRECATED.md` - Historical documentation of deprecated features
 - `IMPLEMENTATION_CHECKLIST.md` - This file
 
 ### Files Modified
-- `app.py` - Added redemption value capture, new home route
-- `templates/sol_tracker.html` - Fixed dark text issues
-- `README.md` - Updated documentation
+- `app.py` - Added redemption value capture, route updates, removed bandit data
+- `templates/sol_tracker.html` - Modernized with RSI-based signals, removed bandit logs
+- `templates/index.html` - Modernized design, scrollable card timeline
+- `templates/home.html` - Navigation updates
+- `README.md` - Updated to reflect current features, removed deprecated content
 - `CHANGELOG_SOL_TRACKER.md` - Updated changelog
 
 ### Critical Actions Required
@@ -133,9 +150,12 @@
 - [ ] All database indexes added
 - [ ] Redemption values captured for all new redemptions
 - [ ] Historical redemptions backfilled (approximation)
-- [ ] New home page accessible and functional
-- [ ] All dark text issues resolved
-- [ ] Documentation updated
+- [x] New home page accessible and functional (now default route)
+- [x] All dark text issues resolved
+- [x] Documentation updated (README.md, DEPRECATED.md)
+- [x] SOL Tracker modernized with RSI-based signals
+- [x] Daily rewards list redesigned as scrollable timeline
+- [x] Deprecated features documented in DEPRECATED.md
 
 ## 📚 Additional Resources
 

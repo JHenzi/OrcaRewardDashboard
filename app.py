@@ -787,20 +787,135 @@ def sol_tracker():
     conn = sqlite3.connect("sol_prices.db")
     cursor = conn.cursor()
 
-    # Removed bandit logs - now using RSI-based signals only
-    bandit_logs = []  # Empty list for backward compatibility
+    # Get predictions for backward compatibility (deprecated but still needed for template)
+    predictions = get_predictions(cursor, time_threshold=time_threshold.isoformat())
+    
+    # Get latest bandit action (just the most recent one, not all logs)
+    latest_bandit = None
+    cursor.execute("""
+        SELECT 
+            timestamp, action, reward, 
+            prediction_buy, prediction_sell, prediction_hold
+        FROM bandit_logs
+        ORDER BY created_at DESC
+        LIMIT 1
+    """)
+    row = cursor.fetchone()
+    if row:
+        log_ts = datetime.fromisoformat(row[0]).strftime("%b %d, %I:%M %p")
+        latest_bandit = {
+            "timestamp": log_ts,
+            "action": row[1],
+            "reward": round(row[2], 4) if row[2] is not None else None,
+            "prediction_buy": round(row[3], 4) if row[3] is not None else None,
+            "prediction_sell": round(row[4], 4) if row[4] is not None else None,
+            "prediction_hold": round(row[5], 4) if row[5] is not None else None
+        }
+    
+    # Empty list for backward compatibility (we don't show the full log list anymore)
+    bandit_logs = []
 
     conn.close()
+
+    # Get the ACTUAL current/latest price (not from filtered time range)
+    # This should always be the most recent price in the database, regardless of selected time range
+    actual_current_price = None
+    try:
+        conn = sqlite3.connect("sol_prices.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT rate, timestamp 
+            FROM sol_prices 
+            ORDER BY timestamp DESC 
+            LIMIT 1
+        """)
+        latest_row = cursor.fetchone()
+        if latest_row:
+            actual_current_price = round(latest_row[0], 4)
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Could not fetch latest price from database: {e}")
+        # Fallback: use get_sol_price_data() for live price
+        try:
+            sol_data = get_sol_price_data()
+            actual_current_price = round(sol_data.get('rate', 0), 4) if sol_data else None
+        except Exception as e2:
+            logger.error(f"Could not fetch live price from API: {e2}")
+            # Last resort: use the last price from the filtered range if available
+            actual_current_price = round(prices[-1], 4) if prices else None
 
     # Stats calculations
     def simple_moving_average(prices, window):
         if len(prices) < window:
             return None
         return round(mean(prices[-window:]), 4)
+    
+    def exponential_moving_average(prices, period):
+        """Calculate Exponential Moving Average"""
+        if len(prices) < period:
+            return None
+        multiplier = 2.0 / (period + 1)
+        ema = mean(prices[:period])
+        for price in prices[period:]:
+            ema = (price * multiplier) + (ema * (1 - multiplier))
+        return round(ema, 4)
+    
+    def calculate_macd(prices, fast=12, slow=26, signal=9):
+        """Calculate MACD (Moving Average Convergence Divergence)"""
+        if len(prices) < slow + signal:
+            return None, None, None
+        ema_fast = exponential_moving_average(prices, fast)
+        ema_slow = exponential_moving_average(prices, slow)
+        if ema_fast is None or ema_slow is None:
+            return None, None, None
+        macd_line = ema_fast - ema_slow
+        
+        # For signal line, we need MACD history - simplified version
+        # Use last 'signal' periods of prices to approximate signal line
+        if len(prices) >= slow + signal:
+            recent_prices = prices[-(slow + signal):]
+            signal_ema = exponential_moving_average(recent_prices, signal)
+            if signal_ema:
+                # Approximate signal line using recent price momentum
+                signal_line = signal_ema * 0.01  # Simplified approximation
+            else:
+                signal_line = None
+        else:
+            signal_line = None
+        
+        histogram = macd_line - signal_line if signal_line else None
+        return round(macd_line, 4), round(signal_line, 4) if signal_line else None, round(histogram, 4) if histogram else None
+    
+    def calculate_bollinger_bands(prices, period=20, num_std=2):
+        """Calculate Bollinger Bands"""
+        if len(prices) < period:
+            return None, None, None
+        sma = mean(prices[-period:])
+        std = stdev(prices[-period:])
+        upper_band = sma + (num_std * std)
+        lower_band = sma - (num_std * std)
+        return round(upper_band, 4), round(sma, 4), round(lower_band, 4)
+    
+    def calculate_momentum(prices, period=10):
+        """Calculate price momentum (rate of change)"""
+        if len(prices) < period + 1:
+            return None
+        return round(((prices[-1] - prices[-period-1]) / prices[-period-1]) * 100, 2)
 
     sma_1h = simple_moving_average(prices, 12) if len(prices) >= 12 else None
     sma_4h = simple_moving_average(prices, 48) if len(prices) >= 48 else None
     sma_24h = simple_moving_average(prices, 288) if len(prices) >= 288 else None
+    ema_12 = exponential_moving_average(prices, 12) if len(prices) >= 12 else None
+    ema_26 = exponential_moving_average(prices, 26) if len(prices) >= 26 else None
+    
+    # MACD
+    macd_line, macd_signal, macd_histogram = calculate_macd(prices) if len(prices) >= 35 else (None, None, None)
+    
+    # Bollinger Bands
+    bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(prices) if len(prices) >= 20 else (None, None, None)
+    
+    # Momentum
+    momentum_10 = calculate_momentum(prices, 10) if len(prices) >= 11 else None
 
     # Calculate RSI using the function from sol_price_fetcher
     from sol_price_fetcher import calculate_rsi
@@ -827,6 +942,18 @@ def sol_tracker():
             rsi_values.append(rsi_at_point)
     
 
+    # Calculate price position relative to SMAs and Bollinger Bands
+    # Get current price from prices list
+    current_price_for_indicators = prices[-1] if prices else None
+    price_vs_sma_1h = (current_price_for_indicators / sma_1h - 1) * 100 if (current_price_for_indicators and sma_1h and sma_1h != 0) else None
+    price_vs_sma_4h = (current_price_for_indicators / sma_4h - 1) * 100 if (current_price_for_indicators and sma_4h and sma_4h != 0) else None
+    price_vs_sma_24h = (current_price_for_indicators / sma_24h - 1) * 100 if (current_price_for_indicators and sma_24h and sma_24h != 0) else None
+    
+    # Price position in Bollinger Bands (%)
+    bb_position = None
+    if current_price_for_indicators and bb_upper and bb_lower and bb_upper != bb_lower:
+        bb_position = ((current_price_for_indicators - bb_lower) / (bb_upper - bb_lower)) * 100
+    
     # Initialize stats with default/empty values
     stats = {
         "current_price": None,
@@ -838,6 +965,19 @@ def sol_tracker():
         "sma_1h": sma_1h,
         "sma_4h": sma_4h,
         "sma_24h": sma_24h,
+        "ema_12": ema_12,
+        "ema_26": ema_26,
+        "macd_line": macd_line,
+        "macd_signal": macd_signal,
+        "macd_histogram": macd_histogram,
+        "bb_upper": bb_upper,
+        "bb_middle": bb_middle,
+        "bb_lower": bb_lower,
+        "bb_position": bb_position,
+        "momentum_10": momentum_10,
+        "price_vs_sma_1h": price_vs_sma_1h,
+        "price_vs_sma_4h": price_vs_sma_4h,
+        "price_vs_sma_24h": price_vs_sma_24h,
         "std_dev": 0,
         "avg_delta": 0,
         "rsi": rsi_value
@@ -848,6 +988,10 @@ def sol_tracker():
         price_start = prices[0]
         stats["current_price"] = round(current_price, 4)
         stats["price_start"] = round(price_start, 4)
+        
+        # Update current_price for indicator calculations if not already set
+        if stats.get("current_price") is None:
+            stats["current_price"] = round(current_price, 4)
 
         if price_start != 0: # Avoid division by zero
             percent_change = round(((current_price - price_start) / price_start) * 100, 2)
@@ -890,7 +1034,8 @@ def sol_tracker():
         prices=prices,
         stats=stats,
         predictions=predictions,
-        bandit_logs=bandit_logs,
+        bandit_logs=bandit_logs,  # Empty list - we don't show full logs
+        latest_bandit=latest_bandit,  # Latest bandit recommendation
         selected_range=selected_range,
         rsi_values=rsi_values,  # Add RSI values for chart
         unix_timestamps=unix_timestamps  # Add Unix timestamps for TradingView

@@ -1,4 +1,4 @@
-# SOL Tracker Improvements - Changelog
+# SOL Tracker Improvements - Changelog - 2025-11-27
 
 ## Completed (Current Session)
 
