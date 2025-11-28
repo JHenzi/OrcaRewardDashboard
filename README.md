@@ -159,13 +159,16 @@ The application now includes a **Reinforcement Learning (RL) Trading Agent** bui
 **What's Complete:**
 - ✅ All RL agent modules implemented and tested
 - ✅ Full system integration (price + news)
+- ✅ **Model loading** - Automatic model loading on app startup
+- ✅ **Predictions** - Model generates 1h/24h return predictions automatically
 - ✅ All API endpoints functional
 - ✅ Dashboard UI components added
 - ✅ News system with clustering
 - ✅ Risk management system
 - ✅ Explainability features
 - ✅ **Training pipeline ready** - Historical data preparation and training scripts
-- ✅ **Automated retraining** - Periodic retraining with adaptive scheduling
+- ✅ **Automated retraining** - Periodic retraining with adaptive scheduling (weekly)
+- ✅ **MLOps** - Model versioning, validation, and deployment pipeline
 
 **Training & Retraining:**
 - 🎯 **Initial Training**: Train on 200K+ historical price points (see [Training Guide](#training-the-rl-agent))
@@ -397,6 +400,14 @@ python train_rl_agent.py --epochs 10
 - For timestamps with news (Nov 27-28): Uses actual news embeddings and sentiment
 - For timestamps without news (July - Nov 26): Pads with zeros (model learns to ignore)
 - Model trains successfully on price patterns, news enhances later
+
+**After Training:**
+- Model is automatically loaded on app startup via `initialize_rl_agent()`
+- When `make_decision()` is called, the model automatically generates:
+  - **1h return prediction** - Predicted price change in 1 hour
+  - **24h return prediction** - Predicted price change in 24 hours
+  - **Confidence scores** - For both predictions
+- Predictions are stored in database and accessible via `/api/rl-agent/predictions`
 
 **Periodic Retraining:**
 ```bash

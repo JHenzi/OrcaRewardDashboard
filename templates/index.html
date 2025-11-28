@@ -32,6 +32,7 @@
     /* Custom Scrollbar Styling */
     .custom-scrollbar::-webkit-scrollbar {
       width: 8px;
+      height: 8px;
     }
     .custom-scrollbar::-webkit-scrollbar-track {
       background: #1f2937;
@@ -42,6 +43,21 @@
       border-radius: 4px;
     }
     .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #6b7280;
+    }
+    /* Horizontal scrollbar for calendar */
+    .calendar-scrollbar::-webkit-scrollbar {
+      height: 12px;
+    }
+    .calendar-scrollbar::-webkit-scrollbar-track {
+      background: #1f2937;
+      border-radius: 6px;
+    }
+    .calendar-scrollbar::-webkit-scrollbar-thumb {
+      background: #4b5563;
+      border-radius: 6px;
+    }
+    .calendar-scrollbar::-webkit-scrollbar-thumb:hover {
       background: #6b7280;
     }
   </style>
@@ -163,16 +179,190 @@
         <p class="text-xs text-gray-500 mt-1">Per day</p>
       </div>
 
-      <!-- Avg Days Between -->
+      <!-- Best Collection Time -->
+      {% if analytics.collection_stats and analytics.collection_stats.best_day and analytics.collection_stats.best_hour is defined %}
+      <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:border-purple-500 transition">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-sm text-gray-400">Best Time</h4>
+          <span class="text-xl">⏰</span>
+        </div>
+        <p class="text-2xl font-bold text-purple-400">
+          {{ analytics.collection_stats.best_day }}
+        </p>
+        <p class="text-sm font-semibold text-purple-300 mt-1">
+          {{ analytics.collection_stats.best_hour }}:00
+        </p>
+        <p class="text-xs text-gray-500 mt-1">Day & hour to collect</p>
+      </div>
+      {% else %}
       <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
         <div class="flex items-center justify-between mb-3">
-          <h4 class="text-sm text-gray-400">Frequency</h4>
-          <span class="text-xl">⏱️</span>
+          <h4 class="text-sm text-gray-400">Best Time</h4>
+          <span class="text-xl">⏰</span>
         </div>
-        <p class="text-2xl font-bold text-purple-400">{{ '%.1f'|format(analytics.avg_days_between_collections) }}</p>
-        <p class="text-xs text-gray-500 mt-1">Days between</p>
+        <p class="text-2xl font-bold text-gray-500">N/A</p>
+        <p class="text-xs text-gray-500 mt-1">Insufficient data</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Enhanced Statistics Grid -->
+    {% if analytics.collection_stats %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 fade-in">
+      <!-- Current Streak -->
+      {% if analytics.collection_stats.current_streak %}
+      <div class="bg-gradient-to-br from-orange-600/90 to-red-500/90 border border-orange-400/50 rounded-xl p-6 hover:border-orange-300 transition">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-sm text-white/90 font-medium">🔥 Current Streak</h4>
+          <span class="text-xl">🔥</span>
+        </div>
+        <p class="text-3xl font-bold text-white">{{ analytics.collection_stats.current_streak }}</p>
+        <p class="text-xs text-white/80 mt-1">Consecutive days</p>
+      </div>
+      {% endif %}
+
+      <!-- Largest Collection -->
+      {% if analytics.collection_stats.largest_collection %}
+      <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:border-yellow-500 transition">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-sm text-gray-400">💎 Largest</h4>
+          <span class="text-xl">💎</span>
+        </div>
+        <p class="text-2xl font-bold text-yellow-400">
+          {{ '%.4f'|format(analytics.collection_stats.largest_collection.amount) if analytics.collection_stats.largest_collection.token == 'SOL' else '%.2f'|format(analytics.collection_stats.largest_collection.amount) }}
+          <span class="text-sm text-gray-400">{{ analytics.collection_stats.largest_collection.token }}</span>
+        </p>
+        <p class="text-xs text-gray-500 mt-1">Single collection</p>
+      </div>
+      {% endif %}
+
+      <!-- Token Ratio -->
+      {% if analytics.collection_stats.token_ratio %}
+      <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:border-purple-500 transition">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-sm text-gray-400">⚖️ Token Split</h4>
+          <span class="text-xl">⚖️</span>
+        </div>
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-purple-400">SOL</span>
+            <span class="text-sm font-bold text-purple-400">{{ '%.1f'|format(analytics.collection_stats.token_ratio.sol_pct) }}%</span>
+          </div>
+          <div class="w-full bg-gray-700 rounded-full h-2">
+            <div class="bg-gradient-to-r from-purple-600 to-purple-400 h-2 rounded-full" style="width: {{ analytics.collection_stats.token_ratio.sol_pct }}%"></div>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-green-400">USDC</span>
+            <span class="text-sm font-bold text-green-400">{{ '%.1f'|format(analytics.collection_stats.token_ratio.usdc_pct) }}%</span>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Last 7 Days Collection -->
+      {% if analytics.collection_stats.last_7_days %}
+      <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:border-green-500 transition">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-sm text-gray-400">Last 7 Days</h4>
+          <span class="text-xl">📅</span>
+        </div>
+        <p class="text-2xl font-bold text-green-400">
+          ${{ '%.2f'|format(analytics.collection_stats.last_7_days.total_usd) }}
+        </p>
+        <p class="text-xs text-gray-500 mt-1">
+          {{ analytics.collection_stats.last_7_days.days_active }} days active
+        </p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Peak Collection Times -->
+    {% if analytics.collection_patterns %}
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-8 fade-in">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white flex items-center space-x-2">
+          <span>🕐</span>
+          <span>Peak Collection Times</span>
+        </h2>
+        <p class="text-sm text-gray-400">By hour of day</p>
+      </div>
+      
+      <div class="grid grid-cols-6 md:grid-cols-12 lg:grid-cols-24 gap-2">
+        {% set max_collections = analytics.collection_patterns | map(attribute=1) | max if analytics.collection_patterns else 1 %}
+        {% for hour in range(24) %}
+          {% set hour_data = analytics.collection_patterns | selectattr('0', 'equalto', hour) | first %}
+          {% set count = hour_data[1] if hour_data else 0 %}
+          {% set height_pct = (count / max_collections * 100) if max_collections > 0 else 0 %}
+          
+          <div class="flex flex-col items-center">
+            <div class="w-full bg-gray-700 rounded-t relative" style="height: 80px;">
+              {% if count > 0 %}
+              <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-blue-600 to-cyan-400 rounded-t transition-all hover:from-blue-500 hover:to-cyan-300" 
+                   style="height: {{ height_pct }}%;"
+                   title="{{ count }} collections at {{ hour }}:00">
+              </div>
+              {% endif %}
+            </div>
+            <div class="text-xs text-gray-500 mt-1">{{ hour }}h</div>
+            {% if count > 0 %}
+            <div class="text-[10px] text-blue-400 font-semibold">{{ count }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      
+      {% set peak_hour_data = analytics.collection_patterns | max(attribute=1) if analytics.collection_patterns else None %}
+      {% if peak_hour_data %}
+      <div class="mt-4 pt-4 border-t border-gray-700">
+        <p class="text-sm text-gray-400">
+          <span class="text-blue-400 font-semibold">Peak hour:</span> 
+          {{ peak_hour_data[0] }}:00 with {{ peak_hour_data[1] }} collections
+        </p>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Weekly Patterns -->
+    {% if analytics.collection_stats.weekly_patterns %}
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-8 fade-in">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white flex items-center space-x-2">
+          <span>📅</span>
+          <span>Weekly Collection Patterns</span>
+        </h2>
+      </div>
+      
+      <div class="grid grid-cols-7 gap-3">
+        {% set day_names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] %}
+        {% set max_collections = analytics.collection_stats.weekly_patterns | map(attribute=1) | max if analytics.collection_stats.weekly_patterns else 1 %}
+        
+        {% for day_num in range(7) %}
+          {% set day_data = analytics.collection_stats.weekly_patterns | selectattr('0', 'equalto', day_num) | first %}
+          {% set collections = day_data[1] if day_data else 0 %}
+          {% set days_active = day_data[2] if day_data else 0 %}
+          {% set height_pct = (collections / max_collections * 100) if max_collections > 0 else 0 %}
+          
+          <div class="flex flex-col items-center">
+            <div class="text-xs text-gray-400 mb-2 font-medium">{{ day_names[day_num] }}</div>
+            <div class="w-full bg-gray-700 rounded-t relative" style="height: 120px;">
+              {% if collections > 0 %}
+              <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-purple-600 to-indigo-400 rounded-t transition-all hover:from-purple-500 hover:to-indigo-300" 
+                   style="height: {{ height_pct }}%;"
+                   title="{{ collections }} collections on {{ day_names[day_num] }} ({{ days_active }} days)">
+              </div>
+              {% endif %}
+            </div>
+            <div class="mt-2 text-center">
+              <div class="text-sm font-bold text-purple-400">{{ collections }}</div>
+              <div class="text-[10px] text-gray-500">{{ days_active }} days</div>
+            </div>
+          </div>
+        {% endfor %}
       </div>
     </div>
+    {% endif %}
+    {% endif %}
 
     <!-- Monthly Summary -->
     <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-8 fade-in">
@@ -237,56 +427,73 @@
         </div>
       </div>
 
-      <!-- Scrollable Card Grid -->
-      <div class="max-h-96 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
-        {% for row in daily_summary %}
-        <div class="flex items-center justify-between p-4 bg-gray-700/50 hover:bg-gray-700 rounded-lg border border-gray-600/50 transition-all duration-200 hover:border-purple-500/50 group">
-          <!-- Date Section -->
-          <div class="flex items-center space-x-4 flex-1">
-            <div class="flex-shrink-0 w-20 text-center">
-              {% set day_parts = row.day.split('-') %}
-              <div class="text-xs text-gray-400 uppercase tracking-wider">{{ day_parts[1] }}/{{ day_parts[2] }}</div>
-              <div class="text-xs text-gray-500">{{ day_parts[0] }}</div>
-            </div>
-            <div class="flex-1">
-              <div class="text-sm text-gray-300 font-medium">
+      <!-- Horizontal Calendar Grid Timeline -->
+      <div class="overflow-x-auto pb-4 calendar-scrollbar" style="scroll-behavior: smooth;">
+        <div class="inline-flex flex-wrap gap-2 min-w-max" style="max-width: 100%;">
+          {% for row in daily_summary %}
+            {% set day_parts = row.day.split('-') %}
+            {% set month = day_parts[1] | int %}
+            {% set day_num = day_parts[2] | int %}
+            {% set year = day_parts[0] %}
+            
+            <div class="relative group cursor-pointer" style="min-width: 80px; width: 80px;">
+              <div class="
+                p-2 rounded-lg border-2 transition-all duration-200
                 {% if row.usd_value > 5.00 %}
-                  🎉 Excellent Day
+                  bg-gradient-to-br from-green-600/90 to-emerald-500/90 border-green-400/50
+                  hover:from-green-500 hover:to-emerald-400 hover:border-green-300 hover:shadow-lg hover:shadow-green-500/50
+                  hover:scale-105
                 {% elif row.usd_value > 2.00 %}
-                  ✨ Good Day
+                  bg-gradient-to-br from-blue-600/90 to-cyan-500/90 border-blue-400/50
+                  hover:from-blue-500 hover:to-cyan-400 hover:border-blue-300 hover:shadow-lg hover:shadow-blue-500/50
+                  hover:scale-105
                 {% elif row.usd_value > 1.00 %}
-                  💰 Active Day
+                  bg-gradient-to-br from-purple-600/90 to-indigo-500/90 border-purple-400/50
+                  hover:from-purple-500 hover:to-indigo-400 hover:border-purple-300 hover:shadow-lg hover:shadow-purple-500/50
+                  hover:scale-105
                 {% else %}
-                  📊 Standard Day
+                  bg-gray-700/60 border-gray-600/50
+                  hover:bg-gray-700 hover:border-gray-500 hover:shadow-md
+                  hover:scale-105
                 {% endif %}
+              ">
+                <!-- Date -->
+                <div class="text-center mb-1">
+                  <div class="text-xs font-semibold text-white/90">{{ month }}/{{ day_num }}</div>
+                  <div class="text-[10px] text-white/70 mt-0.5">{{ year[-2:] }}</div>
+                </div>
+                
+                <!-- Value -->
+                <div class="text-center">
+                  <div class="text-sm font-bold text-white drop-shadow-sm">
+                    ${{ '%.1f'|format(row.usd_value) if row.usd_value >= 1 else '%.2f'|format(row.usd_value) }}
+                  </div>
+                </div>
+                
+                <!-- Hover Tooltip -->
+                <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10 border border-gray-700">
+                  <div class="font-semibold mb-1">{{ row.day }}</div>
+                  <div class="text-green-400 font-bold">${{ '%.2f'|format(row.usd_value) }}</div>
+                  <div class="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
+                    <div class="border-4 border-transparent border-t-gray-900"></div>
+                  </div>
+                </div>
               </div>
-              <div class="text-xs text-gray-500 mt-0.5">{{ row.day }}</div>
             </div>
-          </div>
-          
-          <!-- Value Section -->
-          <div class="flex items-center space-x-3">
-            {% if row.usd_value > 5.00 %}
-              <div class="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-500 rounded-lg shadow-lg group-hover:shadow-xl transition-shadow">
-                <p class="text-lg font-bold text-white">${{ '%.2f'|format(row.usd_value) }}</p>
-              </div>
-            {% elif row.usd_value > 2.00 %}
-              <div class="px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-lg shadow-md group-hover:shadow-lg transition-shadow">
-                <p class="text-lg font-bold text-white">${{ '%.2f'|format(row.usd_value) }}</p>
-              </div>
-            {% elif row.usd_value > 1.00 %}
-              <div class="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-500 rounded-lg shadow-sm group-hover:shadow-md transition-shadow">
-                <p class="text-lg font-bold text-white">${{ '%.2f'|format(row.usd_value) }}</p>
-              </div>
-            {% else %}
-              <div class="px-4 py-2 bg-gray-600 rounded-lg border border-gray-500">
-                <p class="text-lg font-semibold text-gray-200">${{ '%.2f'|format(row.usd_value) }}</p>
-              </div>
-            {% endif %}
-          </div>
+          {% endfor %}
         </div>
-        {% endfor %}
       </div>
+      
+      <!-- Scroll Hint -->
+      {% if daily_summary | length > 10 %}
+      <div class="mt-2 text-center">
+        <p class="text-xs text-gray-500 flex items-center justify-center space-x-2">
+          <span>←</span>
+          <span>Scroll horizontally to see more days</span>
+          <span>→</span>
+        </p>
+      </div>
+      {% endif %}
 
       <!-- Summary Footer -->
       {% set total_daily = daily_summary | sum(attribute='usd_value') %}

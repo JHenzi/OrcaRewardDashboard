@@ -430,20 +430,271 @@ def get_daily_earning_rates():
     return results
 
 def get_collection_patterns():
-    """Get collection patterns by hour of day"""
+    """Get collection patterns by hour of day (in local timezone)"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    
+    # Convert UTC timestamps to local timezone (Eastern)
+    # SQLite doesn't have great timezone support, so we'll do it in Python
     c.execute('''
-        SELECT 
-            CAST(strftime('%H', datetime(timestamp, 'unixepoch')) AS INTEGER) as hour_of_day,
-            COUNT(*) as collections_count
-        FROM collect_fees 
-        GROUP BY hour_of_day
-        ORDER BY hour_of_day
+        SELECT timestamp
+        FROM collect_fees
     ''')
-    results = c.fetchall()
+    all_timestamps = [row[0] for row in c.fetchall()]
+    
+    # Count by hour in local timezone
+    hour_counts = {}
+    for ts in all_timestamps:
+        # Convert UTC unix timestamp to local time
+        utc_dt = datetime.utcfromtimestamp(ts)
+        local_dt = utc_dt.replace(tzinfo=pytz.utc).astimezone(eastern)
+        hour = local_dt.hour
+        hour_counts[hour] = hour_counts.get(hour, 0) + 1
+    
+    # Convert to list of tuples matching original format
+    results = [(hour, count) for hour, count in sorted(hour_counts.items())]
     conn.close()
     return results
+
+def get_collection_statistics():
+    """Get comprehensive collection statistics"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    # Get current SOL price for USD conversions
+    sol_data = get_sol_price_data()
+    current_sol_price = sol_data.get('rate', 0) if sol_data else 0
+    
+    stats = {}
+    
+    # Best and worst days
+    c.execute('''
+        SELECT 
+            DATE(datetime(timestamp, 'unixepoch')) as collection_date,
+            COUNT(*) as collections,
+            SUM(CASE WHEN token_mint = 'So11111111111111111111111111111111111111112' THEN token_amount ELSE 0 END) as sol_amount,
+            SUM(CASE WHEN token_mint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' THEN token_amount ELSE 0 END) as usdc_amount
+        FROM collect_fees
+        GROUP BY collection_date
+        ORDER BY collections DESC
+        LIMIT 1
+    ''')
+    best_day = c.fetchone()
+    if best_day:
+        stats['best_day'] = {
+            'date': best_day[0],
+            'collections': best_day[1],
+            'sol': best_day[2],
+            'usdc': best_day[3]
+        }
+    
+    # Largest single collection
+    c.execute('''
+        SELECT 
+            datetime(timestamp, 'unixepoch') as collection_time,
+            token_mint,
+            token_amount
+        FROM collect_fees
+        ORDER BY token_amount DESC
+        LIMIT 1
+    ''')
+    largest = c.fetchone()
+    if largest:
+        stats['largest_collection'] = {
+            'time': largest[0],
+            'token': 'SOL' if largest[1].startswith('So1') else 'USDC',
+            'amount': largest[2]
+        }
+    
+    # Average collection size
+    c.execute('''
+        SELECT 
+            AVG(CASE WHEN token_mint = 'So11111111111111111111111111111111111111112' THEN token_amount ELSE 0 END) as avg_sol,
+            AVG(CASE WHEN token_mint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' THEN token_amount ELSE 0 END) as avg_usdc,
+            COUNT(*) as total_collections
+        FROM collect_fees
+    ''')
+    avg_row = c.fetchone()
+    if avg_row:
+        stats['avg_collection'] = {
+            'sol': avg_row[0] or 0,
+            'usdc': avg_row[1] or 0,
+            'total': avg_row[2] or 0
+        }
+    
+    # Current streak (consecutive days with collections)
+    c.execute('''
+        SELECT DISTINCT DATE(datetime(timestamp, 'unixepoch')) as collection_date
+        FROM collect_fees
+        ORDER BY collection_date DESC
+    ''')
+    dates = [row[0] for row in c.fetchall()]
+    
+    if dates:
+        streak = 0
+        current_date = datetime.now().date()
+        for i, date_str in enumerate(dates):
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+            expected_date = current_date - timedelta(days=i)
+            if date_obj == expected_date:
+                streak += 1
+            else:
+                break
+        stats['current_streak'] = streak
+    
+    # Token ratio - check if usd_value_at_redemption column exists
+    c.execute("PRAGMA table_info(collect_fees)")
+    columns = [col[1] for col in c.fetchall()]
+    has_usd_value = 'usd_value_at_redemption' in columns
+    
+    if has_usd_value:
+        # Use stored USD values (most accurate - uses price at time of redemption)
+        c.execute('''
+            SELECT 
+                token_mint,
+                SUM(usd_value_at_redemption) as total_usd_value
+            FROM collect_fees
+            WHERE token_mint IN ('So11111111111111111111111111111111111111112', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')
+            AND usd_value_at_redemption IS NOT NULL
+            GROUP BY token_mint
+        ''')
+        token_usd_totals = {}
+        for row in c.fetchall():
+            if row[0].startswith('So1'):
+                token_usd_totals['SOL'] = row[1] or 0
+            else:
+                token_usd_totals['USDC'] = row[1] or 0
+    else:
+        # Fallback: calculate USD values using current SOL price
+        c.execute('''
+            SELECT 
+                token_mint,
+                SUM(token_amount) as total_amount
+            FROM collect_fees
+            WHERE token_mint IN ('So11111111111111111111111111111111111111112', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')
+            GROUP BY token_mint
+        ''')
+        token_usd_totals = {}
+        for row in c.fetchall():
+            if row[0].startswith('So1'):
+                # Convert SOL to USD using current price
+                token_usd_totals['SOL'] = (row[1] or 0) * current_sol_price
+            else:
+                # USDC is 1:1 with USD
+                token_usd_totals['USDC'] = row[1] or 0
+    
+    total_usd_value = sum(token_usd_totals.values())
+    if total_usd_value > 0:
+        stats['token_ratio'] = {
+            'sol_pct': (token_usd_totals.get('SOL', 0) / total_usd_value) * 100,
+            'usdc_pct': (token_usd_totals.get('USDC', 0) / total_usd_value) * 100
+        }
+    
+    # Weekly patterns (day of week) - in local timezone
+    c.execute('''
+        SELECT timestamp
+        FROM collect_fees
+    ''')
+    all_timestamps = [row[0] for row in c.fetchall()]
+    
+    # Count by day of week in local timezone
+    day_counts = {}  # {day_of_week: (collections_count, days_count)}
+    day_dates = {}   # {day_of_week: set of dates}
+    
+    for ts in all_timestamps:
+        # Convert UTC unix timestamp to local time
+        utc_dt = datetime.utcfromtimestamp(ts)
+        local_dt = utc_dt.replace(tzinfo=pytz.utc).astimezone(eastern)
+        day_of_week = local_dt.weekday()  # 0=Monday, 6=Sunday
+        date_str = local_dt.strftime('%Y-%m-%d')
+        
+        if day_of_week not in day_counts:
+            day_counts[day_of_week] = 0
+            day_dates[day_of_week] = set()
+        
+        day_counts[day_of_week] += 1
+        day_dates[day_of_week].add(date_str)
+    
+    # Convert to list matching original format: (day_of_week, collections_count, days_count)
+    weekly_patterns = [
+        (day, day_counts[day], len(day_dates[day]))
+        for day in sorted(day_counts.keys())
+    ]
+    stats['weekly_patterns'] = weekly_patterns
+    
+    # Find best day and hour for collections
+    if weekly_patterns:
+        best_day_data = max(weekly_patterns, key=lambda x: x[1])
+        best_day = best_day_data[0]  # 0=Monday, 6=Sunday
+        day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        stats['best_day'] = day_names[best_day]
+    
+    # Get collection patterns for best hour
+    collection_patterns = get_collection_patterns()
+    if collection_patterns:
+        best_hour_data = max(collection_patterns, key=lambda x: x[1])
+        best_hour = best_hour_data[0]
+        stats['best_hour'] = best_hour
+    
+    # Last 7 days collection stats (USD value and days)
+    seven_days_ago = datetime.now() - timedelta(days=7)
+    seven_days_ago_ts = int(seven_days_ago.timestamp())
+    
+    # Check if usd_value_at_redemption column exists
+    c.execute("PRAGMA table_info(collect_fees)")
+    columns = [col[1] for col in c.fetchall()]
+    has_usd_value = 'usd_value_at_redemption' in columns
+    
+    if has_usd_value:
+        # Use stored USD values (most accurate)
+        c.execute('''
+            SELECT 
+                COUNT(*) as collections,
+                COUNT(DISTINCT DATE(datetime(timestamp, 'unixepoch'))) as days_active,
+                SUM(usd_value_at_redemption) as total_usd
+            FROM collect_fees
+            WHERE timestamp >= ?
+            AND usd_value_at_redemption IS NOT NULL
+        ''', (seven_days_ago_ts,))
+        recent = c.fetchone()
+        total_usd = recent[2] if recent and recent[2] else 0
+    else:
+        # Fallback: calculate USD values
+        c.execute('''
+            SELECT 
+                COUNT(*) as collections,
+                COUNT(DISTINCT DATE(datetime(timestamp, 'unixepoch'))) as days_active
+            FROM collect_fees
+            WHERE timestamp >= ?
+        ''', (seven_days_ago_ts,))
+        recent = c.fetchone()
+        
+        # Calculate USD value
+        c.execute('''
+            SELECT 
+                token_mint,
+                SUM(token_amount) as total_amount
+            FROM collect_fees
+            WHERE timestamp >= ?
+            GROUP BY token_mint
+        ''', (seven_days_ago_ts,))
+        token_totals = {}
+        for row in c.fetchall():
+            if row[0].startswith('So1'):
+                token_totals['SOL'] = (row[1] or 0) * current_sol_price
+            else:
+                token_totals['USDC'] = row[1] or 0
+        total_usd = sum(token_totals.values())
+    
+    if recent:
+        stats['last_7_days'] = {
+            'collections': recent[0],
+            'days_active': recent[1],
+            'total_usd': total_usd
+        }
+    
+    conn.close()
+    return stats
 
 @app.route('/')
 def home():
@@ -503,7 +754,8 @@ def home():
         'avg_days_between_collections': get_average_redemption_frequency(),
         'daily_earnings': get_daily_earning_rates(),
         'collection_patterns': get_collection_patterns(),
-        'redemption_frequency': get_redemption_frequency()
+        'redemption_frequency': get_redemption_frequency(),
+        'collection_stats': get_collection_statistics()
     }
 
     # Monthly summary
@@ -607,7 +859,8 @@ def index():
         'avg_days_between_collections': get_average_redemption_frequency(),
         'daily_earnings': get_daily_earning_rates(),
         'collection_patterns': get_collection_patterns(),
-        'redemption_frequency': get_redemption_frequency()
+        'redemption_frequency': get_redemption_frequency(),
+        'collection_stats': get_collection_statistics()
     }
     # # Debug prints
     # print("Analytics debug:")
@@ -1994,6 +2247,63 @@ def start_news_fetch():
     news_fetch_thread.start()
     logger.info("Started news sentiment fetching")
 
+def initialize_rl_agent():
+    """Initialize RL agent model manager and scheduler."""
+    global rl_agent_integration, rl_model_manager, rl_retraining_scheduler
+    
+    if not RL_AGENT_AVAILABLE:
+        logger.info("RL agent not available, skipping initialization")
+        return
+    
+    try:
+        # Initialize model manager
+        logger.info("Initializing RL agent model manager...")
+        rl_model_manager = ModelManager(
+            model_dir="models/rl_agent",
+            archive_dir="models/rl_agent/archive",
+            retention_days=30,
+        )
+        
+        # Try to load current model
+        model_kwargs = {
+            "price_window_size": 60,
+            "num_indicators": 10,
+            "embedding_dim": 384,
+            "max_news_headlines": 20,
+            "num_actions": 3,
+        }
+        
+        model = rl_model_manager.load_current_model(
+            model_class=TradingActorCritic,
+            model_kwargs=model_kwargs,
+        )
+        
+        if model:
+            # Initialize integration with loaded model
+            rl_agent_integration = RLAgentIntegration(
+                model=model,
+                device="cpu",
+            )
+            logger.info("✅ RL agent model loaded and ready")
+        else:
+            logger.info("⚠️ No trained RL agent model found. Train model first.")
+        
+        # Initialize retraining scheduler
+        logger.info("Initializing RL agent retraining scheduler...")
+        rl_retraining_scheduler = RetrainingScheduler(
+            model_manager=rl_model_manager,
+            interval_days=7,  # Weekly retraining
+            enabled=True,
+        )
+        
+        # Start scheduler (checks every hour)
+        rl_retraining_scheduler.start_scheduler(check_interval_seconds=3600)
+        logger.info("✅ RL agent retraining scheduler started (weekly)")
+        
+    except Exception as e:
+        logger.error(f"Error initializing RL agent: {e}")
+        logger.error(traceback.format_exc())
+
 if __name__ == "__main__":
     # Only run startup tasks if we're in the actual Flask process (not the reloader parent)
     if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
@@ -2005,6 +2315,9 @@ if __name__ == "__main__":
         
         logger.info("Starting news sentiment fetching...")
         start_news_fetch()
+        
+        logger.info("Initializing RL agent...")
+        initialize_rl_agent()
     else:
         logger.info("Skipping background tasks in parent process")
 
