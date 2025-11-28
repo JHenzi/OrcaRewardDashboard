@@ -1,6 +1,30 @@
-# SOL Tracker Improvements - Changelog - 2025-11-27
+# SOL Tracker Improvements - Changelog
 
-## Completed (Current Session)
+## Completed (2025-11-28 Session)
+
+### ✅ Critical Bug Fixes: Chart Rendering & Data Validation
+- **Fixed 24-Hour Chart Blank Issue**: Resolved chart not displaying data for 24-hour time range
+- **Fixed "Value is null" Errors**: Eliminated TradingView LightweightCharts errors caused by null/invalid data points
+- **Timestamp Validation**: Added comprehensive timestamp validation and alignment between price and RSI data
+- **Data Deduplication**: Implemented removal of duplicate timestamps (keeps last value for each timestamp)
+- **Data Sorting**: Ensured all chart data is properly sorted by time (TradingView requirement)
+- **RSI Data Alignment**: Fixed RSI data points to only use timestamps that exist in price data
+- **Marker Validation**: Enhanced marker validation to ensure all markers reference valid price data timestamps
+- **Scope Fixes**: Fixed variable scope issues with `finalPriceData` for proper access in markers and crosshair handlers
+
+### ✅ Enhanced Data Processing
+- **Multi-Pass Validation**: Added multiple validation passes to filter out null, undefined, NaN, and invalid values
+- **Timestamp Verification**: Created Set-based lookup for fast timestamp validation
+- **Better Error Handling**: Added comprehensive try-catch blocks with detailed error logging
+- **Data Consistency**: Ensured price data, RSI data, and markers all reference the same valid timestamps
+
+### ✅ Improved Debugging & Logging
+- **Comprehensive Console Logging**: Added detailed logging for data preparation, validation, and chart initialization
+- **Data Point Validation**: Logs invalid data points with reasons for debugging
+- **Chart State Verification**: Added verification of chart time scale and visible ranges
+- **Sample Data Logging**: Logs first/last data points and time ranges for verification
+
+## Completed (2025-11-27 Session)
 
 ### ✅ Phase 1.1: Optimized Price History Loading
 - **Optimized SQL Query**: Changed from selecting 13 columns to only 2 (`timestamp`, `rate`)
@@ -47,6 +71,10 @@
    - Fixed all dark text color issues for dark theme
    - Updated all tables and form elements for dark theme compatibility
    - Added proper Unix timestamp support for chart data
+   - **2025-11-28**: Fixed data validation, deduplication, and sorting
+   - **2025-11-28**: Added comprehensive timestamp alignment between price and RSI data
+   - **2025-11-28**: Enhanced marker validation to prevent null value errors
+   - **2025-11-28**: Improved error handling and debugging logging
 
 ## Performance Improvements
 
@@ -72,13 +100,31 @@
    - SMA lines overlay on price chart
    - Support/resistance level detection
 
-## Database Optimization Recommendation
+## Database Optimization - ✅ COMPLETED
 
-For even better performance, add an index on the timestamp column:
+### ✅ Automatic Index Creation (2025-11-28)
+- **Indexes are now automatically created** during database initialization
+- **sol_prices.db indexes**: All indexes for `sol_prices`, `bandit_logs`, `trades`, and `sol_predictions` tables are created automatically in `sol_price_fetcher.py`
+- **rewards.db indexes**: All indexes for `collect_fees` table are created automatically in `app.py`
+- **Performance Impact**: Significantly faster time-range queries, especially for chart data loading
+- **No Manual Steps Required**: Indexes are created automatically when the application initializes the database
 
-```sql
-CREATE INDEX IF NOT EXISTS idx_sol_prices_timestamp ON sol_prices(timestamp);
-```
+### Indexes Created Automatically:
 
-This will significantly speed up time-range queries.
+**sol_prices.db:**
+- `idx_sol_prices_timestamp` - Critical for time-range queries
+- `idx_sol_prices_rate` - For price-based queries
+- `idx_sol_prices_timestamp_rate` - Composite index for time+price queries
+- `idx_bandit_logs_timestamp`, `idx_bandit_logs_action`, `idx_bandit_logs_reward`, `idx_bandit_logs_timestamp_action`
+- `idx_trades_timestamp`, `idx_trades_action`, `idx_trades_price`, `idx_trades_timestamp_action`
+- `idx_sol_predictions_timestamp`, `idx_sol_predictions_created_at`
+
+**rewards.db:**
+- `idx_collect_fees_timestamp` - Critical for time-range queries
+- `idx_collect_fees_token_mint` - For token-based queries
+- `idx_collect_fees_to_user` - For user-based queries
+- `idx_collect_fees_composite` - Composite index for token+time queries
+- `idx_collect_fees_signature` - For signature lookups
+
+**Note:** The `database_indexes.sql` file still exists for manual application if needed, but indexes are now created automatically during initialization.
 

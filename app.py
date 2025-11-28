@@ -125,8 +125,18 @@ def init_db(db_path=DB_PATH):
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # Create indexes for sol_predictions table
+    prediction_cursor.execute('CREATE INDEX IF NOT EXISTS idx_sol_predictions_timestamp ON sol_predictions(timestamp)')
+    prediction_cursor.execute('CREATE INDEX IF NOT EXISTS idx_sol_predictions_created_at ON sol_predictions(created_at)')
     prediction_conn.commit()
     prediction_conn.close()
+
+    # Create indexes for rewards.db tables
+    c.execute('CREATE INDEX IF NOT EXISTS idx_collect_fees_timestamp ON collect_fees(timestamp)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_collect_fees_token_mint ON collect_fees(token_mint)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_collect_fees_to_user ON collect_fees(to_user_account)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_collect_fees_composite ON collect_fees(token_mint, timestamp)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_collect_fees_signature ON collect_fees(signature)')
 
     conn.commit()
     conn.close()

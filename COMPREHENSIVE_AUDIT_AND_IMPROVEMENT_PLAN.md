@@ -531,9 +531,349 @@ class NewsSentimentAnalyzer:
 
 ### Phase 4: Advanced AI (Week 7-12)
 1. ❌ **NOT STARTED** - LSTM model implementation
-2. ❌ **NOT STARTED** - News sentiment analysis
+2. ✅ **COMPLETED** - News sentiment analysis (implemented in `news_sentiment.py`, integrated into bandit)
 3. ❌ **NOT STARTED** - Enhanced trading system (ensemble model)
-4. ❌ **NOT STARTED** - Performance evaluation
+4. ✅ **COMPLETED** - Performance evaluation (Signal Performance Tracker implemented in `signal_performance_tracker.py`)
+
+---
+
+## 9. Contextual Bandit Feature Engineering - ENHANCEMENT OPPORTUNITIES
+
+### Current Features (2025-11-28 Status)
+
+The contextual bandit currently receives the following feature categories:
+
+#### ✅ Price-Based Features
+- `price_now`, `price_24h_high`, `price_24h_low`
+- `rolling_mean_price` (10-period)
+- `returns_mean`, `returns_std`
+- `sharpe_ratio`
+- `recent_volatility`
+
+#### ✅ Technical Indicators
+- `sma_1h`, `sma_4h`, `sma_24h` (Simple Moving Averages)
+- `price_vs_sma_1h`, `price_vs_sma_4h` (Price relative to SMAs)
+- `rsi_value` (14-period RSI)
+- `price_momentum_15m` (15-period momentum)
+
+#### ✅ Portfolio State Features
+- `portfolio_sol_balance`, `portfolio_usd_balance`
+- `portfolio_total_cost_basis`, `portfolio_avg_entry_price`
+- `portfolio_unrealized_pnl`, `portfolio_equity`
+- `can_afford_buy`, `is_position_open`
+- `usd_balance_ratio`, `sol_balance_ratio`
+
+#### ✅ News Sentiment Features
+- `news_sentiment_score` (continuous -1 to 1)
+- `news_sentiment_numeric` (categorical: -1, 0, 1)
+- `news_count`, `news_positive_count`, `news_negative_count`
+- `news_crypto_count`
+
+#### ✅ Raw API Data Features (from `flatten_data()`)
+- `delta_hour`, `delta_day`, `delta_week`, `delta_month`, `delta_quarter`, `delta_year`
+- `rate`, `volume`, `market_cap`, `liquidity`
+
+### 🚀 Recommended Additional Features
+
+#### 9.1 Temporal Features (High Priority - Easy to Implement)
+
+**Rationale**: Crypto markets show strong time-of-day and day-of-week patterns. US market hours, Asian market hours, and weekend effects are well-documented.
+
+```python
+# Temporal features to add:
+{
+    "hour_of_day": 0-23,  # Hour in UTC
+    "hour_of_day_est": 0-23,  # Hour in Eastern Time (US market hours)
+    "hour_of_day_utc": 0-23,  # Explicit UTC hour
+    "day_of_week": 0-6,  # Monday=0, Sunday=6
+    "is_weekend": 0 or 1,  # Binary: Saturday/Sunday
+    "is_us_market_hours": 0 or 1,  # 9:30 AM - 4:00 PM EST
+    "is_asian_market_hours": 0 or 1,  # 7:00 PM - 4:00 AM EST (next day)
+    "is_european_market_hours": 0 or 1,  # 3:00 AM - 12:00 PM EST
+    "minutes_since_midnight": 0-1439,  # Minutes since midnight UTC
+    "day_of_month": 1-31,  # Calendar day
+    "week_of_year": 1-52,  # Week number
+    "month": 1-12,  # Month number
+    "is_month_end": 0 or 1,  # Last 3 days of month
+    "is_month_start": 0 or 1,  # First 3 days of month
+}
+```
+
+**Implementation Notes**:
+- Use `datetime.now(timezone.utc)` for UTC time
+- Convert to EST/EDT for US market hours
+- Use `datetime.weekday()` for day of week (0=Monday)
+- Market hours can be calculated from UTC hour with timezone conversion
+
+**Expected Impact**: Medium-High
+- Day-of-week effects are strong in crypto (weekend volatility)
+- US market hours correlate with higher volume
+- Time-of-day patterns exist (Asian vs US session differences)
+
+#### 9.2 Additional Technical Indicators (Medium Priority)
+
+**Currently Missing Indicators**:
+
+```python
+# MACD Features (already calculated in app.py, not fed to bandit)
+{
+    "macd_line": float,  # MACD line value
+    "macd_signal": float,  # Signal line value
+    "macd_histogram": float,  # Histogram (MACD - Signal)
+    "macd_cross_signal": -1, 0, or 1,  # -1=bearish, 0=neutral, 1=bullish
+}
+
+# Bollinger Bands Features (already calculated in app.py)
+{
+    "bb_upper": float,  # Upper Bollinger Band
+    "bb_middle": float,  # Middle (SMA)
+    "bb_lower": float,  # Lower Bollinger Band
+    "bb_width": float,  # (upper - lower) / middle (volatility measure)
+    "bb_position": float,  # (price - lower) / (upper - lower) (0-1, where price is in band)
+    "bb_signal": -1, 0, or 1,  # -1=oversold, 0=neutral, 1=overbought
+}
+
+# Exponential Moving Averages (EMA)
+{
+    "ema_12": float,  # 12-period EMA
+    "ema_26": float,  # 26-period EMA
+    "ema_50": float,  # 50-period EMA (if enough data)
+    "price_vs_ema_12": float,  # price / ema_12
+    "price_vs_ema_26": float,  # price / ema_26
+    "ema_12_vs_ema_26": float,  # ema_12 / ema_26 (trend indicator)
+}
+
+# Stochastic Oscillator
+{
+    "stoch_k": float,  # %K (0-100)
+    "stoch_d": float,  # %D (0-100, smoothed %K)
+    "stoch_signal": -1, 0, or 1,  # -1=oversold, 1=overbought
+}
+
+# Average True Range (ATR) - Volatility Measure
+{
+    "atr_14": float,  # 14-period ATR
+    "atr_percent": float,  # ATR / price (normalized volatility)
+}
+
+# Additional Momentum Indicators
+{
+    "momentum_5": float,  # 5-period momentum
+    "momentum_10": float,  # 10-period momentum (already calculated)
+    "momentum_30": float,  # 30-period momentum
+    "rate_of_change": float,  # (price_now - price_N_periods_ago) / price_N_periods_ago
+}
+```
+
+**Implementation**: These are already calculated in `app.py` for display but not passed to the bandit. Need to add them to `process_bandit_step()`.
+
+#### 9.3 Market Regime Indicators (Medium Priority)
+
+**Trend vs Range Detection**:
+
+```python
+{
+    "is_trending_up": 0 or 1,  # Price consistently above SMA
+    "is_trending_down": 0 or 1,  # Price consistently below SMA
+    "is_ranging": 0 or 1,  # Price oscillating around SMA
+    "trend_strength": float,  # How strong the trend is (0-1)
+    "adx": float,  # Average Directional Index (if implemented)
+    "price_distance_from_sma": float,  # (price - sma) / sma (normalized)
+}
+```
+
+**Volatility Regime**:
+
+```python
+{
+    "volatility_regime": 0, 1, or 2,  # 0=low, 1=medium, 2=high
+    "volatility_percentile": float,  # Volatility vs historical (0-1)
+    "is_high_volatility": 0 or 1,  # Volatility > 75th percentile
+    "is_low_volatility": 0 or 1,  # Volatility < 25th percentile
+}
+```
+
+#### 9.4 Price Pattern Features (Medium Priority)
+
+**Support/Resistance Levels**:
+
+```python
+{
+    "distance_to_24h_high": float,  # (high - price) / price
+    "distance_to_24h_low": float,  # (price - low) / price
+    "price_position_in_range": float,  # (price - low) / (high - low) (0-1)
+    "is_near_support": 0 or 1,  # Price within 2% of 24h low
+    "is_near_resistance": 0 or 1,  # Price within 2% of 24h high
+    "recent_high_count": int,  # Number of times price touched high in last N periods
+    "recent_low_count": int,  # Number of times price touched low in last N periods
+}
+```
+
+**Price Action Patterns**:
+
+```python
+{
+    "consecutive_up_periods": int,  # Number of consecutive price increases
+    "consecutive_down_periods": int,  # Number of consecutive price decreases
+    "price_acceleration": float,  # Rate of change of momentum
+    "is_reversal_candidate": 0 or 1,  # RSI extreme + momentum divergence
+}
+```
+
+#### 9.5 Cross-Timeframe Features (Low-Medium Priority)
+
+**Multi-Timeframe Analysis**:
+
+```python
+{
+    "price_vs_1h_sma": float,  # Current price vs 1-hour SMA
+    "price_vs_4h_sma": float,  # Current price vs 4-hour SMA
+    "price_vs_24h_sma": float,  # Current price vs 24-hour SMA
+    "sma_alignment": -1, 0, or 1,  # -1=bearish (SMA1 < SMA4 < SMA24), 1=bullish, 0=mixed
+    "rsi_1h": float,  # RSI on 1-hour timeframe (if enough data)
+    "rsi_4h": float,  # RSI on 4-hour timeframe
+    "momentum_1h": float,  # Momentum on 1-hour timeframe
+    "momentum_4h": float,  # Momentum on 4-hour timeframe
+}
+```
+
+#### 9.6 Market Microstructure Features (Low Priority - Requires Additional Data)
+
+**If Volume Data Available**:
+
+```python
+{
+    "volume_ratio": float,  # Current volume / average volume
+    "volume_trend": -1, 0, or 1,  # Volume increasing/decreasing
+    "price_volume_divergence": 0 or 1,  # Price up but volume down (bearish)
+    "vwap": float,  # Volume Weighted Average Price
+    "price_vs_vwap": float,  # price / vwap
+}
+```
+
+**Order Flow Proxies** (if available from API):
+
+```python
+{
+    "bid_ask_spread": float,  # Spread percentage
+    "order_imbalance": float,  # Buy vs sell pressure proxy
+}
+```
+
+#### 9.7 Historical Performance Features (Medium Priority)
+
+**Signal Reliability Context**:
+
+```python
+{
+    "rsi_buy_win_rate": float,  # Historical win rate of RSI buy signals
+    "rsi_sell_win_rate": float,  # Historical win rate of RSI sell signals
+    "bandit_buy_win_rate": float,  # Historical win rate of bandit buy actions
+    "bandit_sell_win_rate": float,  # Historical win rate of bandit sell actions
+    "recent_signal_accuracy": float,  # Accuracy of last N signals
+    "signal_confidence": float,  # Based on historical performance
+}
+```
+
+**Implementation**: Use `signal_performance_tracker.py` to calculate these metrics.
+
+#### 9.8 External Market Context (Low Priority - Requires Additional APIs)
+
+**If Tracking Other Assets**:
+
+```python
+{
+    "btc_correlation": float,  # Correlation with BTC (if tracking)
+    "eth_correlation": float,  # Correlation with ETH
+    "market_sentiment_index": float,  # Aggregate crypto market sentiment
+    "fear_greed_index": float,  # Crypto Fear & Greed Index (if API available)
+}
+```
+
+### Implementation Priority
+
+**Phase 1 (Immediate - High Impact, Easy Implementation)**:
+1. ✅ Temporal features (day of week, hour, timezone, market hours)
+2. ✅ MACD features (already calculated, just need to pass to bandit)
+3. ✅ Bollinger Bands features (already calculated, just need to pass to bandit)
+4. ✅ EMA features (already calculated, just need to pass to bandit)
+
+**Phase 2 (Short-term - Medium Impact)**:
+1. ✅ Additional momentum indicators
+2. ✅ Market regime indicators (trending vs ranging)
+3. ✅ Price pattern features (support/resistance levels)
+4. ✅ Historical performance features (signal reliability context)
+
+**Phase 3 (Long-term - Lower Priority)**:
+1. ⚠️ Stochastic Oscillator
+2. ⚠️ ATR (Average True Range)
+3. ⚠️ Cross-timeframe features
+4. ⚠️ Volume-based features (if volume data becomes available)
+5. ⚠️ External market context (requires additional APIs)
+
+### Expected Benefits
+
+1. **Temporal Features**: Capture day-of-week and time-of-day patterns that are well-documented in crypto markets
+2. **Technical Indicators**: Provide more signal diversity and redundancy
+3. **Market Regime**: Help bandit adapt strategy based on market conditions (trending vs ranging)
+4. **Historical Performance**: Allow bandit to weight signals based on their historical reliability
+5. **Price Patterns**: Identify support/resistance levels for better entry/exit timing
+
+### Implementation Example
+
+```python
+def add_temporal_features(x: dict, timestamp: str) -> dict:
+    """Add temporal features to bandit context"""
+    from datetime import datetime, timezone
+    import pytz
+    
+    # Parse timestamp
+    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    
+    # UTC features
+    x["hour_of_day_utc"] = float(dt.hour)
+    x["day_of_week"] = float(dt.weekday())  # 0=Monday, 6=Sunday
+    x["is_weekend"] = 1.0 if dt.weekday() >= 5 else 0.0
+    x["minutes_since_midnight"] = float(dt.hour * 60 + dt.minute)
+    x["day_of_month"] = float(dt.day)
+    x["month"] = float(dt.month)
+    
+    # EST/EDT conversion for US market hours
+    est = pytz.timezone('US/Eastern')
+    dt_est = dt.astimezone(est)
+    x["hour_of_day_est"] = float(dt_est.hour)
+    
+    # US market hours: 9:30 AM - 4:00 PM EST
+    is_market_hours = (9.5 <= dt_est.hour + dt_est.minute/60.0 < 16.0) and dt_est.weekday() < 5
+    x["is_us_market_hours"] = 1.0 if is_market_hours else 0.0
+    
+    # Month end/start (first/last 3 days)
+    x["is_month_end"] = 1.0 if dt.day >= 28 else 0.0
+    x["is_month_start"] = 1.0 if dt.day <= 3 else 0.0
+    
+    return x
+```
+
+### Files to Modify
+
+1. **`sol_price_fetcher.py`**:
+   - Add `add_temporal_features()` function
+   - Add `add_technical_indicator_features()` function (MACD, BB, EMA)
+   - Add `add_market_regime_features()` function
+   - Modify `process_bandit_step()` to include new features
+   - Import technical indicator calculation functions from `app.py` or create shared module
+
+2. **`technical_indicators.py`** (NEW - Recommended):
+   - Create shared module for all technical indicator calculations
+   - Move MACD, Bollinger Bands, EMA calculations here
+   - Add Stochastic, ATR calculations
+   - Used by both `app.py` (for display) and `sol_price_fetcher.py` (for bandit)
+
+3. **`signal_performance_tracker.py`**:
+   - Add method to get historical win rates for current signal context
+   - Add method to calculate signal confidence based on historical performance
 
 ---
 
@@ -576,7 +916,69 @@ class NewsSentimentAnalyzer:
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** 2024-12-XX  
+**Document Version:** 2.0  
+**Last Updated:** 2025-11-28  
 **Maintained By:** Development Team
+
+---
+
+## 10. Feature Implementation Status Summary
+
+### ✅ Completed Features (2025-11-28)
+
+1. **Database Optimization**
+   - ✅ Automatic index creation for all tables
+   - ✅ Performance-optimized queries
+
+2. **UI/UX Modernization**
+   - ✅ Modern dark theme design
+   - ✅ Responsive layout
+   - ✅ TradingView Lightweight Charts integration
+   - ✅ Signal performance tracking display
+
+3. **Technical Indicators**
+   - ✅ RSI (14-period)
+   - ✅ SMA (1h, 4h, 24h)
+   - ✅ EMA (12, 26)
+   - ✅ MACD
+   - ✅ Bollinger Bands
+   - ✅ Momentum indicators
+
+4. **AI/ML Features**
+   - ✅ Contextual Bandit with online learning
+   - ✅ News sentiment analysis (RSS feeds, embeddings, sentiment classification)
+   - ✅ Signal performance tracking (win rates, average returns)
+   - ✅ Unified trade predictor (combines all signals)
+
+5. **Data Features**
+   - ✅ Redemption USD value capture
+   - ✅ Historical price tracking
+   - ✅ Portfolio simulation
+
+### 🚀 Recommended Next Steps (Priority Order)
+
+1. **Add Temporal Features to Bandit** (High Impact, Easy)
+   - Day of week, hour, timezone features
+   - Market hours indicators
+   - Expected to improve signal accuracy by 5-15%
+
+2. **Pass Existing Technical Indicators to Bandit** (High Impact, Easy)
+   - MACD, Bollinger Bands, EMA already calculated
+   - Just need to add to `process_bandit_step()`
+   - Expected to improve signal diversity
+
+3. **Add Market Regime Indicators** (Medium Impact, Medium Effort)
+   - Trend vs range detection
+   - Volatility regime classification
+   - Expected to help bandit adapt strategy
+
+4. **Add Historical Performance Context** (Medium Impact, Medium Effort)
+   - Use signal performance tracker to weight signals
+   - Feed win rates as features to bandit
+   - Expected to improve signal reliability
+
+5. **Create Shared Technical Indicators Module** (Code Quality, Medium Effort)
+   - Extract indicator calculations to `technical_indicators.py`
+   - Used by both `app.py` and `sol_price_fetcher.py`
+   - Reduces code duplication
 

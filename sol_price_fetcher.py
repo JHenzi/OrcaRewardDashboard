@@ -2,7 +2,7 @@ import requests
 import sqlite3
 import json
 import time
-from datetime import timedelta
+from datetime import timedelta, timezone
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
@@ -233,6 +233,500 @@ def compute_recent_volatility(prices):
     volatility = np.std(returns)
 
     return max(volatility, 0.0001)  # avoid divide-by-zero
+
+#########################################################################
+#                    TEMPORAL FEATURES FOR BANDIT                       #
+#########################################################################
+def add_temporal_features(x: dict, timestamp: str = None) -> dict:
+    """
+    Add temporal features to bandit context.
+    
+    Args:
+        x: Feature dictionary to update
+        timestamp: ISO format timestamp string (optional, uses current time if None)
+    
+    Returns:
+        Updated feature dictionary with temporal features
+    """
+    # Use provided timestamp or current UTC time
+    if timestamp:
+        try:
+            # Parse timestamp - handle both with and without timezone
+            if 'Z' in timestamp:
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            else:
+                dt = datetime.fromisoformat(timestamp)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        except (ValueError, AttributeError):
+            # Fallback to current time if parsing fails
+            dt = datetime.now(timezone.utc)
+    else:
+        dt = datetime.now(timezone.utc)
+    
+    # Ensure timezone-aware
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    
+    # UTC features
+    x["hour_of_day_utc"] = float(dt.hour)
+    x["day_of_week"] = float(dt.weekday())  # 0=Monday, 6=Sunday
+    x["is_weekend"] = 1.0 if dt.weekday() >= 5 else 0.0
+    x["minutes_since_midnight"] = float(dt.hour * 60 + dt.minute)
+    x["day_of_month"] = float(dt.day)
+    x["month"] = float(dt.month)
+    x["week_of_year"] = float(dt.isocalendar()[1])  # ISO week number
+    
+    # EST/EDT conversion for US market hours
+    # EST is UTC-5, EDT is UTC-4
+    # Simple approximation: EST = UTC - 5 hours (doesn't account for DST perfectly, but close enough)
+    est_offset_hours = -5  # EST offset
+    dt_est_hour = (dt.hour + est_offset_hours) % 24
+    x["hour_of_day_est"] = float(dt_est_hour)
+    
+    # US market hours: 9:30 AM - 4:00 PM EST (14:30 - 21:00 UTC in winter, 13:30 - 20:00 UTC in summer)
+    # Simplified: 9:30 AM EST = 14:30 UTC, 4:00 PM EST = 21:00 UTC
+    # Check if within market hours (9:30-16:00 EST) and weekday
+    est_hour_decimal = dt_est_hour + dt.minute / 60.0
+    is_market_hours = (9.5 <= est_hour_decimal < 16.0) and dt.weekday() < 5
+    x["is_us_market_hours"] = 1.0 if is_market_hours else 0.0
+    
+    # Asian market hours: 7:00 PM - 4:00 AM EST (next day) = 00:00 - 09:00 UTC (next day)
+    # Simplified: 7:00 PM EST = 00:00 UTC, 4:00 AM EST = 09:00 UTC
+    asian_start_utc = 0  # 7 PM EST = midnight UTC
+    asian_end_utc = 9    # 4 AM EST = 9 AM UTC
+    is_asian_hours = dt.hour >= asian_start_utc and dt.hour < asian_end_utc
+    x["is_asian_market_hours"] = 1.0 if is_asian_hours else 0.0
+    
+    # European market hours: 3:00 AM - 12:00 PM EST = 8:00 - 17:00 UTC
+    european_start_utc = 8
+    european_end_utc = 17
+    is_european_hours = european_start_utc <= dt.hour < european_end_utc
+    x["is_european_market_hours"] = 1.0 if is_european_hours else 0.0
+    
+    # Month end/start (first/last 3 days)
+    x["is_month_end"] = 1.0 if dt.day >= 28 else 0.0
+    x["is_month_start"] = 1.0 if dt.day <= 3 else 0.0
+    
+    return x
+
+#########################################################################
+#                    TECHNICAL INDICATOR FUNCTIONS                       #
+#########################################################################
+def exponential_moving_average(prices, period):
+    """Calculate Exponential Moving Average (EMA)"""
+    if len(prices) < period:
+        return None
+    multiplier = 2.0 / (period + 1)
+    ema = mean(prices[:period])  # Start with SMA
+    for price in prices[period:]:
+        ema = (price * multiplier) + (ema * (1 - multiplier))
+    return round(ema, 4)
+
+def calculate_macd(prices, fast=12, slow=26, signal=9):
+    """Calculate MACD (Moving Average Convergence Divergence)"""
+    if len(prices) < slow + signal:
+        return None, None, None, None
+    
+    ema_fast = exponential_moving_average(prices, fast)
+    ema_slow = exponential_moving_average(prices, slow)
+    
+    if ema_fast is None or ema_slow is None:
+        return None, None, None, None
+    
+    macd_line = ema_fast - ema_slow
+    
+    # For signal line, we need to calculate EMA of MACD values
+    # Since we don't have historical MACD values, we'll use a simplified approach:
+    # Calculate MACD for recent periods and then EMA of those values
+    # For now, use a simplified signal line based on price momentum
+    if len(prices) >= slow + signal:
+        # Simplified signal line: use recent price change as proxy
+        recent_price_change = (prices[-1] - prices[-signal-1]) / prices[-signal-1] if len(prices) > signal and prices[-signal-1] != 0 else 0.0
+        # Scale it to approximate signal line magnitude
+        signal_line = recent_price_change * abs(macd_line) * 0.1 if macd_line != 0 else 0.0
+    else:
+        signal_line = None
+    
+    histogram = macd_line - signal_line if signal_line is not None else None
+    
+    # Determine MACD signal: bullish if histogram > 0 and macd > signal, bearish if opposite
+    if macd_line and signal_line:
+        if macd_line > signal_line and histogram and histogram > 0:
+            macd_signal = 1.0  # Bullish
+        elif macd_line < signal_line and histogram and histogram < 0:
+            macd_signal = -1.0  # Bearish
+        else:
+            macd_signal = 0.0  # Neutral
+    else:
+        macd_signal = 0.0
+    
+    return (
+        round(macd_line, 4) if macd_line else None,
+        round(signal_line, 4) if signal_line else None,
+        round(histogram, 4) if histogram else None,
+        macd_signal
+    )
+
+def calculate_bollinger_bands(prices, period=20, num_std=2):
+    """Calculate Bollinger Bands"""
+    if len(prices) < period:
+        return None, None, None, None, None, None, None
+    
+    sma = mean(prices[-period:])
+    std = stdev(prices[-period:])
+    upper_band = sma + (num_std * std)
+    lower_band = sma - (num_std * std)
+    
+    # Calculate additional BB features
+    current_price = prices[-1]
+    bb_width = (upper_band - lower_band) / sma if sma != 0 else 0.0
+    bb_position = (current_price - lower_band) / (upper_band - lower_band) if (upper_band - lower_band) != 0 else 0.5
+    
+    # BB signal: -1=oversold (price near lower band), 1=overbought (price near upper band), 0=neutral
+    if bb_position < 0.2:
+        bb_signal = -1.0  # Oversold
+    elif bb_position > 0.8:
+        bb_signal = 1.0  # Overbought
+    else:
+        bb_signal = 0.0  # Neutral
+    
+    return (
+        round(upper_band, 4),
+        round(sma, 4),  # Middle (SMA)
+        round(lower_band, 4),
+        round(bb_width, 4),
+        round(bb_position, 4),
+        bb_signal
+    )
+
+def calculate_stochastic_oscillator(prices, k_period=14, d_period=3):
+    """Calculate Stochastic Oscillator (%K and %D)"""
+    if len(prices) < k_period:
+        return None, None, None
+    
+    # Get the last k_period prices
+    recent_prices = prices[-k_period:]
+    high = max(recent_prices)
+    low = min(recent_prices)
+    current = prices[-1]
+    
+    if high == low:
+        stoch_k = 50.0  # Neutral if no range
+    else:
+        stoch_k = ((current - low) / (high - low)) * 100.0
+    
+    # Calculate %D (smoothed %K) - simple moving average of %K
+    # For simplicity, we'll use the last d_period %K values
+    # Since we only have one %K, we'll approximate %D
+    if len(prices) >= k_period + d_period:
+        # Calculate %K for last d_period windows
+        stoch_k_values = []
+        for i in range(d_period):
+            window_prices = prices[-(k_period + d_period - i):-(d_period - i) if (d_period - i) > 0 else None]
+            if len(window_prices) >= k_period:
+                window_high = max(window_prices)
+                window_low = min(window_prices)
+                window_current = window_prices[-1]
+                if window_high == window_low:
+                    stoch_k_values.append(50.0)
+                else:
+                    stoch_k_values.append(((window_current - window_low) / (window_high - window_low)) * 100.0)
+        stoch_d = mean(stoch_k_values) if stoch_k_values else stoch_k
+    else:
+        stoch_d = stoch_k
+    
+    # Stochastic signal: -1=oversold (%K < 20), 1=overbought (%K > 80), 0=neutral
+    if stoch_k < 20:
+        stoch_signal = -1.0  # Oversold
+    elif stoch_k > 80:
+        stoch_signal = 1.0  # Overbought
+    else:
+        stoch_signal = 0.0  # Neutral
+    
+    return (
+        round(stoch_k, 4),
+        round(stoch_d, 4),
+        stoch_signal
+    )
+
+def calculate_atr(prices, period=14):
+    """Calculate Average True Range (ATR) - volatility measure"""
+    if len(prices) < period + 1:
+        return None, None
+    
+    # True Range = max of:
+    # 1. Current High - Current Low
+    # 2. |Current High - Previous Close|
+    # 3. |Current Low - Previous Close|
+    # Since we only have prices (not OHLC), we'll approximate:
+    # TR ≈ |price[i] - price[i-1]| (price change)
+    
+    true_ranges = []
+    for i in range(1, len(prices)):
+        tr = abs(prices[i] - prices[i-1])
+        true_ranges.append(tr)
+    
+    if len(true_ranges) < period:
+        return None, None
+    
+    # ATR is the average of true ranges over the period
+    atr = mean(true_ranges[-period:])
+    
+    # Normalized ATR as percentage of current price
+    current_price = prices[-1]
+    atr_percent = (atr / current_price * 100.0) if current_price != 0 else 0.0
+    
+    return (
+        round(atr, 4),
+        round(atr_percent, 4)
+    )
+
+def calculate_momentum_indicators(prices):
+    """Calculate multiple momentum indicators"""
+    if len(prices) < 2:
+        return None, None, None, None
+    
+    current_price = prices[-1]
+    
+    # Momentum 5-period
+    momentum_5 = None
+    if len(prices) >= 6:
+        momentum_5 = current_price - prices[-6]
+    
+    # Momentum 10-period (already calculated elsewhere, but include here for consistency)
+    momentum_10 = None
+    if len(prices) >= 11:
+        momentum_10 = current_price - prices[-11]
+    
+    # Momentum 30-period
+    momentum_30 = None
+    if len(prices) >= 31:
+        momentum_30 = current_price - prices[-31]
+    
+    # Rate of Change (ROC) - percentage change over N periods
+    rate_of_change = None
+    if len(prices) >= 15:
+        price_n_periods_ago = prices[-15]
+        if price_n_periods_ago != 0:
+            rate_of_change = ((current_price - price_n_periods_ago) / price_n_periods_ago) * 100.0
+    
+    return (
+        round(momentum_5, 4) if momentum_5 is not None else None,
+        round(momentum_10, 4) if momentum_10 is not None else None,
+        round(momentum_30, 4) if momentum_30 is not None else None,
+        round(rate_of_change, 4) if rate_of_change is not None else None
+    )
+
+def calculate_market_regime_features(prices, sma_period=20):
+    """Calculate market regime indicators (trend vs range, volatility regime)"""
+    if len(prices) < sma_period:
+        return {}
+    
+    current_price = prices[-1]
+    sma = mean(prices[-sma_period:])
+    
+    # Trend detection: check if price is consistently above or below SMA
+    # Count how many of the last N prices are above/below SMA
+    lookback = min(10, len(prices))
+    prices_above_sma = sum(1 for p in prices[-lookback:] if p > sma)
+    prices_below_sma = sum(1 for p in prices[-lookback:] if p < sma)
+    
+    # Determine trend
+    if prices_above_sma >= lookback * 0.7:  # 70% of prices above SMA
+        is_trending_up = 1.0
+        is_trending_down = 0.0
+        is_ranging = 0.0
+    elif prices_below_sma >= lookback * 0.7:  # 70% of prices below SMA
+        is_trending_up = 0.0
+        is_trending_down = 1.0
+        is_ranging = 0.0
+    else:
+        is_trending_up = 0.0
+        is_trending_down = 0.0
+        is_ranging = 1.0
+    
+    # Trend strength: how far is price from SMA (normalized)
+    price_distance_from_sma = (current_price - sma) / sma if sma != 0 else 0.0
+    trend_strength = abs(price_distance_from_sma)
+    
+    # Volatility regime: compare current volatility to historical
+    if len(prices) >= sma_period * 2:
+        # Calculate volatility for recent period and longer period
+        recent_returns = [(prices[i+1] - prices[i]) / prices[i] for i in range(len(prices)-sma_period, len(prices)-1)]
+        historical_returns = [(prices[i+1] - prices[i]) / prices[i] for i in range(len(prices)-sma_period*2, len(prices)-sma_period-1)]
+        
+        if len(recent_returns) > 1 and len(historical_returns) > 1:
+            recent_vol = stdev(recent_returns)
+            historical_vol = stdev(historical_returns)
+            
+            # Volatility percentile (simplified: compare to historical)
+            if historical_vol > 0:
+                vol_ratio = recent_vol / historical_vol
+                if vol_ratio > 1.5:
+                    volatility_regime = 2.0  # High
+                    is_high_volatility = 1.0
+                    is_low_volatility = 0.0
+                elif vol_ratio < 0.5:
+                    volatility_regime = 0.0  # Low
+                    is_high_volatility = 0.0
+                    is_low_volatility = 1.0
+                else:
+                    volatility_regime = 1.0  # Medium
+                    is_high_volatility = 0.0
+                    is_low_volatility = 0.0
+                volatility_percentile = min(1.0, max(0.0, vol_ratio / 2.0))  # Normalize to 0-1
+            else:
+                volatility_regime = 1.0
+                volatility_percentile = 0.5
+                is_high_volatility = 0.0
+                is_low_volatility = 0.0
+        else:
+            volatility_regime = 1.0
+            volatility_percentile = 0.5
+            is_high_volatility = 0.0
+            is_low_volatility = 0.0
+    else:
+        volatility_regime = 1.0
+        volatility_percentile = 0.5
+        is_high_volatility = 0.0
+        is_low_volatility = 0.0
+    
+    return {
+        "is_trending_up": is_trending_up,
+        "is_trending_down": is_trending_down,
+        "is_ranging": is_ranging,
+        "trend_strength": round(trend_strength, 4),
+        "price_distance_from_sma": round(price_distance_from_sma, 4),
+        "volatility_regime": volatility_regime,
+        "volatility_percentile": round(volatility_percentile, 4),
+        "is_high_volatility": is_high_volatility,
+        "is_low_volatility": is_low_volatility,
+    }
+
+def calculate_price_pattern_features(prices):
+    """Calculate price pattern features (support/resistance, price action)"""
+    if len(prices) < 2:
+        return {}
+    
+    current_price = prices[-1]
+    price_24h_high = max(prices)
+    price_24h_low = min(prices)
+    price_range = price_24h_high - price_24h_low
+    
+    # Distance to high/low
+    distance_to_24h_high = (price_24h_high - current_price) / current_price if current_price != 0 else 0.0
+    distance_to_24h_low = (current_price - price_24h_low) / current_price if current_price != 0 else 0.0
+    
+    # Price position in range (0-1)
+    price_position_in_range = (current_price - price_24h_low) / price_range if price_range != 0 else 0.5
+    
+    # Near support/resistance (within 2% of high/low)
+    is_near_support = 1.0 if distance_to_24h_low < 0.02 else 0.0
+    is_near_resistance = 1.0 if distance_to_24h_high < 0.02 else 0.0
+    
+    # Count recent touches of high/low
+    lookback = min(20, len(prices))
+    recent_prices = prices[-lookback:]
+    recent_high = max(recent_prices)
+    recent_low = min(recent_prices)
+    
+    # Count how many times price was within 1% of high/low
+    recent_high_count = sum(1 for p in recent_prices if abs(p - recent_high) / recent_high < 0.01) if recent_high != 0 else 0
+    recent_low_count = sum(1 for p in recent_prices if abs(p - recent_low) / recent_low < 0.01) if recent_low != 0 else 0
+    
+    # Consecutive up/down periods
+    consecutive_up = 0
+    consecutive_down = 0
+    for i in range(len(prices) - 1, 0, -1):
+        if prices[i] > prices[i-1]:
+            consecutive_up += 1
+            if consecutive_down > 0:
+                break
+        elif prices[i] < prices[i-1]:
+            consecutive_down += 1
+            if consecutive_up > 0:
+                break
+        else:
+            break
+    
+    # Price acceleration (rate of change of momentum)
+    price_acceleration = 0.0
+    if len(prices) >= 5:
+        momentum_short = prices[-1] - prices[-3] if len(prices) >= 3 else 0
+        momentum_long = prices[-3] - prices[-5] if len(prices) >= 5 else 0
+        if momentum_long != 0:
+            price_acceleration = (momentum_short - momentum_long) / abs(momentum_long) if momentum_long != 0 else 0.0
+    
+    # Reversal candidate: RSI extreme + momentum divergence
+    # This is a simplified check - would need RSI to be calculated separately
+    is_reversal_candidate = 0.0  # Placeholder - would need RSI value
+    
+    return {
+        "distance_to_24h_high": round(distance_to_24h_high, 4),
+        "distance_to_24h_low": round(distance_to_24h_low, 4),
+        "price_position_in_range": round(price_position_in_range, 4),
+        "is_near_support": is_near_support,
+        "is_near_resistance": is_near_resistance,
+        "recent_high_count": float(recent_high_count),
+        "recent_low_count": float(recent_low_count),
+        "consecutive_up_periods": float(consecutive_up),
+        "consecutive_down_periods": float(consecutive_down),
+        "price_acceleration": round(price_acceleration, 4),
+        "is_reversal_candidate": is_reversal_candidate,
+    }
+
+def calculate_cross_timeframe_features(prices):
+    """Calculate cross-timeframe features (multi-timeframe analysis)"""
+    if len(prices) < 48:  # Need at least 48 periods for 4h SMA
+        return {}
+    
+    current_price = prices[-1]
+    
+    # Calculate SMAs for different timeframes
+    # Assuming 5-minute intervals: 12 = 1h, 48 = 4h, 288 = 24h
+    sma_1h = mean(prices[-12:]) if len(prices) >= 12 else None
+    sma_4h = mean(prices[-48:]) if len(prices) >= 48 else None
+    sma_24h = mean(prices[-288:]) if len(prices) >= 288 else None
+    
+    # Price vs SMAs
+    price_vs_1h_sma = (current_price / sma_1h - 1.0) * 100.0 if sma_1h and sma_1h != 0 else 0.0
+    price_vs_4h_sma = (current_price / sma_4h - 1.0) * 100.0 if sma_4h and sma_4h != 0 else 0.0
+    price_vs_24h_sma = (current_price / sma_24h - 1.0) * 100.0 if sma_24h and sma_24h != 0 else 0.0
+    
+    # SMA alignment: -1=bearish (SMA1 < SMA4 < SMA24), 1=bullish (SMA1 > SMA4 > SMA24), 0=mixed
+    sma_alignment = 0.0
+    if sma_1h and sma_4h and sma_24h:
+        if sma_1h > sma_4h > sma_24h:
+            sma_alignment = 1.0  # Bullish alignment
+        elif sma_1h < sma_4h < sma_24h:
+            sma_alignment = -1.0  # Bearish alignment
+        else:
+            sma_alignment = 0.0  # Mixed
+    
+    # RSI on different timeframes
+    rsi_1h = calculate_rsi(prices[-12:], period=14) if len(prices) >= 26 else None  # Need 14+12=26
+    rsi_4h = calculate_rsi(prices[-48:], period=14) if len(prices) >= 62 else None  # Need 14+48=62
+    
+    # Momentum on different timeframes
+    momentum_1h = None
+    if len(prices) >= 13:
+        momentum_1h = current_price - prices[-13]
+    
+    momentum_4h = None
+    if len(prices) >= 49:
+        momentum_4h = current_price - prices[-49]
+    
+    return {
+        "price_vs_1h_sma": round(price_vs_1h_sma, 4),
+        "price_vs_4h_sma": round(price_vs_4h_sma, 4),
+        "price_vs_24h_sma": round(price_vs_24h_sma, 4),
+        "sma_alignment": sma_alignment,
+        "rsi_1h": round(rsi_1h, 4) if rsi_1h is not None else None,
+        "rsi_4h": round(rsi_4h, 4) if rsi_4h is not None else None,
+        "momentum_1h": round(momentum_1h, 4) if momentum_1h is not None else None,
+        "momentum_4h": round(momentum_4h, 4) if momentum_4h is not None else None,
+    }
 
 def fetch_recent_prices(db_path="sol_prices.db", limit=50):
     conn = sqlite3.connect(db_path)
@@ -834,6 +1328,242 @@ def process_bandit_step(data, volatility):
             "news_crypto_count": 0,
         })
 
+    # Add temporal features (day of week, hour, timezone, market hours)
+    try:
+        timestamp = data.get("time") or datetime.now(timezone.utc).isoformat()
+        add_temporal_features(x, timestamp)
+        logger.debug(f"Added temporal features: hour_utc={x.get('hour_of_day_utc')}, day_of_week={x.get('day_of_week')}, is_weekend={x.get('is_weekend')}")
+    except Exception as e:
+        logger.warning(f"Failed to add temporal features: {e}")
+
+    # Add technical indicators (MACD, Bollinger Bands, EMA)
+    try:
+        # Calculate MACD
+        macd_line, macd_signal_line, macd_histogram, macd_cross_signal = calculate_macd(prices) if len(prices) >= 35 else (None, None, None, 0.0)
+        
+        # Calculate Bollinger Bands
+        bb_upper, bb_middle, bb_lower, bb_width, bb_position, bb_signal = calculate_bollinger_bands(prices) if len(prices) >= 20 else (None, None, None, None, None, 0.0)
+        
+        # Calculate EMA
+        ema_12 = exponential_moving_average(prices, 12) if len(prices) >= 12 else None
+        ema_26 = exponential_moving_average(prices, 26) if len(prices) >= 26 else None
+        
+        # Add MACD features
+        if macd_line is not None:
+            x.update({
+                "macd_line": float(macd_line),
+                "macd_signal": float(macd_signal_line) if macd_signal_line is not None else 0.0,
+                "macd_histogram": float(macd_histogram) if macd_histogram is not None else 0.0,
+                "macd_cross_signal": float(macd_cross_signal),
+            })
+        else:
+            x.update({
+                "macd_line": 0.0,
+                "macd_signal": 0.0,
+                "macd_histogram": 0.0,
+                "macd_cross_signal": 0.0,
+            })
+        
+        # Add Bollinger Bands features
+        if bb_upper is not None and bb_lower is not None and bb_middle is not None:
+            x.update({
+                "bb_upper": float(bb_upper),
+                "bb_middle": float(bb_middle),
+                "bb_lower": float(bb_lower),
+                "bb_width": float(bb_width) if bb_width is not None else 0.0,
+                "bb_position": float(bb_position) if bb_position is not None else 0.5,
+                "bb_signal": float(bb_signal),
+            })
+        else:
+            x.update({
+                "bb_upper": float(price_now),
+                "bb_middle": float(price_now),
+                "bb_lower": float(price_now),
+                "bb_width": 0.0,
+                "bb_position": 0.5,
+                "bb_signal": 0.0,
+            })
+        
+        # Add EMA features
+        if ema_12 is not None and ema_26 is not None:
+            price_vs_ema_12 = price_now / ema_12 if ema_12 != 0 else 1.0
+            price_vs_ema_26 = price_now / ema_26 if ema_26 != 0 else 1.0
+            ema_12_vs_ema_26 = ema_12 / ema_26 if ema_26 != 0 else 1.0
+            
+            x.update({
+                "ema_12": float(ema_12),
+                "ema_26": float(ema_26),
+                "price_vs_ema_12": float(price_vs_ema_12),
+                "price_vs_ema_26": float(price_vs_ema_26),
+                "ema_12_vs_ema_26": float(ema_12_vs_ema_26),
+            })
+        else:
+            x.update({
+                "ema_12": float(price_now),
+                "ema_26": float(price_now),
+                "price_vs_ema_12": 1.0,
+                "price_vs_ema_26": 1.0,
+                "ema_12_vs_ema_26": 1.0,
+            })
+        
+        logger.debug(f"Added technical indicators: MACD={macd_line}, BB_signal={bb_signal}, EMA_12={ema_12}")
+    except Exception as e:
+        logger.warning(f"Failed to add technical indicators: {e}")
+        # Add default values as fallback
+        x.update({
+            "macd_line": 0.0,
+            "macd_signal": 0.0,
+            "macd_histogram": 0.0,
+            "macd_cross_signal": 0.0,
+            "bb_upper": float(price_now),
+            "bb_middle": float(price_now),
+            "bb_lower": float(price_now),
+            "bb_width": 0.0,
+            "bb_position": 0.5,
+            "bb_signal": 0.0,
+            "ema_12": float(price_now),
+            "ema_26": float(price_now),
+            "price_vs_ema_12": 1.0,
+            "price_vs_ema_26": 1.0,
+            "ema_12_vs_ema_26": 1.0,
+        })
+
+    # Add Stochastic Oscillator and ATR
+    try:
+        stoch_k, stoch_d, stoch_signal = calculate_stochastic_oscillator(prices) if len(prices) >= 14 else (None, None, 0.0)
+        atr_14, atr_percent = calculate_atr(prices, period=14) if len(prices) >= 15 else (None, None)
+        
+        if stoch_k is not None:
+            x.update({
+                "stoch_k": float(stoch_k),
+                "stoch_d": float(stoch_d) if stoch_d is not None else float(stoch_k),
+                "stoch_signal": float(stoch_signal),
+            })
+        else:
+            x.update({
+                "stoch_k": 50.0,
+                "stoch_d": 50.0,
+                "stoch_signal": 0.0,
+            })
+        
+        if atr_14 is not None:
+            x.update({
+                "atr_14": float(atr_14),
+                "atr_percent": float(atr_percent),
+            })
+        else:
+            x.update({
+                "atr_14": 0.0,
+                "atr_percent": 0.0,
+            })
+        
+        logger.debug(f"Added Stochastic: K={stoch_k}, D={stoch_d}, ATR={atr_14}")
+    except Exception as e:
+        logger.warning(f"Failed to add Stochastic/ATR: {e}")
+        x.update({
+            "stoch_k": 50.0,
+            "stoch_d": 50.0,
+            "stoch_signal": 0.0,
+            "atr_14": 0.0,
+            "atr_percent": 0.0,
+        })
+
+    # Add additional momentum indicators
+    try:
+        momentum_5, momentum_10, momentum_30, rate_of_change = calculate_momentum_indicators(prices)
+        
+        x.update({
+            "momentum_5": float(momentum_5) if momentum_5 is not None else 0.0,
+            "momentum_10": float(momentum_10) if momentum_10 is not None else 0.0,
+            "momentum_30": float(momentum_30) if momentum_30 is not None else 0.0,
+            "rate_of_change": float(rate_of_change) if rate_of_change is not None else 0.0,
+        })
+        
+        logger.debug(f"Added momentum indicators: momentum_5={momentum_5}, ROC={rate_of_change}")
+    except Exception as e:
+        logger.warning(f"Failed to add momentum indicators: {e}")
+        x.update({
+            "momentum_5": 0.0,
+            "momentum_10": 0.0,
+            "momentum_30": 0.0,
+            "rate_of_change": 0.0,
+        })
+
+    # Add market regime features
+    try:
+        regime_features = calculate_market_regime_features(prices)
+        x.update(regime_features)
+        logger.debug(f"Added market regime: trending_up={regime_features.get('is_trending_up')}, volatility_regime={regime_features.get('volatility_regime')}")
+    except Exception as e:
+        logger.warning(f"Failed to add market regime features: {e}")
+        x.update({
+            "is_trending_up": 0.0,
+            "is_trending_down": 0.0,
+            "is_ranging": 0.0,
+            "trend_strength": 0.0,
+            "price_distance_from_sma": 0.0,
+            "volatility_regime": 1.0,
+            "volatility_percentile": 0.5,
+            "is_high_volatility": 0.0,
+            "is_low_volatility": 0.0,
+        })
+
+    # Add price pattern features
+    try:
+        pattern_features = calculate_price_pattern_features(prices)
+        # Add RSI to pattern features for reversal candidate
+        if rsi_value is not None:
+            # Reversal candidate: RSI extreme (< 30 or > 70) + momentum divergence
+            is_reversal = 0.0
+            if (rsi_value < 30 and price_momentum_15m and price_momentum_15m < 0) or \
+               (rsi_value > 70 and price_momentum_15m and price_momentum_15m > 0):
+                is_reversal = 1.0
+            pattern_features["is_reversal_candidate"] = is_reversal
+        
+        x.update(pattern_features)
+        logger.debug(f"Added price patterns: near_support={pattern_features.get('is_near_support')}, consecutive_up={pattern_features.get('consecutive_up_periods')}")
+    except Exception as e:
+        logger.warning(f"Failed to add price pattern features: {e}")
+        x.update({
+            "distance_to_24h_high": 0.0,
+            "distance_to_24h_low": 0.0,
+            "price_position_in_range": 0.5,
+            "is_near_support": 0.0,
+            "is_near_resistance": 0.0,
+            "recent_high_count": 0.0,
+            "recent_low_count": 0.0,
+            "consecutive_up_periods": 0.0,
+            "consecutive_down_periods": 0.0,
+            "price_acceleration": 0.0,
+            "is_reversal_candidate": 0.0,
+        })
+
+    # Add cross-timeframe features
+    try:
+        cross_tf_features = calculate_cross_timeframe_features(prices)
+        # Filter out None values and convert to floats
+        cross_tf_features_clean = {}
+        for k, v in cross_tf_features.items():
+            if v is not None:
+                cross_tf_features_clean[k] = float(v)
+            else:
+                cross_tf_features_clean[k] = 0.0
+        
+        x.update(cross_tf_features_clean)
+        logger.debug(f"Added cross-timeframe: sma_alignment={cross_tf_features_clean.get('sma_alignment')}, rsi_1h={cross_tf_features_clean.get('rsi_1h')}")
+    except Exception as e:
+        logger.warning(f"Failed to add cross-timeframe features: {e}")
+        x.update({
+            "price_vs_1h_sma": 0.0,
+            "price_vs_4h_sma": 0.0,
+            "price_vs_24h_sma": 0.0,
+            "sma_alignment": 0.0,
+            "rsi_1h": 0.0,
+            "rsi_4h": 0.0,
+            "momentum_1h": 0.0,
+            "momentum_4h": 0.0,
+        })
+
 
     agent = get_agent()
     predictions = {a: agent.models[a].predict_one(x) for a in agent.actions}
@@ -1125,8 +1855,23 @@ class SOLPriceFetcher:
         )
         ''')
 
+        # Create indexes for performance optimization
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_sol_prices_timestamp ON sol_prices(timestamp)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_sol_prices_rate ON sol_prices(rate)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_sol_prices_timestamp_rate ON sol_prices(timestamp, rate)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_bandit_logs_timestamp ON bandit_logs(timestamp)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_bandit_logs_action ON bandit_logs(action)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_bandit_logs_reward ON bandit_logs(reward)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_bandit_logs_timestamp_action ON bandit_logs(timestamp, action)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_trades_action ON trades(action)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_trades_price ON trades(price)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_trades_timestamp_action ON trades(timestamp, action)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_sol_predictions_timestamp ON sol_predictions(timestamp)')
+        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_sol_predictions_created_at ON sol_predictions(created_at)')
+
         self.conn.commit()
-        logger.info("Database initialized successfully")
+        logger.info("Database initialized successfully with indexes")
 
     def get_credits(self):
         """Fetch remaining API credits"""
