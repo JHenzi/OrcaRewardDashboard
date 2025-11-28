@@ -19,11 +19,25 @@ from .model import TradingActorCritic
 from .environment import TradingEnvironment
 from .state_encoder import StateEncoder
 from .trainer import PPOTrainer
+from .prediction_manager import PredictionManager
+from .prediction_generator import generate_prediction, store_prediction_from_decision
+from .attention_logger import AttentionLogger
+from .risk_manager import RiskManager
+from .explainability import RuleExtractor, SHAPExplainer
+from .integration import RLAgentIntegration
 
 __all__ = [
     "TradingActorCritic",
     "TradingEnvironment",
     "StateEncoder",
     "PPOTrainer",
+    "PredictionManager",
+    "generate_prediction",
+    "store_prediction_from_decision",
+    "AttentionLogger",
+    "RiskManager",
+    "RuleExtractor",
+    "SHAPExplainer",
+    "RLAgentIntegration",
 ]
 

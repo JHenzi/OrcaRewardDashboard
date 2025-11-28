@@ -11,8 +11,9 @@ A Flask web application that tracks and displays Solana rewards from [**Orca** l
 - 📈 **SOL Price Tracking** - Professional trading charts with technical indicators using TradingView Lightweight Charts
 - 🎯 **RSI-Based Trading Signals** - Clear buy/sell/hold recommendations based on Relative Strength Index (RSI)
 - 📉 **Technical Analysis** - Moving averages (SMA), MACD, Bollinger Bands, momentum indicators, and volatility metrics
-- 📊 **Signal Performance Tracker** - **NEW!** Track the reliability of each trading signal over time. See win rates, average returns, and historical performance for RSI signals to make informed decisions
+- 📊 **Signal Performance Tracker** - Track the reliability of each trading signal over time. See win rates, average returns, and historical performance for RSI signals to make informed decisions
 - 💰 **Rewards Analytics** - Daily and monthly breakdowns, collection patterns, and performance metrics
+- 🤖 **RL-Based Trading Agent** - **NEW!** Reinforcement learning trading system with explainable AI features (see [RL Agent Features](#rl-agent-features) below)
 
 > **Note:** Some features have been deprecated. See [DEPRECATED.md](DEPRECATED.md) for historical information about price prediction, contextual bandit algorithms, and automated trading bots.
 
@@ -125,15 +126,65 @@ This project began as a simple Orca rewards tracker and has evolved into a compr
 - **Performance Optimization** - Faster page loads and better data handling
 - **Database Improvements** - Better indexing and data capture
 
+### RL Agent Features
+
+The application now includes a **Reinforcement Learning (RL) Trading Agent** built with PyTorch and Gymnasium. This system provides:
+
+**Core Capabilities:**
+- 🧠 **Actor-Critic Architecture** - Deep neural network with multi-head attention for news processing
+- 📊 **Multi-Horizon Predictions** - Predicts 1-hour and 24-hour returns with confidence scores
+- 📰 **News Integration** - Processes news headlines with per-headline embeddings and sentiment analysis
+- 🔍 **Attention Mechanism** - Identifies which headlines influence trading decisions
+- 🛡️ **Risk Management** - Enforces position limits, trade frequency caps, and daily loss limits
+- 📈 **Explainable AI** - Extracts human-readable trading rules from learned behavior
+- 🎯 **Topic Clustering** - Automatically groups news by topic for better pattern recognition
+
+**API Endpoints:**
+- `/api/rl-agent/predictions` - Get multi-horizon return predictions
+- `/api/rl-agent/attention` - View influential headlines for decisions
+- `/api/rl-agent/risk` - Monitor risk metrics and constraints
+- `/api/rl-agent/rules` - Discover trading rules extracted from agent behavior
+- `/api/rl-agent/feature-importance` - SHAP-based feature importance analysis
+- `/api/rl-agent/decision` - Make/get trading decisions
+
+**Dashboard Features:**
+- Prediction cards showing 1h/24h return forecasts
+- Attention visualization highlighting influential news
+- Risk dashboard with real-time constraint monitoring
+- Discovered rules table with performance metrics
+- Feature importance charts
+
+**Status:** ✅ Infrastructure Complete - Ready for Model Training
+
+**What's Complete:**
+- ✅ All RL agent modules implemented and tested
+- ✅ Full system integration (price + news)
+- ✅ All API endpoints functional
+- ✅ Dashboard UI components added
+- ✅ News system with clustering
+- ✅ Risk management system
+- ✅ Explainability features
+
+**What's Next:**
+- 🎯 Model training on historical data
+- 🎯 Paper trading validation (1-2 weeks)
+- 🎯 Production deployment (after validation)
+
+**Documentation:**
+- [RL_AGENT_IMPLEMENTATION_STATUS.md](RL_AGENT_IMPLEMENTATION_STATUS.md) - Detailed implementation status
+- [NewAgent.md](NewAgent.md) - Original design specification
+- [WHAT_REMAINS.md](WHAT_REMAINS.md) - What's left to do (training, validation, deployment)
+- [SOL_TRACKER_IMPROVEMENT_PLAN.md](SOL_TRACKER_IMPROVEMENT_PLAN.md) - Complete improvement plan with status
+
 ### Future Enhancements
 
 See [SOL_TRACKER_IMPROVEMENT_PLAN.md](SOL_TRACKER_IMPROVEMENT_PLAN.md) for detailed roadmap including:
-- **RL-Based Trading Agent** - Full reinforcement learning system with explainable rule discovery (see [NewAgent.md](NewAgent.md))
-- Advanced AI features (multi-horizon predictions, news sentiment integration, attention mechanisms)
-- Explainability features (SHAP values, decision tree rules, attention visualization)
-- Production deployment strategies
-- Security hardening
-- Additional technical indicators
+- **Model Training** - Train RL agent on historical data
+- **Paper Trading** - Test agent decisions in simulation
+- **Production Deployment** - Deploy trained model for live trading
+- **Advanced Features** - Enhanced clustering, rule validation, performance optimization
+- **Security Hardening** - Additional safety constraints and validation
+- **Additional Technical Indicators** - More features for state encoding
 
 ---
 
@@ -148,12 +199,18 @@ This strategy illustrates how both passive income and technical analysis can coe
 ## Tech Stack
 
 - Python 3.10+
-- Flask
-- SQLite
-- Tailwind CSS for UI styling
-- TradingView Lightweight Charts for professional trading charts
-- Helius API for Solana blockchain data
-- LiveCoinWatch API for SOL price data
+- Flask - Web framework
+- SQLite - Database storage
+- Tailwind CSS - UI styling
+- TradingView Lightweight Charts - Professional trading charts
+- Helius API - Solana blockchain data
+- LiveCoinWatch API - SOL price data
+- **PyTorch** - Deep learning framework for RL agent
+- **Gymnasium** - RL environment interface
+- **sentence-transformers** - News embedding generation
+- **scikit-learn** - Machine learning utilities (clustering, rule extraction)
+- **SHAP** - Feature importance and explainability
+- **pandas** - Data processing
 
 ## Setup
 
@@ -235,6 +292,11 @@ You can customize the application behavior through environment variables in the 
 - `FETCH_INTERVAL_SECONDS`: Background fetch interval in seconds (default: 7200 = 2 hours)
 - `LAST_KNOWN_SIGNATURE`: Starting signature for backfill operations (this is the transaction ID from SolScan that you want to fetch since, i.e. the transaction you deposited your liquidity... this may eat into your API calls for the month - adjust fetch interval accordingly)
 
+**RL Agent Configuration:**
+- `news_feeds.json`: RSS feed configuration (add/remove feeds, set priorities)
+- Model checkpoints: Saved in `checkpoints/` directory (created during training)
+- News database: `news_sentiment.db` (created automatically)
+
 ## Project Layout
 
 A brief overview of the project structure:
@@ -247,6 +309,20 @@ A brief overview of the project structure:
 - `rewards.db`: (Created at runtime) SQLite database for storing Solana reward transaction data.
 - `sol_prices.db`: (Created at runtime) SQLite database for storing SOL price history, RSI calculations, and signal performance data.
 - `signal_performance_tracker.py`: Module for tracking and analyzing the performance of trading signals over time.
+- `news_sentiment.py`: News sentiment analysis with embeddings and clustering.
+- `news_feeds.json`: RSS feed configuration for news sources.
+- `rl_agent/`: RL agent module directory containing:
+  - `model.py`: Actor-critic neural network with attention
+  - `environment.py`: Trading environment (Gym-style interface)
+  - `state_encoder.py`: Feature encoding for market state
+  - `trainer.py`: PPO training loop
+  - `prediction_manager.py`: Prediction storage and accuracy tracking
+  - `prediction_generator.py`: Prediction generation helpers
+  - `attention_logger.py`: Attention weight logging
+  - `risk_manager.py`: Risk constraint management
+  - `explainability.py`: Rule extraction and SHAP analysis
+  - `integration.py`: System integration layer
+- `migrate_rl_agent_tables.py`: Database migration for RL agent tables.
 - `DEPRECATED.md`: Documentation of deprecated features (price prediction, contextual bandit, automated trading).
 - `trading_bot.py`: (Deprecated) Jupiter ULTRA Trading API function class. Code exists but is disabled. See [DEPRECATED.md](DEPRECATED.md) for details.
 
@@ -276,6 +352,12 @@ Visit `http://localhost:5030/sol-tracker` to view:
 - **Technical Indicators Summary**: Moving averages (SMA 1h, 4h, 24h), MACD, Bollinger Bands, momentum indicators
 - **Time Range Selection**: View data for 1 hour, 1 day, 1 week, 1 month, or 1 year
 - **Price Statistics**: Current price, 24h change, high/low ranges, standard deviation
+- **RL Agent Features** (see [RL Agent Features](#rl-agent-features) section below):
+  - Multi-horizon return predictions (1h/24h)
+  - Influential news headlines with attention weights
+  - Risk management dashboard
+  - Discovered trading rules
+  - Feature importance analysis
 
 ### Backfill Historical Data
 
@@ -284,6 +366,14 @@ Visit `http://localhost:5030/backfill_newer` to manually trigger fetching newer 
 ### API Endpoints
 
 The application provides API endpoints for programmatic access to data. Some endpoints may be deprecated - see [DEPRECATED.md](DEPRECATED.md) for details on deprecated endpoints.
+
+**RL Agent Endpoints:**
+- `GET /api/rl-agent/predictions` - Get multi-horizon return predictions and accuracy stats
+- `GET /api/rl-agent/attention` - Get attention weights and influential headlines
+- `GET /api/rl-agent/risk` - Get risk metrics and constraint status
+- `GET /api/rl-agent/rules` - Get discovered trading rules
+- `GET /api/rl-agent/feature-importance` - Get SHAP feature importance
+- `GET/POST /api/rl-agent/decision` - Get latest or make new trading decision
 
 **Note:** API documentation for deprecated endpoints (price prediction, bandit actions) has been moved to [DEPRECATED.md](DEPRECATED.md).
 

@@ -1885,11 +1885,14 @@ class SOLPriceFetcher:
 
             # Store credits info in database
             timestamp = datetime.now().isoformat()
-            self.cursor.execute('''
+            # Create a fresh cursor for this operation to avoid recursive cursor issues
+            cursor = self.conn.cursor()
+            cursor.execute('''
                 INSERT INTO api_credits (timestamp, daily_credits_remaining, daily_credits_limit)
                 VALUES (?, ?, ?)
             ''', (timestamp, data['dailyCreditsRemaining'], data['dailyCreditsLimit']))
             self.conn.commit()
+            cursor.close()
 
             logger.info(f"Credits remaining: {data['dailyCreditsRemaining']}/{data['dailyCreditsLimit']}")
             return data
@@ -1916,7 +1919,9 @@ class SOLPriceFetcher:
 
             # Store price data in database
             timestamp = datetime.now().isoformat()
-            self.cursor.execute('''
+            # Create a fresh cursor for this operation to avoid recursive cursor issues
+            cursor = self.conn.cursor()
+            cursor.execute('''
                 INSERT INTO sol_prices (
                     timestamp, rate, volume, market_cap, liquidity,
                     delta_hour, delta_day, delta_week, delta_month, delta_quarter, delta_year
@@ -1935,6 +1940,7 @@ class SOLPriceFetcher:
                 data['delta']['year']
             ))
             self.conn.commit()
+            cursor.close()
             logger.info(f"SOL price: ${data['rate']:.2f} - Data stored successfully")
 #########################################################################
 #                    LOOP                                               #
@@ -2056,8 +2062,12 @@ class SOLPriceFetcher:
             base_query += f" LIMIT {limit}"
         
         try:
-            self.cursor.execute(base_query, params)
-            return self.cursor.fetchall()
+            # Create a new cursor for this operation to avoid conflicts
+            cursor = self.conn.cursor()
+            cursor.execute(base_query, params)
+            results = cursor.fetchall()
+            cursor.close()
+            return results
         except sqlite3.Error as e:
             logger.error(f"Database error in get_price_history: {e}")
             return []
@@ -2068,8 +2078,12 @@ class SOLPriceFetcher:
         if limit:
             query += f" LIMIT {limit}"
 
-        self.cursor.execute(query)
-        return self.cursor.fetchall()
+        # Create a new cursor for this operation to avoid conflicts
+        cursor = self.conn.cursor()
+        cursor.execute(query)
+        results = cursor.fetchall()
+        cursor.close()
+        return results
 
     def close(self):
         """Close database connection"""

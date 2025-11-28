@@ -48,18 +48,16 @@ logger = logging.getLogger(__name__)
 NEWS_DB = "news_sentiment.db"
 MODEL_DIR = Path("models")
 MODEL_DIR.mkdir(exist_ok=True)
+FEEDS_CONFIG_PATH = Path("news_feeds.json")
 
-# News sources - diversified to avoid crypto-only bias
-NEWS_SOURCES = {
+# Default news sources (fallback if JSON config not found)
+DEFAULT_NEWS_SOURCES = {
     "crypto": [
-        # "https://coindesk.com/feed/",  # Currently rate-limited (HTTP 429)
-        "https://cointelegraph.com/rss",  # Verified working
-        "https://decrypt.co/feed",  # Verified working
+        "https://cointelegraph.com/rss",
+        "https://decrypt.co/feed",
     ],
     "finance": [
         "https://feeds.bloomberg.com/markets/news.rss",
-        # Note: Financial Times and Reuters feeds are not currently accessible
-        # FT redirects to HTML, Reuters has connection issues
     ],
     "tech": [
         "https://techcrunch.com/feed/",
@@ -67,15 +65,43 @@ NEWS_SOURCES = {
         "https://arstechnica.com/feed/",
     ],
     "general": [
-        "https://feeds.bbci.co.uk/news/rss.xml",  # BBC News - General (verified working)
-        "http://feeds.abcnews.com/abcnews/topstories",  # ABC News - Top Stories (verified working)
-        "http://www.npr.org/rss/rss.php?id=1001",  # NPR - National News (verified working)
-        "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",  # New York Times - Home Page (verified working)
-        "http://feeds.nbcnews.com/feeds/topstories",  # NBC News - Top Stories (verified working)
-        "http://feeds.foxnews.com/foxnews/latest",  # Fox News - Latest Headlines (verified working)
-        # Note: Reuters feeds have connection issues, removed for now
+        "https://feeds.bbci.co.uk/news/rss.xml",
+        "http://feeds.abcnews.com/abcnews/topstories",
+        "http://www.npr.org/rss/rss.php?id=1001",
+        "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+        "http://feeds.nbcnews.com/feeds/topstories",
+        "http://feeds.foxnews.com/foxnews/latest",
     ]
 }
+
+def load_news_feeds_config() -> Dict:
+    """
+    Load RSS feed configuration from JSON file.
+    
+    Returns:
+        Dict with feeds and settings, or default if file not found
+    """
+    if FEEDS_CONFIG_PATH.exists():
+        try:
+            with open(FEEDS_CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+                logger.info(f"Loaded news feeds config from {FEEDS_CONFIG_PATH}")
+                return config
+        except Exception as e:
+            logger.warning(f"Failed to load news feeds config: {e}. Using defaults.")
+    
+    # Return default structure
+    return {
+        "feeds": {cat: [{"url": url, "enabled": True, "priority": 1} 
+                       for url in urls] 
+                 for cat, urls in DEFAULT_NEWS_SOURCES.items()},
+        "settings": {
+            "fetch_cooldown_minutes": 5,
+            "max_headlines_per_fetch": 100,
+            "hours_back": 24,
+            "embedding_model": "all-MiniLM-L6-v2"
+        }
+    }
 
 # Keywords to identify crypto/SOL-related news
 CRYPTO_KEYWORDS = [
@@ -94,18 +120,30 @@ class NewsSentimentAnalyzer:
     2. Whether it's good or bad for crypto/SOL trading
     """
     
-    def __init__(self, embedding_model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, embedding_model_name: str = None):
         """
         Initialize the news sentiment analyzer.
         
         Args:
             embedding_model_name: Name of sentence-transformers model to use
-                                  (default: all-MiniLM-L6-v2 - small, fast, good quality)
+                                  (default: from config or "all-MiniLM-L6-v2")
         """
-        self.embedding_model_name = embedding_model_name
+        # Load feed configuration
+        self.config = load_news_feeds_config()
+        self.feeds_config = self.config.get("feeds", {})
+        self.settings = self.config.get("settings", {})
+        
+        # Use model from config or provided parameter
+        self.embedding_model_name = embedding_model_name or self.settings.get("embedding_model", "all-MiniLM-L6-v2")
+        self.fetch_cooldown_minutes = self.settings.get("fetch_cooldown_minutes", 5)
+        self.max_headlines_per_fetch = self.settings.get("max_headlines_per_fetch", 100)
+        
         self.embedding_model = None
         self.sentiment_classifier = None
         self.topic_classifier = None
+        
+        # Track last fetch time
+        self.last_fetch_time = None
         
         # Initialize database
         self.init_database()
@@ -231,21 +269,62 @@ class NewsSentimentAnalyzer:
         )
         logger.info("Initialized default topic classifier (untrained)")
     
-    def fetch_news(self, hours_back: int = 24) -> List[Dict]:
+    def should_fetch(self) -> bool:
+        """
+        Check if enough time has passed since last fetch.
+        
+        Returns:
+            True if should fetch, False if in cooldown period
+        """
+        if self.last_fetch_time is None:
+            return True
+        
+        time_since_last = datetime.now() - self.last_fetch_time
+        cooldown = timedelta(minutes=self.fetch_cooldown_minutes)
+        
+        if time_since_last < cooldown:
+            remaining = (cooldown - time_since_last).total_seconds() / 60
+            logger.info(f"News fetch in cooldown. {remaining:.1f} minutes remaining.")
+            return False
+        
+        return True
+    
+    def fetch_news(self, hours_back: int = None, force: bool = False) -> List[Dict]:
         """
         Fetch news from all configured RSS sources.
         
         Args:
-            hours_back: How many hours of news to fetch
+            hours_back: How many hours of news to fetch (default: from config)
+            force: If True, bypass cooldown check
             
         Returns:
             List of news article dictionaries
         """
+        # Check cooldown unless forced
+        if not force and not self.should_fetch():
+            logger.info("Skipping news fetch - in cooldown period")
+            return []
+        
+        # Use hours_back from config if not provided
+        if hours_back is None:
+            hours_back = self.settings.get("hours_back", 24)
+        
         all_articles = []
         cutoff_time = datetime.now() - timedelta(hours=hours_back)
         
-        for category, feeds in NEWS_SOURCES.items():
-            for feed_url in feeds:
+        # Load feeds from config
+        for category, feed_list in self.feeds_config.items():
+            # Sort by priority (lower number = higher priority)
+            sorted_feeds = sorted(
+                [f for f in feed_list if f.get("enabled", True)],
+                key=lambda x: x.get("priority", 1)
+            )
+            
+            for feed_config in sorted_feeds:
+                feed_url = feed_config.get("url")
+                if not feed_url:
+                    continue
+                
                 try:
                     logger.info(f"Fetching from {feed_url}")
                     feed = feedparser.parse(feed_url)
@@ -274,9 +353,20 @@ class NewsSentimentAnalyzer:
                         
                         all_articles.append(article)
                         
+                        # Limit total articles
+                        if len(all_articles) >= self.max_headlines_per_fetch:
+                            logger.info(f"Reached max headlines limit ({self.max_headlines_per_fetch})")
+                            break
+                    
+                    if len(all_articles) >= self.max_headlines_per_fetch:
+                        break
+                        
                 except Exception as e:
                     logger.error(f"Error fetching {feed_url}: {e}")
                     continue
+        
+        # Update last fetch time
+        self.last_fetch_time = datetime.now()
         
         logger.info(f"Fetched {len(all_articles)} news articles")
         return all_articles
@@ -523,6 +613,280 @@ class NewsSentimentAnalyzer:
         conn.close()
         logger.info(f"Processed and stored {processed} news articles")
         return processed
+    
+    def get_recent_news_for_rl_agent(
+        self,
+        hours: int = 24,
+        max_headlines: int = 20,
+        crypto_only: bool = False,
+    ) -> List[Dict]:
+        """
+        Get recent news articles with embeddings and sentiment for RL agent.
+        
+        This provides per-headline data (not aggregated) for flexible model input.
+        
+        Args:
+            hours: How many hours of news to retrieve
+            max_headlines: Maximum number of headlines to return
+            crypto_only: Only include crypto-related news
+            
+        Returns:
+            List of dicts with keys:
+                - 'embedding': np.ndarray (embedding_dim,)
+                - 'sentiment_score': float (-1 to 1)
+                - 'headline': str
+                - 'cluster_id': int (optional)
+                - 'title': str
+                - 'link': str
+                - 'published_date': str
+        """
+        conn = sqlite3.connect(NEWS_DB)
+        cursor = conn.cursor()
+        
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        
+        query = """
+            SELECT id, title, link, published_date, embedding, sentiment_score, 
+                   sentiment_label, topic_label, is_crypto_related
+            FROM news_articles
+            WHERE published_date >= ?
+        """
+        params = [cutoff_time.isoformat()]
+        
+        if crypto_only:
+            query += " AND is_crypto_related = 1"
+        
+        query += " ORDER BY published_date DESC LIMIT ?"
+        params.append(max_headlines)
+        
+        cursor.execute(query, params)
+        results = cursor.fetchall()
+        conn.close()
+        
+        news_items = []
+        for row in results:
+            article_id, title, link, pub_date, embedding_bytes, sentiment_score, \
+                sentiment_label, topic_label, is_crypto = row
+            
+            # Decode embedding from bytes
+            embedding = None
+            if embedding_bytes:
+                try:
+                    embedding = np.frombuffer(embedding_bytes, dtype=np.float32)
+                except Exception as e:
+                    logger.warning(f"Failed to decode embedding for article {article_id}: {e}")
+                    continue
+            
+            if embedding is None:
+                continue
+            
+            news_items.append({
+                "embedding": embedding,
+                "sentiment_score": float(sentiment_score) if sentiment_score else 0.0,
+                "headline": title,
+                "title": title,
+                "link": link,
+                "published_date": pub_date,
+                "cluster_id": None,  # Will be populated by clustering if available
+                "article_id": article_id,
+            })
+        
+        logger.info(f"Retrieved {len(news_items)} news items for RL agent")
+        return news_items
+    
+    def cluster_news_topics(
+        self,
+        hours: int = 168,  # 1 week
+        min_cluster_size: int = 3,
+        n_clusters: int = 10,
+    ) -> Dict[int, Dict]:
+        """
+        Cluster news articles by topic using embeddings.
+        
+        Args:
+            hours: How many hours of news to cluster
+            min_cluster_size: Minimum articles per cluster (for HDBSCAN)
+            n_clusters: Number of clusters (for KMeans)
+            
+        Returns:
+            Dict mapping cluster_id to cluster info
+        """
+        try:
+            from sklearn.cluster import KMeans
+            CLUSTERING_AVAILABLE = True
+        except ImportError:
+            CLUSTERING_AVAILABLE = False
+            logger.warning("scikit-learn not available for clustering")
+            return {}
+        
+        if not CLUSTERING_AVAILABLE:
+            return {}
+        
+        conn = sqlite3.connect(NEWS_DB)
+        cursor = conn.cursor()
+        
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        
+        cursor.execute("""
+            SELECT id, title, embedding, sentiment_score, published_date
+            FROM news_articles
+            WHERE published_date >= ? AND embedding IS NOT NULL
+            ORDER BY published_date DESC
+        """, (cutoff_time.isoformat(),))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        if len(results) < min_cluster_size:
+            logger.info(f"Not enough articles for clustering: {len(results)} < {min_cluster_size}")
+            return {}
+        
+        # Extract embeddings
+        embeddings = []
+        article_ids = []
+        titles = []
+        
+        for row in results:
+            article_id, title, embedding_bytes, sentiment_score, pub_date = row
+            try:
+                embedding = np.frombuffer(embedding_bytes, dtype=np.float32)
+                embeddings.append(embedding)
+                article_ids.append(article_id)
+                titles.append(title)
+            except Exception as e:
+                logger.warning(f"Failed to decode embedding for article {article_id}: {e}")
+                continue
+        
+        if len(embeddings) < min_cluster_size:
+            return {}
+        
+        embeddings_array = np.array(embeddings)
+        
+        # Use KMeans for clustering
+        n_clusters_actual = min(n_clusters, len(embeddings) // min_cluster_size)
+        if n_clusters_actual < 2:
+            n_clusters_actual = 2
+        
+        kmeans = KMeans(n_clusters=n_clusters_actual, random_state=42, n_init=10)
+        cluster_labels = kmeans.fit_predict(embeddings_array)
+        
+        # Group articles by cluster
+        clusters = {}
+        for i, (article_id, title, cluster_id) in enumerate(zip(article_ids, titles, cluster_labels)):
+            if cluster_id not in clusters:
+                clusters[cluster_id] = {
+                    "cluster_id": int(cluster_id),
+                    "article_ids": [],
+                    "headlines": [],
+                    "centroid": kmeans.cluster_centers_[cluster_id].tolist(),
+                }
+            clusters[cluster_id]["article_ids"].append(article_id)
+            clusters[cluster_id]["headlines"].append(title)
+        
+        # Generate cluster labels from representative headlines
+        for cluster_id, cluster_info in clusters.items():
+            # Use top 3 headlines as label
+            headlines = cluster_info["headlines"][:3]
+            cluster_label = self._generate_cluster_label(headlines)
+            cluster_info["label"] = cluster_label
+            cluster_info["representative_headlines"] = headlines
+            cluster_info["size"] = len(cluster_info["article_ids"])
+        
+        # Store clusters in database
+        self._store_clusters(clusters)
+        
+        logger.info(f"Clustered {len(embeddings)} articles into {len(clusters)} topics")
+        return clusters
+    
+    def _generate_cluster_label(self, headlines: List[str]) -> str:
+        """
+        Generate a human-readable label for a cluster from headlines.
+        
+        Args:
+            headlines: List of representative headlines
+            
+        Returns:
+            Cluster label string
+        """
+        if not headlines:
+            return "unknown"
+        
+        # Simple keyword extraction
+        text = " ".join(headlines).lower()
+        
+        # Common topic keywords
+        topic_keywords = {
+            "regulation": ["regulation", "regulatory", "sec", "cfdc", "law", "legal", "ban", "approval"],
+            "politics": ["trump", "biden", "president", "congress", "senate", "election", "policy"],
+            "earnings": ["earnings", "revenue", "profit", "quarterly", "financial", "results"],
+            "technology": ["technology", "tech", "innovation", "development", "launch", "update"],
+            "market": ["market", "trading", "price", "volatility", "bull", "bear", "rally", "crash"],
+            "crypto": ["bitcoin", "ethereum", "crypto", "blockchain", "defi", "nft", "solana"],
+        }
+        
+        scores = {}
+        for topic, keywords in topic_keywords.items():
+            score = sum(1 for keyword in keywords if keyword in text)
+            if score > 0:
+                scores[topic] = score
+        
+        if scores:
+            top_topic = max(scores.items(), key=lambda x: x[1])[0]
+            return top_topic
+        else:
+            # Use first few words of first headline
+            first_words = headlines[0].split()[:3]
+            return "_".join(first_words).lower()[:30]
+    
+    def _store_clusters(self, clusters: Dict[int, Dict]):
+        """Store cluster information in database."""
+        conn = sqlite3.connect(NEWS_DB)
+        cursor = conn.cursor()
+        
+        # Ensure table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS news_clusters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cluster_id INTEGER NOT NULL,
+                cluster_label TEXT,
+                representative_headlines TEXT,
+                embedding_centroid BLOB,
+                article_count INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        for cluster_info in clusters.values():
+            import json
+            cursor.execute("""
+                INSERT INTO news_clusters (
+                    cluster_id, cluster_label, representative_headlines,
+                    embedding_centroid, article_count
+                ) VALUES (?, ?, ?, ?, ?)
+            """, (
+                cluster_info["cluster_id"],
+                cluster_info["label"],
+                json.dumps(cluster_info["representative_headlines"]),
+                np.array(cluster_info["centroid"]).tobytes(),
+                cluster_info["size"],
+            ))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_cluster_for_article(self, article_id: int) -> Optional[int]:
+        """
+        Get cluster ID for a specific article.
+        
+        Args:
+            article_id: Article ID
+            
+        Returns:
+            Cluster ID or None
+        """
+        # This would require maintaining a mapping table
+        # For now, return None - would need to implement article-cluster mapping
+        return None
     
     def get_recent_news_features(self, hours: int = 24, crypto_only: bool = True) -> Dict:
         """

@@ -1,0 +1,91 @@
+{
+  "feeds": {
+    "crypto": [
+      {
+        "url": "https://cointelegraph.com/rss",
+        "enabled": true,
+        "priority": 1
+      },
+      {
+        "url": "https://decrypt.co/feed",
+        "enabled": true,
+        "priority": 1
+      },
+      {
+        "url": "https://coindesk.com/feed/",
+        "enabled": false,
+        "priority": 2,
+        "note": "Currently rate-limited (HTTP 429)"
+      }
+    ],
+    "finance": [
+      {
+        "url": "https://feeds.bloomberg.com/markets/news.rss",
+        "enabled": true,
+        "priority": 1
+      }
+    ],
+    "tech": [
+      {
+        "url": "https://techcrunch.com/feed/",
+        "enabled": true,
+        "priority": 1
+      },
+      {
+        "url": "https://www.theverge.com/rss/index.xml",
+        "enabled": true,
+        "priority": 1
+      },
+      {
+        "url": "https://arstechnica.com/feed/",
+        "enabled": true,
+        "priority": 1
+      }
+    ],
+    "general": [
+      {
+        "url": "https://feeds.bbci.co.uk/news/rss.xml",
+        "enabled": true,
+        "priority": 1,
+        "note": "BBC News - General"
+      },
+      {
+        "url": "http://feeds.abcnews.com/abcnews/topstories",
+        "enabled": true,
+        "priority": 1,
+        "note": "ABC News - Top Stories"
+      },
+      {
+        "url": "http://www.npr.org/rss/rss.php?id=1001",
+        "enabled": true,
+        "priority": 1,
+        "note": "NPR - National News"
+      },
+      {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+        "enabled": true,
+        "priority": 1,
+        "note": "New York Times - Home Page"
+      },
+      {
+        "url": "http://feeds.nbcnews.com/feeds/topstories",
+        "enabled": true,
+        "priority": 1,
+        "note": "NBC News - Top Stories"
+      },
+      {
+        "url": "http://feeds.foxnews.com/foxnews/latest",
+        "enabled": true,
+        "priority": 1,
+        "note": "Fox News - Latest Headlines"
+      }
+    ]
+  },
+  "settings": {
+    "fetch_cooldown_minutes": 5,
+    "max_headlines_per_fetch": 100,
+    "hours_back": 24,
+    "embedding_model": "all-MiniLM-L6-v2"
+  }
+}
+

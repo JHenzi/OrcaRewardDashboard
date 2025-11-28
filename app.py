@@ -17,6 +17,21 @@ from river.tree import HoeffdingAdaptiveTreeRegressor
 import pickle
 from signal_performance_tracker import SignalPerformanceTracker
 
+# RL Agent (optional)
+try:
+    from rl_agent.prediction_manager import PredictionManager
+    from rl_agent.attention_logger import AttentionLogger
+    from rl_agent.risk_manager import RiskManager
+    from rl_agent.explainability import RuleExtractor, SHAPExplainer
+    from rl_agent.integration import RLAgentIntegration
+    RL_AGENT_AVAILABLE = True
+except ImportError:
+    RL_AGENT_AVAILABLE = False
+    logger.warning("RL agent module not available. Install dependencies: pip install torch gymnasium")
+
+# Global RL agent integration instance
+rl_agent_integration = None
+
 # News sentiment analyzer (optional)
 try:
     from news_sentiment import NewsSentimentAnalyzer
@@ -1360,6 +1375,306 @@ def get_signal_performance():
             'error': str(e)
         }), 500
 
+@app.route('/api/rl-agent/predictions', methods=['GET'])
+def get_rl_agent_predictions():
+    """
+    Get RL agent multi-horizon return predictions.
+    
+    Query parameters:
+    - limit: Number of recent predictions to return (default: 10)
+    - hours: Number of hours to look back for accuracy stats (default: 24)
+    - chart: If 'true', returns data formatted for chart display
+    """
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    try:
+        limit = int(request.args.get('limit', 10))
+        hours = int(request.args.get('hours', 24))
+        chart_format = request.args.get('chart', 'false').lower() == 'true'
+        
+        prediction_manager = PredictionManager()
+        
+        if chart_format:
+            # Return data formatted for chart
+            chart_data = prediction_manager.get_predictions_for_chart(hours=hours)
+            return jsonify({
+                'success': True,
+                'chart_data': chart_data
+            })
+        else:
+            # Return latest predictions and accuracy stats
+            latest_predictions = prediction_manager.get_latest_predictions(limit=limit)
+            current_prediction = prediction_manager.get_current_prediction()
+            accuracy_stats = prediction_manager.get_prediction_accuracy_stats(hours=hours)
+            
+            return jsonify({
+                'success': True,
+                'current_prediction': current_prediction,
+                'recent_predictions': latest_predictions,
+                'accuracy_stats': accuracy_stats
+            })
+    except Exception as e:
+        logger.error(f"Error fetching RL agent predictions: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/rl-agent/attention', methods=['GET'])
+def get_rl_agent_attention():
+    """
+    Get attention weights and influential headlines for RL agent decisions.
+    
+    Query parameters:
+    - decision_id: Specific decision ID to get attention for
+    - top_k: Number of top headlines to return (default: 5)
+    - limit: Number of recent decisions to return (default: 10)
+    - cluster: If 'true', returns attention aggregated by cluster
+    """
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    try:
+        decision_id = request.args.get('decision_id', type=int)
+        top_k = int(request.args.get('top_k', 5))
+        limit = int(request.args.get('limit', 10))
+        cluster_view = request.args.get('cluster', 'false').lower() == 'true'
+        
+        attention_logger = AttentionLogger()
+        
+        if decision_id:
+            # Get attention for specific decision
+            headlines = attention_logger.get_top_headlines_for_decision(decision_id, top_k=top_k)
+            return jsonify({
+                'success': True,
+                'decision_id': decision_id,
+                'headlines': headlines
+            })
+        elif cluster_view:
+            # Get attention aggregated by cluster
+            hours = int(request.args.get('hours', 24))
+            cluster_stats = attention_logger.get_attention_by_cluster(hours=hours)
+            return jsonify({
+                'success': True,
+                'cluster_stats': cluster_stats
+            })
+        else:
+            # Get recent attention logs
+            recent_attention = attention_logger.get_recent_attention(limit=limit)
+            return jsonify({
+                'success': True,
+                'recent_decisions': recent_attention
+            })
+    except Exception as e:
+        logger.error(f"Error fetching RL agent attention: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/rl-agent/risk', methods=['GET'])
+def get_rl_agent_risk():
+    """
+    Get risk metrics for RL agent.
+    
+    Returns current risk status including:
+    - Position size
+    - Trade frequency
+    - Daily P&L
+    - Risk limits status
+    - Uncertainty metrics
+    """
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    try:
+        # In a real implementation, this would get the actual risk manager instance
+        # For now, return placeholder structure
+        # TODO: Integrate with actual RL agent instance when it's running
+        
+        risk_manager = RiskManager()
+        metrics = risk_manager.get_risk_metrics()
+        
+        return jsonify({
+            'success': True,
+            'risk_metrics': metrics
+        })
+    except Exception as e:
+        logger.error(f"Error fetching RL agent risk metrics: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/rl-agent/rules', methods=['GET'])
+def get_rl_agent_rules():
+    """
+    Get discovered trading rules from RL agent.
+    
+    Query parameters:
+    - action: Filter by action (BUY, SELL, HOLD)
+    - min_win_rate: Minimum win rate (0-1)
+    - limit: Number of rules to return (default: 20)
+    - sort_by: Sort by 'win_rate' or 'sample_size' (default: 'win_rate')
+    """
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    try:
+        action = request.args.get('action')
+        min_win_rate = float(request.args.get('min_win_rate', 0.0))
+        limit = int(request.args.get('limit', 20))
+        
+        rule_extractor = RuleExtractor()
+        rules = rule_extractor.get_discovered_rules(
+            action=action,
+            min_win_rate=min_win_rate,
+            limit=limit,
+        )
+        
+        return jsonify({
+            'success': True,
+            'rules': rules,
+            'count': len(rules)
+        })
+    except Exception as e:
+        logger.error(f"Error fetching RL agent rules: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/rl-agent/decision', methods=['POST', 'GET'])
+def make_rl_agent_decision():
+    """
+    Make a trading decision using the RL agent.
+    
+    POST: Make a new decision
+    GET: Get the latest decision
+    """
+    global rl_agent_integration
+    
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    try:
+        if request.method == 'POST':
+            # Initialize integration if needed
+            if rl_agent_integration is None:
+                # For now, return placeholder - would need trained model
+                return jsonify({
+                    'success': False,
+                    'error': 'RL agent model not loaded. Train model first.',
+                    'note': 'Model training integration pending'
+                }), 503
+            
+            # Make decision
+            decision = rl_agent_integration.make_decision()
+            
+            return jsonify({
+                'success': True,
+                'decision': decision
+            })
+        else:
+            # GET: Return latest decision
+            conn = sqlite3.connect(os.getenv("DATABASE_PATH", "sol_prices.db"))
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, timestamp, action, confidence, current_price,
+                       predicted_return_1h, predicted_return_24h
+                FROM rl_agent_decisions
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return jsonify({
+                    'success': True,
+                    'decision': {
+                        'decision_id': row[0],
+                        'timestamp': row[1],
+                        'action': row[2],
+                        'confidence': row[3],
+                        'current_price': row[4],
+                        'prediction_1h': row[5],
+                        'prediction_24h': row[6],
+                    }
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'No decisions found'
+                }), 404
+                
+    except Exception as e:
+        logger.error(f"Error in RL agent decision: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/rl-agent/feature-importance', methods=['GET'])
+def get_rl_agent_feature_importance():
+    """
+    Get feature importance using SHAP values.
+    
+    Returns ranking of features by importance.
+    """
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    try:
+        # This is a placeholder - would need actual model and states
+        # For now, return example structure
+        return jsonify({
+            'success': True,
+            'feature_importance': {
+                'rsi': 0.25,
+                'news_sentiment': 0.20,
+                'momentum': 0.15,
+                'sma_ratio': 0.10,
+                'volatility': 0.08,
+            },
+            'note': 'Feature importance computation requires trained model and state data'
+        })
+    except Exception as e:
+        logger.error(f"Error fetching feature importance: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/latest-bandit-action', methods=['GET'])
 def get_latest_bandit_action():
     try:
@@ -1547,7 +1862,7 @@ def news_fetch_loop():
         logger.warning("News analyzer not available. Skipping news fetching.")
         return
     
-    # Fetch news every 6 hours
+    # Fetch news every 6 hours (but cooldown is handled by analyzer)
     fetch_interval = 6 * 60 * 60  # 6 hours in seconds
     
     try:
@@ -1574,9 +1889,13 @@ def news_fetch_loop():
             
             if current_price > 0:
                 logger.info("Fetching news articles...")
-                articles = news_analyzer.fetch_news(hours_back=24)
-                processed = news_analyzer.process_and_store_news(articles, current_price)
-                logger.info(f"Processed {processed} news articles")
+                # fetch_news() now handles cooldown internally
+                articles = news_analyzer.fetch_news()
+                if articles:  # Only process if we got articles (not in cooldown)
+                    processed = news_analyzer.process_and_store_news(articles, current_price)
+                    logger.info(f"Processed {processed} news articles")
+                else:
+                    logger.info("News fetch skipped (cooldown or no new articles)")
             
         except Exception as e:
             logger.error(f"Error in news fetch loop: {e}")

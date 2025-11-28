@@ -155,6 +155,41 @@ def create_rl_agent_tables(db_path: str = DB_PATH):
         ON rl_rule_firings(timestamp)
     """)
     
+    # RL Prediction Accuracy (for Phase 4.2)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS rl_prediction_accuracy (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            decision_id INTEGER,
+            timestamp TEXT NOT NULL,
+            predicted_return_1h REAL,
+            predicted_return_24h REAL,
+            predicted_confidence_1h REAL,
+            predicted_confidence_24h REAL,
+            actual_return_1h REAL,
+            actual_return_24h REAL,
+            price_at_prediction REAL,
+            price_1h_later REAL,
+            price_24h_later REAL,
+            error_1h REAL,
+            error_24h REAL,
+            mae_1h REAL,
+            mae_24h REAL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME,
+            FOREIGN KEY (decision_id) REFERENCES rl_agent_decisions(id)
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pred_accuracy_timestamp 
+        ON rl_prediction_accuracy(timestamp)
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pred_accuracy_decision 
+        ON rl_prediction_accuracy(decision_id)
+    """)
+    
     conn.commit()
     conn.close()
     
@@ -166,6 +201,7 @@ def create_rl_agent_tables(db_path: str = DB_PATH):
     print("  - news_clusters")
     print("  - rl_training_metrics")
     print("  - rl_rule_firings")
+    print("  - rl_prediction_accuracy (Phase 4.2)")
 
 
 if __name__ == "__main__":

@@ -1010,6 +1010,195 @@
           </div>
         </div>
 
+        <!-- RL Agent Multi-Horizon Predictions -->
+        <div class="mb-8 fade-in" id="rl-predictions-section">
+          <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-lg">
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center space-x-2">
+              <span>🔮</span>
+              <span>RL Agent Multi-Horizon Predictions</span>
+            </h2>
+            <p class="text-sm text-gray-400 mb-6">AI agent predictions for 1-hour and 24-hour returns</p>
+            
+            <!-- Current Predictions -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6" id="current-predictions">
+              <!-- 1 Hour Prediction Card -->
+              <div class="bg-gradient-to-br from-blue-900/50 to-purple-900/50 rounded-lg p-6 border border-blue-500/30">
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="text-lg font-semibold text-white">1 Hour Prediction</h3>
+                  <span class="text-2xl">⏱️</span>
+                </div>
+                <div id="pred-1h-value" class="text-3xl font-bold text-blue-400 mb-2">
+                  <span class="text-gray-400">Loading...</span>
+                </div>
+                <div id="pred-1h-confidence" class="text-sm text-gray-400 mb-4">
+                  Confidence: <span class="text-gray-500">-</span>
+                </div>
+                <div id="pred-1h-accuracy" class="text-xs text-gray-500">
+                  Accuracy: <span class="text-gray-500">-</span>
+                </div>
+              </div>
+              
+              <!-- 24 Hour Prediction Card -->
+              <div class="bg-gradient-to-br from-purple-900/50 to-pink-900/50 rounded-lg p-6 border border-purple-500/30">
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="text-lg font-semibold text-white">24 Hour Prediction</h3>
+                  <span class="text-2xl">📅</span>
+                </div>
+                <div id="pred-24h-value" class="text-3xl font-bold text-purple-400 mb-2">
+                  <span class="text-gray-400">Loading...</span>
+                </div>
+                <div id="pred-24h-confidence" class="text-sm text-gray-400 mb-4">
+                  Confidence: <span class="text-gray-500">-</span>
+                </div>
+                <div id="pred-24h-accuracy" class="text-xs text-gray-500">
+                  Accuracy: <span class="text-gray-500">-</span>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Accuracy Statistics -->
+            <div class="bg-gray-700/50 rounded-lg p-4" id="accuracy-stats">
+              <h4 class="text-sm font-semibold text-gray-300 mb-3">Prediction Accuracy (Last 24 Hours)</h4>
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <div class="text-gray-400">1h MAE</div>
+                  <div id="mae-1h" class="text-white font-bold">-</div>
+                </div>
+                <div>
+                  <div class="text-gray-400">24h MAE</div>
+                  <div id="mae-24h" class="text-white font-bold">-</div>
+                </div>
+                <div>
+                  <div class="text-gray-400">1h RMSE</div>
+                  <div id="rmse-1h" class="text-white font-bold">-</div>
+                </div>
+                <div>
+                  <div class="text-gray-400">24h RMSE</div>
+                  <div id="rmse-24h" class="text-white font-bold">-</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RL Agent Attention & Influential Headlines -->
+        <div class="mb-8 fade-in" id="rl-attention-section">
+          <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-lg">
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center space-x-2">
+              <span>🔍</span>
+              <span>Influential News Headlines</span>
+            </h2>
+            <p class="text-sm text-gray-400 mb-6">Headlines that influenced the RL agent's most recent decisions</p>
+            
+            <!-- Recent Decisions with Headlines -->
+            <div id="attention-decisions" class="space-y-4">
+              <div class="text-gray-400 text-center py-8">
+                <p>Loading attention data...</p>
+              </div>
+            </div>
+            
+            <!-- Cluster View Toggle -->
+            <div class="mt-6 pt-4 border-t border-gray-700">
+              <button 
+                id="toggle-cluster-view" 
+                class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition"
+                onclick="toggleClusterView()"
+              >
+                View by Topic Cluster
+              </button>
+            </div>
+            
+            <!-- Cluster Statistics (hidden by default) -->
+            <div id="cluster-stats" class="mt-4 hidden">
+              <h4 class="text-sm font-semibold text-gray-300 mb-3">Attention by Topic Cluster</h4>
+              <div id="cluster-stats-content" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Populated by JavaScript -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RL Agent Risk Dashboard -->
+        <div class="mb-8 fade-in" id="rl-risk-section">
+          <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-lg">
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center space-x-2">
+              <span>🛡️</span>
+              <span>Risk Management Dashboard</span>
+            </h2>
+            <p class="text-sm text-gray-400 mb-6">Real-time risk monitoring and constraint status</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" id="risk-metrics">
+              <!-- Position Size -->
+              <div class="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                <div class="text-sm text-gray-400 mb-2">Position Size</div>
+                <div id="position-size" class="text-2xl font-bold text-white">-</div>
+                <div id="position-limit" class="text-xs text-gray-500 mt-1">Limit: -</div>
+              </div>
+              
+              <!-- Trade Frequency -->
+              <div class="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                <div class="text-sm text-gray-400 mb-2">Trade Frequency</div>
+                <div id="trade-frequency" class="text-2xl font-bold text-white">-</div>
+                <div id="frequency-limit" class="text-xs text-gray-500 mt-1">Limit: -</div>
+              </div>
+              
+              <!-- Daily P&L -->
+              <div class="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                <div class="text-sm text-gray-400 mb-2">Daily P&L</div>
+                <div id="daily-pnl" class="text-2xl font-bold text-white">-</div>
+                <div id="daily-loss-cap" class="text-xs text-gray-500 mt-1">Loss Cap: -</div>
+              </div>
+              
+              <!-- Uncertainty -->
+              <div class="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                <div class="text-sm text-gray-400 mb-2">Uncertainty</div>
+                <div id="uncertainty-metric" class="text-2xl font-bold text-white">-</div>
+                <div id="uncertainty-status" class="text-xs text-gray-500 mt-1">Status: -</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RL Agent Discovered Rules -->
+        <div class="mb-8 fade-in" id="rl-rules-section">
+          <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-lg">
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center space-x-2">
+              <span>🧠</span>
+              <span>Discovered Trading Rules</span>
+            </h2>
+            <p class="text-sm text-gray-400 mb-6">Human-readable rules extracted from the RL agent's learned behavior</p>
+            
+            <!-- Rules Table -->
+            <div class="overflow-x-auto">
+              <table id="rules-table" class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-gray-700">
+                    <th class="text-left py-3 px-4 text-gray-300">Rule</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Action</th>
+                    <th class="text-right py-3 px-4 text-gray-300">Win Rate</th>
+                    <th class="text-right py-3 px-4 text-gray-300">Avg Return (1h)</th>
+                    <th class="text-right py-3 px-4 text-gray-300">Avg Return (24h)</th>
+                    <th class="text-right py-3 px-4 text-gray-300">Sample Size</th>
+                  </tr>
+                </thead>
+                <tbody id="rules-tbody">
+                  <tr>
+                    <td colspan="6" class="text-center py-8 text-gray-400">Loading rules...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            
+            <!-- Feature Importance -->
+            <div class="mt-6 pt-4 border-t border-gray-700">
+              <h4 class="text-sm font-semibold text-gray-300 mb-3">Feature Importance (SHAP)</h4>
+              <div id="feature-importance" class="space-y-2">
+                <div class="text-gray-400 text-sm">Loading feature importance...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
             <h2 class="text-xl font-semibold mb-4 text-white">📊 {{ selected_range|capitalize }} Price Summary</h2>
             <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-gray-200">
@@ -1936,6 +2125,351 @@
               }
           });
       }
+
+      // RL Agent Predictions
+      async function updateRLPredictions() {
+          try {
+              const response = await fetch('/api/rl-agent/predictions?limit=1&hours=24');
+              const data = await response.json();
+              
+              if (data.success && data.current_prediction) {
+                  const pred = data.current_prediction;
+                  
+                  // Update 1h prediction
+                  const pred1hEl = document.getElementById('pred-1h-value');
+                  if (pred1hEl && pred.predicted_return_1h !== null) {
+                      const value = (pred.predicted_return_1h * 100).toFixed(2);
+                      const color = pred.predicted_return_1h >= 0 ? 'text-green-400' : 'text-red-400';
+                      pred1hEl.innerHTML = `<span class="${color}">${pred.predicted_return_1h >= 0 ? '+' : ''}${value}%</span>`;
+                  }
+                  
+                  const conf1hEl = document.getElementById('pred-1h-confidence');
+                  if (conf1hEl) {
+                      const conf = pred.predicted_confidence_1h !== null ? (pred.predicted_confidence_1h * 100).toFixed(1) : 'N/A';
+                      conf1hEl.innerHTML = `Confidence: <span class="text-gray-300">${conf}%</span>`;
+                  }
+                  
+                  // Update 24h prediction
+                  const pred24hEl = document.getElementById('pred-24h-value');
+                  if (pred24hEl && pred.predicted_return_24h !== null) {
+                      const value = (pred.predicted_return_24h * 100).toFixed(2);
+                      const color = pred.predicted_return_24h >= 0 ? 'text-green-400' : 'text-red-400';
+                      pred24hEl.innerHTML = `<span class="${color}">${pred.predicted_return_24h >= 0 ? '+' : ''}${value}%</span>`;
+                  }
+                  
+                  const conf24hEl = document.getElementById('pred-24h-confidence');
+                  if (conf24hEl) {
+                      const conf = pred.predicted_confidence_24h !== null ? (pred.predicted_confidence_24h * 100).toFixed(1) : 'N/A';
+                      conf24hEl.innerHTML = `Confidence: <span class="text-gray-300">${conf}%</span>`;
+                  }
+                  
+                  // Update accuracy stats
+                  if (data.accuracy_stats) {
+                      const stats = data.accuracy_stats;
+                      document.getElementById('mae-1h').textContent = stats.mae_1h > 0 ? (stats.mae_1h * 100).toFixed(2) + '%' : '-';
+                      document.getElementById('mae-24h').textContent = stats.mae_24h > 0 ? (stats.mae_24h * 100).toFixed(2) + '%' : '-';
+                      document.getElementById('rmse-1h').textContent = stats.rmse_1h > 0 ? (stats.rmse_1h * 100).toFixed(2) + '%' : '-';
+                      document.getElementById('rmse-24h').textContent = stats.rmse_24h > 0 ? (stats.rmse_24h * 100).toFixed(2) + '%' : '-';
+                  }
+              } else {
+                  // No predictions available yet
+                  document.getElementById('pred-1h-value').innerHTML = '<span class="text-gray-400">No prediction yet</span>';
+                  document.getElementById('pred-24h-value').innerHTML = '<span class="text-gray-400">No prediction yet</span>';
+              }
+          } catch (error) {
+              console.error('Error fetching RL predictions:', error);
+              // Hide section if RL agent not available
+              const section = document.getElementById('rl-predictions-section');
+              if (section) {
+                  section.style.display = 'none';
+              }
+          }
+      }
+      
+      // Load predictions on page load
+      updateRLPredictions();
+      
+      // Refresh predictions every 5 minutes
+      setInterval(updateRLPredictions, 5 * 60 * 1000);
+
+      // RL Agent Attention
+      async function updateRLAttention() {
+          try {
+              const response = await fetch('/api/rl-agent/attention?limit=5');
+              const data = await response.json();
+              
+              if (data.success && data.recent_decisions) {
+                  const container = document.getElementById('attention-decisions');
+                  if (!container) return;
+                  
+                  if (data.recent_decisions.length === 0) {
+                      container.innerHTML = '<div class="text-gray-400 text-center py-8"><p>No attention data available yet</p></div>';
+                      return;
+                  }
+                  
+                  let html = '';
+                  data.recent_decisions.forEach(decision => {
+                      const actionColors = {
+                          'BUY': 'text-green-400',
+                          'SELL': 'text-red-400',
+                          'HOLD': 'text-yellow-400'
+                      };
+                      const actionColor = actionColors[decision.action] || 'text-gray-400';
+                      
+                      html += `
+                        <div class="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                          <div class="flex items-center justify-between mb-3">
+                            <div>
+                              <span class="text-sm font-semibold ${actionColor}">${decision.action}</span>
+                              <span class="text-xs text-gray-400 ml-2">${new Date(decision.timestamp).toLocaleString()}</span>
+                            </div>
+                          </div>
+                          ${decision.headlines && decision.headlines.length > 0 ? `
+                            <div class="space-y-2">
+                              <div class="text-xs text-gray-400 mb-2">Top Influential Headlines:</div>
+                              ${decision.headlines.map(h => `
+                                <div class="flex items-start justify-between bg-gray-800/50 rounded p-2">
+                                  <span class="text-sm text-gray-300 flex-1">${h.headline_text || 'N/A'}</span>
+                                  <span class="text-xs text-purple-400 ml-2">${(h.attention_weight * 100).toFixed(1)}%</span>
+                                </div>
+                              `).join('')}
+                            </div>
+                          ` : '<div class="text-xs text-gray-500">No headlines available</div>'}
+                        </div>
+                      `;
+                  });
+                  
+                  container.innerHTML = html;
+              } else {
+                  // Hide section if no data
+                  const section = document.getElementById('rl-attention-section');
+                  if (section) {
+                      section.style.display = 'none';
+                  }
+              }
+          } catch (error) {
+              console.error('Error fetching RL attention:', error);
+              // Hide section on error
+              const section = document.getElementById('rl-attention-section');
+              if (section) {
+                  section.style.display = 'none';
+              }
+          }
+      }
+      
+      async function toggleClusterView() {
+          const clusterStats = document.getElementById('cluster-stats');
+          const button = document.getElementById('toggle-cluster-view');
+          
+          if (clusterStats.classList.contains('hidden')) {
+              // Show cluster view
+              try {
+                  const response = await fetch('/api/rl-agent/attention?cluster=true&hours=24');
+                  const data = await response.json();
+                  
+                  if (data.success && data.cluster_stats) {
+                      const content = document.getElementById('cluster-stats-content');
+                      let html = '';
+                      
+                      Object.values(data.cluster_stats).forEach(cluster => {
+                          html += `
+                            <div class="bg-gray-700/50 rounded-lg p-3 border border-gray-600">
+                              <div class="text-sm font-semibold text-gray-300 mb-2">Cluster ${cluster.cluster_id}</div>
+                              <div class="text-xs space-y-1">
+                                <div class="flex justify-between">
+                                  <span class="text-gray-400">Avg Attention:</span>
+                                  <span class="text-white">${(cluster.avg_attention * 100).toFixed(2)}%</span>
+                                </div>
+                                <div class="flex justify-between">
+                                  <span class="text-gray-400">Total Weight:</span>
+                                  <span class="text-white">${(cluster.total_attention * 100).toFixed(2)}%</span>
+                                </div>
+                                <div class="flex justify-between">
+                                  <span class="text-gray-400">Headlines:</span>
+                                  <span class="text-white">${cluster.count}</span>
+                                </div>
+                              </div>
+                            </div>
+                          `;
+                      });
+                      
+                      content.innerHTML = html || '<div class="text-gray-400 text-sm">No cluster data available</div>';
+                      clusterStats.classList.remove('hidden');
+                      button.textContent = 'View by Decision';
+                  }
+              } catch (error) {
+                  console.error('Error fetching cluster stats:', error);
+              }
+          } else {
+              // Hide cluster view
+              clusterStats.classList.add('hidden');
+              button.textContent = 'View by Topic Cluster';
+          }
+      }
+      
+      // Load attention on page load
+      updateRLAttention();
+      
+      // Refresh attention every 5 minutes
+      setInterval(updateRLAttention, 5 * 60 * 1000);
+
+      // RL Agent Risk Dashboard
+      async function updateRLRisk() {
+          try {
+              const response = await fetch('/api/rl-agent/risk');
+              const data = await response.json();
+              
+              if (data.success && data.risk_metrics) {
+                  const metrics = data.risk_metrics;
+                  
+                  // Update position size
+                  const posEl = document.getElementById('position-size');
+                  if (posEl) {
+                      posEl.textContent = `${(metrics.max_position_size * 100).toFixed(1)}%`;
+                  }
+                  
+                  // Update trade frequency
+                  const freqEl = document.getElementById('trade-frequency');
+                  if (freqEl) {
+                      freqEl.textContent = `${metrics.recent_trades_count}/${metrics.max_trades_per_hour}`;
+                      const limitEl = document.getElementById('frequency-limit');
+                      if (limitEl) {
+                          limitEl.textContent = `${metrics.trades_remaining_this_hour} remaining this hour`;
+                          limitEl.className = metrics.trades_remaining_this_hour > 0 
+                              ? 'text-xs text-green-400 mt-1' 
+                              : 'text-xs text-red-400 mt-1';
+                      }
+                  }
+                  
+                  // Update daily P&L
+                  const pnlEl = document.getElementById('daily-pnl');
+                  if (pnlEl) {
+                      const pnl = metrics.daily_return_percent || 0;
+                      pnlEl.textContent = `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%`;
+                      pnlEl.className = pnl >= 0 ? 'text-2xl font-bold text-green-400' : 'text-2xl font-bold text-red-400';
+                  }
+                  
+                  const lossCapEl = document.getElementById('daily-loss-cap');
+                  if (lossCapEl) {
+                      lossCapEl.textContent = `Loss Cap: ${(metrics.daily_loss_cap * 100).toFixed(1)}%`;
+                      const remaining = metrics.daily_loss_cap_remaining || 0;
+                      lossCapEl.className = remaining > 0 
+                          ? 'text-xs text-green-400 mt-1' 
+                          : 'text-xs text-red-400 mt-1';
+                  }
+                  
+                  // Update uncertainty (placeholder - would come from model)
+                  const uncEl = document.getElementById('uncertainty-metric');
+                  if (uncEl) {
+                      uncEl.textContent = 'N/A'; // Would be populated from model
+                  }
+              }
+          } catch (error) {
+              console.error('Error fetching RL risk metrics:', error);
+              // Hide section on error
+              const section = document.getElementById('rl-risk-section');
+              if (section) {
+                  section.style.display = 'none';
+              }
+          }
+      }
+      
+      // Load risk metrics on page load
+      updateRLRisk();
+      
+      // Refresh risk metrics every minute
+      setInterval(updateRLRisk, 60 * 1000);
+
+      // RL Agent Discovered Rules
+      async function updateDiscoveredRules() {
+          try {
+              const response = await fetch('/api/rl-agent/rules?limit=10');
+              const data = await response.json();
+              
+              if (data.success && data.rules) {
+                  const tbody = document.getElementById('rules-tbody');
+                  if (!tbody) return;
+                  
+                  if (data.rules.length === 0) {
+                      tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-400">No rules discovered yet</td></tr>';
+                      return;
+                  }
+                  
+                  let html = '';
+                  data.rules.forEach(rule => {
+                      const winRateColor = rule.win_rate >= 0.6 ? 'text-green-400' : 
+                                          rule.win_rate >= 0.5 ? 'text-yellow-400' : 'text-red-400';
+                      
+                      html += `
+                        <tr class="border-b border-gray-700 hover:bg-gray-700/30">
+                          <td class="py-3 px-4 text-gray-300 text-xs">${rule.rule_text || 'N/A'}</td>
+                          <td class="py-3 px-4">
+                            <span class="px-2 py-1 rounded text-xs ${
+                              rule.action === 'BUY' ? 'bg-green-500/20 text-green-400' :
+                              rule.action === 'SELL' ? 'bg-red-500/20 text-red-400' :
+                              'bg-yellow-500/20 text-yellow-400'
+                            }">${rule.action}</span>
+                          </td>
+                          <td class="py-3 px-4 text-right ${winRateColor} font-bold">${(rule.win_rate * 100).toFixed(1)}%</td>
+                          <td class="py-3 px-4 text-right text-gray-300">${rule.avg_return_1h !== null ? (rule.avg_return_1h * 100).toFixed(2) + '%' : 'N/A'}</td>
+                          <td class="py-3 px-4 text-right text-gray-300">${rule.avg_return_24h !== null ? (rule.avg_return_24h * 100).toFixed(2) + '%' : 'N/A'}</td>
+                          <td class="py-3 px-4 text-right text-gray-400">${rule.sample_size || 0}</td>
+                        </tr>
+                      `;
+                  });
+                  
+                  tbody.innerHTML = html;
+              }
+          } catch (error) {
+              console.error('Error fetching discovered rules:', error);
+          }
+      }
+      
+      async function updateFeatureImportance() {
+          try {
+              const response = await fetch('/api/rl-agent/feature-importance');
+              const data = await response.json();
+              
+              if (data.success && data.feature_importance) {
+                  const container = document.getElementById('feature-importance');
+                  if (!container) return;
+                  
+                  // Sort by importance
+                  const features = Object.entries(data.feature_importance)
+                      .sort((a, b) => b[1] - a[1]);
+                  
+                  let html = '';
+                  features.forEach(([feature, importance]) => {
+                      const percentage = (importance * 100).toFixed(1);
+                      html += `
+                        <div class="flex items-center justify-between bg-gray-700/50 rounded p-2">
+                          <span class="text-sm text-gray-300">${feature.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                          <div class="flex items-center space-x-2">
+                            <div class="w-32 bg-gray-600 rounded-full h-2">
+                              <div class="bg-purple-500 h-2 rounded-full" style="width: ${percentage}%"></div>
+                            </div>
+                            <span class="text-sm text-white font-medium w-12 text-right">${percentage}%</span>
+                          </div>
+                        </div>
+                      `;
+                  });
+                  
+                  container.innerHTML = html || '<div class="text-gray-400 text-sm">No feature importance data available</div>';
+              }
+          } catch (error) {
+              console.error('Error fetching feature importance:', error);
+          }
+      }
+      
+      // Load rules and feature importance on page load
+      updateDiscoveredRules();
+      updateFeatureImportance();
+      
+      // Refresh every 10 minutes
+      setInterval(() => {
+          updateDiscoveredRules();
+          updateFeatureImportance();
+      }, 10 * 60 * 1000);
   </script>
 </body>
 </html>
