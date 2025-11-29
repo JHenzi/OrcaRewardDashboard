@@ -427,9 +427,9 @@ A brief overview of the project structure:
   - `risk_manager.py`: Risk constraint management
   - `explainability.py`: Rule extraction and SHAP analysis
   - `integration.py`: System integration layer
-- `train_rl_agent.py`: Main script to train RL agent on historical data
-- `retrain_rl_agent.py`: Automated retraining script with adaptive scheduling
-- `migrate_rl_agent_tables.py`: Database migration for RL agent tables.
+- `scripts/train_rl_agent.py`: Main script to train RL agent on historical data
+- `scripts/retrain_rl_agent.py`: Automated retraining script with adaptive scheduling
+- `scripts/migrate_rl_agent_tables.py`: Database migration for RL agent tables.
 - `Documentation/reference/DEPRECATED.md`: Documentation of deprecated features (price prediction, contextual bandit, automated trading).
 - `trading_bot.py`: (Deprecated) Jupiter ULTRA Trading API function class. Code exists but is disabled. See [Documentation/reference/DEPRECATED.md](Documentation/reference/DEPRECATED.md) for details.
 
@@ -487,7 +487,7 @@ The RL agent can be trained on historical data and retrained periodically to sta
 python -m rl_agent.training_data_prep
 
 # Step 2: Train the model
-python train_rl_agent.py --epochs 10
+python scripts/train_rl_agent.py --epochs 10
 ```
 
 **What happens during training:**
@@ -506,13 +506,13 @@ python train_rl_agent.py --epochs 10
 **Periodic Retraining:**
 ```bash
 # Adaptive retraining (recommended - retrains when enough new data)
-python retrain_rl_agent.py --mode adaptive
+python scripts/retrain_rl_agent.py --mode adaptive
 
 # Weekly retraining
-python retrain_rl_agent.py --mode weekly --epochs 5
+python scripts/retrain_rl_agent.py --mode weekly --epochs 5
 
 # Monthly retraining
-python retrain_rl_agent.py --mode monthly --epochs 10
+python scripts/retrain_rl_agent.py --mode monthly --epochs 10
 ```
 
 **Automation:**

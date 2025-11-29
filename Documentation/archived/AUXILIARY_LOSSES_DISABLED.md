@@ -10,7 +10,7 @@ Despite extensive NaN protection measures, the auxiliary heads continue to produ
 
 ## Current Training Configuration
 
-In `train_rl_agent.py`, auxiliary losses are disabled:
+In `scripts/train_rl_agent.py`, auxiliary losses are disabled:
 
 ```python
 trainer = PPOTrainer(
@@ -82,7 +82,7 @@ trainer = PPOTrainer(
 
 Once the root cause is identified and fixed:
 
-1. Set `enable_auxiliary_losses=True` in `train_rl_agent.py`
+1. Set `enable_auxiliary_losses=True` in `scripts/train_rl_agent.py`
 2. Optionally reduce coefficients: `aux_1h_coef=0.01, aux_24h_coef=0.01`
 3. Monitor training logs for NaN gradient warnings
 4. If warnings persist, investigate further

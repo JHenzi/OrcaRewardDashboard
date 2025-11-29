@@ -24,7 +24,7 @@ During training, NaN gradients are being generated in the auxiliary prediction h
 - ✅ **Enhanced gradient clipping** with NaN detection and zeroing
 - ✅ **Option to disable auxiliary losses** if they continue causing issues
 
-### 3. Training Data Validation (`train_rl_agent.py`)
+### 3. Training Data Validation (`scripts/train_rl_agent.py`)
 - ✅ Validates returns before storing in buffer
 - ✅ Replaces NaN/inf with 0.0
 
@@ -35,7 +35,7 @@ During training, NaN gradients are being generated in the auxiliary prediction h
 The enhanced NaN protection should prevent the issue. Continue training:
 
 ```bash
-python train_rl_agent.py --epochs 10
+python scripts/train_rl_agent.py --epochs 10
 ```
 
 The warnings about NaN gradients should decrease as the model stabilizes.

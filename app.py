@@ -1914,7 +1914,7 @@ def make_rl_agent_decision():
                     'error': 'RL agent model not loaded. Train model first.',
                     'note': 'Use /api/rl-agent/status to check model availability',
                     'steps': [
-                        '1. Train model: python train_rl_agent.py --epochs 10',
+                        '1. Train model: python scripts/train_rl_agent.py --epochs 10',
                         '2. Restart app to load trained model',
                         '3. Make decision: POST /api/rl-agent/decision'
                     ]

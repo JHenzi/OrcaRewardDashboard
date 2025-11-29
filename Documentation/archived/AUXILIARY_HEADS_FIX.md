@@ -33,7 +33,7 @@ The auxiliary heads have been reinitialized with proper weights.
 Use `fix_auxiliary_heads.py` to repair corrupted checkpoints:
 
 ```bash
-python fix_auxiliary_heads.py --checkpoint models/rl_agent/checkpoint_epoch_10.pt
+python scripts/fix_auxiliary_heads.py --checkpoint models/rl_agent/checkpoint_epoch_10.pt
 ```
 
 This will:
