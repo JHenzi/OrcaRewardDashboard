@@ -98,6 +98,9 @@ def train_on_historical_data(
         lr=3e-4,
         device=device,
         checkpoint_dir=checkpoint_dir,
+        enable_auxiliary_losses=False,  # Temporarily disabled due to NaN gradient issues
+        # aux_1h_coef=0.01,  # Alternative: reduce coefficients instead
+        # aux_24h_coef=0.01,
     )
     
     logger.info("✅ Components initialized")
@@ -198,10 +201,14 @@ def train_on_historical_data(
                 future_price_1h = episode["future_prices_1h"][step]
                 future_price_24h = episode["future_prices_24h"][step]
                 
-                if future_price_1h and future_price_24h:
-                    # Calculate returns
-                    return_1h = (future_price_1h - current_price) / current_price if current_price > 0 else 0.0
-                    return_24h = (future_price_24h - current_price) / current_price if current_price > 0 else 0.0
+                if future_price_1h and future_price_24h and current_price > 0:
+                    # Calculate returns - clamp to prevent extreme values
+                    return_1h_raw = (future_price_1h - current_price) / current_price
+                    return_24h_raw = (future_price_24h - current_price) / current_price
+                    
+                    # Clamp returns to ±100% to prevent numerical issues
+                    return_1h = max(-1.0, min(1.0, return_1h_raw))
+                    return_24h = max(-1.0, min(1.0, return_24h_raw))
                     
                     # Calculate reward based on action
                     if action == 2:  # BUY

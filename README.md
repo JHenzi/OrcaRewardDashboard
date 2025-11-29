@@ -1,6 +1,6 @@
 # 🧠 Solana Rewards & Trading Bot Tracker
 
-> **📢 AI-Assisted Development Disclosure:** This project was initially created as a personal pet project and has been significantly enhanced through the use of **Cursor**, an AI-powered coding assistant. We believe in full transparency about our development process. [Read our full disclosure →](VibeCoded.md)
+> **📢 AI-Assisted Development Disclosure:** This project was initially created as a personal pet project and has been significantly enhanced through the use of **Cursor**, an AI-powered coding assistant. We believe in full transparency about our development process. [Read our full disclosure →](Documentation/reference/VibeCoded.md)
 
 A Flask web application that tracks and displays Solana rewards from [**Orca** liquidity pools](https://docs.orca.so/) using the [Helius API](https://docs.helius.dev/). The application provides comprehensive analytics and trading insights for Solana DeFi activities.
 
@@ -15,7 +15,7 @@ A Flask web application that tracks and displays Solana rewards from [**Orca** l
 - 💰 **Rewards Analytics** - Daily and monthly breakdowns, collection patterns, and performance metrics
 - 🤖 **RL-Based Trading Agent** - **NEW!** Reinforcement learning trading system with explainable AI features (see [RL Agent Features](#rl-agent-features) below)
 
-> **Note:** Some features have been deprecated. See [DEPRECATED.md](DEPRECATED.md) for historical information about price prediction, contextual bandit algorithms, and automated trading bots.
+> **Note:** Some features have been deprecated. See [Documentation/reference/DEPRECATED.md](Documentation/reference/DEPRECATED.md) for historical information about price prediction, contextual bandit algorithms, and automated trading bots.
 
 This project blends DeFi analytics, technical analysis, and intelligent trading insights for Solana.
 
@@ -154,7 +154,7 @@ We're working on an even smarter system that will:
 
 **Example:** If RSI Buy signals show a 65% win rate with an average +2.3% return over 24 hours, you can confidently act on those signals. If RSI Sell signals show only 40% win rate, you might want to be more cautious.
 
-> **Note:** Price prediction and contextual bandit features have been deprecated. See [DEPRECATED.md](DEPRECATED.md) for historical information.
+> **Note:** Price prediction and contextual bandit features have been deprecated. See [Documentation/reference/DEPRECATED.md](Documentation/reference/DEPRECATED.md) for historical information.
 
 ### Signal Performance Tracker - Why It Matters
 
@@ -247,9 +247,9 @@ The application now includes a **Reinforcement Learning (RL) Trading Agent** bui
 
 **Documentation:**
 - [RL_AGENT_IMPLEMENTATION_STATUS.md](RL_AGENT_IMPLEMENTATION_STATUS.md) - Detailed implementation status
-- [NewAgent.md](NewAgent.md) - Original design specification
-- [TRAINING_GUIDE.md](TRAINING_GUIDE.md) - Complete training guide with historical data
-- [RETRAINING_STRATEGY.md](RETRAINING_STRATEGY.md) - Automated retraining strategies and setup
+- [Documentation/reference/NewAgent.md](Documentation/reference/NewAgent.md) - Original design specification
+- [Documentation/reference/TRAINING_GUIDE.md](Documentation/reference/TRAINING_GUIDE.md) - Complete training guide with historical data
+- [Documentation/reference/RETRAINING_STRATEGY.md](Documentation/reference/RETRAINING_STRATEGY.md) - Automated retraining strategies and setup
 - [WHAT_REMAINS.md](WHAT_REMAINS.md) - What's left to do (training, validation, deployment)
 - [SOL_TRACKER_IMPROVEMENT_PLAN.md](SOL_TRACKER_IMPROVEMENT_PLAN.md) - Complete improvement plan with status
 
@@ -298,7 +298,7 @@ _"Deposit a large amount into an [Orca.so](https://orca.so/) SOL/USDC pool. Thes
 
 This strategy illustrates how both passive income and technical analysis can coexist in a portfolio.
 
-> **Note:** Historical features (price prediction, contextual bandit, automated trading) have been deprecated. See [DEPRECATED.md](DEPRECATED.md) for details.
+> **Note:** Historical features (price prediction, contextual bandit, automated trading) have been deprecated. See [Documentation/reference/DEPRECATED.md](Documentation/reference/DEPRECATED.md) for details.
 
 ## Tech Stack
 
@@ -430,8 +430,8 @@ A brief overview of the project structure:
 - `train_rl_agent.py`: Main script to train RL agent on historical data
 - `retrain_rl_agent.py`: Automated retraining script with adaptive scheduling
 - `migrate_rl_agent_tables.py`: Database migration for RL agent tables.
-- `DEPRECATED.md`: Documentation of deprecated features (price prediction, contextual bandit, automated trading).
-- `trading_bot.py`: (Deprecated) Jupiter ULTRA Trading API function class. Code exists but is disabled. See [DEPRECATED.md](DEPRECATED.md) for details.
+- `Documentation/reference/DEPRECATED.md`: Documentation of deprecated features (price prediction, contextual bandit, automated trading).
+- `trading_bot.py`: (Deprecated) Jupiter ULTRA Trading API function class. Code exists but is disabled. See [Documentation/reference/DEPRECATED.md](Documentation/reference/DEPRECATED.md) for details.
 
 ## Usage
 
@@ -479,7 +479,7 @@ The RL agent can be trained on historical data and retrained periodically to sta
 - ⚠️ **News data is limited** (2 days) compared to price data (5 months)
 - ✅ **System handles missing news gracefully** - automatically pads with zeros
 - ✅ **Model learns from price patterns first** - news enhances decisions later as data accumulates
-- See [TRAINING_GUIDE.md](TRAINING_GUIDE.md) for details on handling missing news
+- See [Documentation/reference/TRAINING_GUIDE.md](Documentation/reference/TRAINING_GUIDE.md) for details on handling missing news
 
 **Initial Training:**
 ```bash
@@ -516,11 +516,11 @@ python retrain_rl_agent.py --mode monthly --epochs 10
 ```
 
 **Automation:**
-Set up automated retraining with cron or systemd (see [RETRAINING_STRATEGY.md](RETRAINING_STRATEGY.md) for details).
+Set up automated retraining with cron or systemd (see [Documentation/reference/RETRAINING_STRATEGY.md](Documentation/reference/RETRAINING_STRATEGY.md) for details).
 
 **Documentation:**
-- [TRAINING_GUIDE.md](TRAINING_GUIDE.md) - Complete guide to training on historical data
-- [RETRAINING_STRATEGY.md](RETRAINING_STRATEGY.md) - Automated retraining strategies and setup
+- [Documentation/reference/TRAINING_GUIDE.md](Documentation/reference/TRAINING_GUIDE.md) - Complete guide to training on historical data
+- [Documentation/reference/RETRAINING_STRATEGY.md](Documentation/reference/RETRAINING_STRATEGY.md) - Automated retraining strategies and setup
 
 ### API Endpoints
 
@@ -534,7 +534,7 @@ The application provides API endpoints for programmatic access to data. Some end
 - `GET /api/rl-agent/feature-importance` - Get SHAP feature importance
 - `GET/POST /api/rl-agent/decision` - Get latest or make new trading decision
 
-**Note:** API documentation for deprecated endpoints (price prediction, bandit actions) has been moved to [DEPRECATED.md](DEPRECATED.md).
+**Note:** API documentation for deprecated endpoints (price prediction, bandit actions) has been moved to [Documentation/reference/DEPRECATED.md](Documentation/reference/DEPRECATED.md).
 
 ## Security Notes
 
@@ -590,7 +590,7 @@ These organizations maintain RSS feeds that allow developers, researchers, and u
 
 ## AI-Assisted Development
 
-This project uses AI coding assistants (primarily Cursor) for implementation while maintaining human oversight for planning, architecture, and code review. We are committed to transparency about our development process. [Read our full disclosure →](VibeCoded.md)
+This project uses AI coding assistants (primarily Cursor) for implementation while maintaining human oversight for planning, architecture, and code review. We are committed to transparency about our development process. [Read our full disclosure →](Documentation/reference/VibeCoded.md)
 
 ---
 

@@ -339,8 +339,15 @@ class TradingActorCritic(nn.Module):
         # Concatenate
         shared_input = torch.cat([price_latent, news_latent, position_latent, time_latent], dim=1)
         shared_input = torch.where(torch.isfinite(shared_input), shared_input, torch.zeros_like(shared_input))
+        
+        # Clamp shared_input to prevent extreme values that could cause NaN
+        shared_input = torch.clamp(shared_input, min=-10.0, max=10.0)
+        
         shared_latent = self.shared(shared_input)
         shared_latent = torch.where(torch.isfinite(shared_latent), shared_latent, torch.zeros_like(shared_latent))
+        
+        # Clamp shared_latent to prevent extreme values
+        shared_latent = torch.clamp(shared_latent, min=-10.0, max=10.0)
         
         # Heads
         action_logits = self.actor(shared_latent)
@@ -348,11 +355,17 @@ class TradingActorCritic(nn.Module):
         pred_1h = self.aux_1h(shared_latent)
         pred_24h = self.aux_24h(shared_latent)
         
-        # Validate outputs
+        # Validate and clamp outputs to prevent extreme values
         action_logits = torch.where(torch.isfinite(action_logits), action_logits, torch.zeros_like(action_logits))
         value = torch.where(torch.isfinite(value), value, torch.zeros_like(value))
+        
+        # For auxiliary predictions, clamp to reasonable range and validate
+        # Predictions should be in range [-1, 1] (i.e., ±100% return)
         pred_1h = torch.where(torch.isfinite(pred_1h), pred_1h, torch.zeros_like(pred_1h))
+        pred_1h = torch.clamp(pred_1h, min=-1.0, max=1.0)  # Clamp to ±100% return
+        
         pred_24h = torch.where(torch.isfinite(pred_24h), pred_24h, torch.zeros_like(pred_24h))
+        pred_24h = torch.clamp(pred_24h, min=-1.0, max=1.0)  # Clamp to ±100% return
         
         return {
             "action_logits": action_logits,

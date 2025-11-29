@@ -48,6 +48,7 @@ class PPOTrainer:
         entropy_coef: float = 0.01,  # Entropy bonus coefficient
         aux_1h_coef: float = 0.1,  # Auxiliary 1h loss coefficient
         aux_24h_coef: float = 0.1,  # Auxiliary 24h loss coefficient
+        enable_auxiliary_losses: bool = True,  # Can disable if causing issues
         max_grad_norm: float = 0.5,
         device: str = "cpu",
         checkpoint_dir: str = "models/rl_agent",
@@ -81,6 +82,7 @@ class PPOTrainer:
         self.entropy_coef = entropy_coef
         self.aux_1h_coef = aux_1h_coef
         self.aux_24h_coef = aux_24h_coef
+        self.enable_auxiliary_losses = enable_auxiliary_losses
         self.max_grad_norm = max_grad_norm
         
         # Optimizer
@@ -406,6 +408,30 @@ class PPOTrainer:
                     batched["news_mask"],
                 )
                 
+                # Validate model outputs immediately
+                if not torch.isfinite(output["action_logits"]).all():
+                    logger.warning("Model output action_logits contains NaN/inf, skipping batch")
+                    continue
+                if not torch.isfinite(output["value"]).all():
+                    logger.warning("Model output value contains NaN/inf, skipping batch")
+                    continue
+                if not torch.isfinite(output["pred_1h"]).all():
+                    logger.warning("Model output pred_1h contains NaN/inf, skipping batch")
+                    # Zero out NaN predictions to prevent gradient issues
+                    output["pred_1h"] = torch.where(
+                        torch.isfinite(output["pred_1h"]),
+                        output["pred_1h"],
+                        torch.zeros_like(output["pred_1h"])
+                    )
+                if not torch.isfinite(output["pred_24h"]).all():
+                    logger.warning("Model output pred_24h contains NaN/inf, skipping batch")
+                    # Zero out NaN predictions to prevent gradient issues
+                    output["pred_24h"] = torch.where(
+                        torch.isfinite(output["pred_24h"]),
+                        output["pred_24h"],
+                        torch.zeros_like(output["pred_24h"])
+                    )
+                
                 # Get action probabilities
                 action_logits = output["action_logits"]
                 action_probs = torch.softmax(action_logits, dim=-1)
@@ -430,20 +456,71 @@ class PPOTrainer:
                 # Compute entropy bonus
                 entropy = -(action_probs * log_probs).sum(dim=1).mean()
                 
-                # Compute auxiliary losses
+                # Compute auxiliary losses (can be disabled if causing issues)
                 aux_1h_loss = 0.0
                 aux_24h_loss = 0.0
                 
-                pred_1h = output["pred_1h"].squeeze(1)
-                pred_24h = output["pred_24h"].squeeze(1)
-                
-                if actual_returns_1h is not None:
-                    batch_returns_1h = actual_returns_1h[batch_indices]
-                    aux_1h_loss = nn.functional.mse_loss(pred_1h, batch_returns_1h)
-                
-                if actual_returns_24h is not None:
-                    batch_returns_24h = actual_returns_24h[batch_indices]
-                    aux_24h_loss = nn.functional.mse_loss(pred_24h, batch_returns_24h)
+                if self.enable_auxiliary_losses:
+                    pred_1h = output["pred_1h"].squeeze(1)
+                    pred_24h = output["pred_24h"].squeeze(1)
+                    
+                    # Validate predictions before computing loss
+                    pred_1h = torch.where(torch.isfinite(pred_1h), pred_1h, torch.zeros_like(pred_1h))
+                    pred_24h = torch.where(torch.isfinite(pred_24h), pred_24h, torch.zeros_like(pred_24h))
+                    
+                    if actual_returns_1h is not None:
+                        batch_returns_1h = actual_returns_1h[batch_indices]
+                        # Validate returns - check for extreme values that could cause issues
+                        batch_returns_1h = torch.where(
+                            torch.isfinite(batch_returns_1h), 
+                            batch_returns_1h, 
+                            torch.zeros_like(batch_returns_1h)
+                        )
+                        # Clip extreme returns to prevent numerical issues
+                        batch_returns_1h = torch.clamp(batch_returns_1h, min=-1.0, max=1.0)  # Max ±100% return
+                        
+                        # Only compute loss if we have valid data
+                        if torch.isfinite(pred_1h).all() and torch.isfinite(batch_returns_1h).all():
+                            # Clip predictions to reasonable range
+                            pred_1h_clipped = torch.clamp(pred_1h, min=-1.0, max=1.0)
+                            aux_1h_loss = nn.functional.mse_loss(pred_1h_clipped, batch_returns_1h)
+                            # Validate loss
+                            if not torch.isfinite(aux_1h_loss):
+                                aux_1h_loss = torch.tensor(0.0, device=self.device)
+                                logger.warning("aux_1h_loss was NaN/inf, setting to 0")
+                        else:
+                            # Skip auxiliary loss if data is invalid
+                            aux_1h_loss = torch.tensor(0.0, device=self.device)
+                            logger.debug("Skipping aux_1h_loss due to invalid data")
+                    
+                    if actual_returns_24h is not None:
+                        batch_returns_24h = actual_returns_24h[batch_indices]
+                        # Validate returns - check for extreme values that could cause issues
+                        batch_returns_24h = torch.where(
+                            torch.isfinite(batch_returns_24h), 
+                            batch_returns_24h, 
+                            torch.zeros_like(batch_returns_24h)
+                        )
+                        # Clip extreme returns to prevent numerical issues
+                        batch_returns_24h = torch.clamp(batch_returns_24h, min=-1.0, max=1.0)  # Max ±100% return
+                        
+                        # Only compute loss if we have valid data
+                        if torch.isfinite(pred_24h).all() and torch.isfinite(batch_returns_24h).all():
+                            # Clip predictions to reasonable range
+                            pred_24h_clipped = torch.clamp(pred_24h, min=-1.0, max=1.0)
+                            aux_24h_loss = nn.functional.mse_loss(pred_24h_clipped, batch_returns_24h)
+                            # Validate loss
+                            if not torch.isfinite(aux_24h_loss):
+                                aux_24h_loss = torch.tensor(0.0, device=self.device)
+                                logger.warning("aux_24h_loss was NaN/inf, setting to 0")
+                        else:
+                            # Skip auxiliary loss if data is invalid
+                            aux_24h_loss = torch.tensor(0.0, device=self.device)
+                            logger.debug("Skipping aux_24h_loss due to invalid data")
+                else:
+                    # Auxiliary losses disabled
+                    aux_1h_loss = torch.tensor(0.0, device=self.device)
+                    aux_24h_loss = torch.tensor(0.0, device=self.device)
                 
                 # Total loss
                 total_loss = (
@@ -454,12 +531,29 @@ class PPOTrainer:
                     + self.aux_24h_coef * aux_24h_loss
                 )
                 
+                # Validate total loss before backward
+                if not torch.isfinite(total_loss):
+                    logger.warning(f"Total loss is NaN/inf: {total_loss}, skipping backward pass")
+                    continue
+                
                 # Backward pass
                 self.optimizer.zero_grad()
                 total_loss.backward()
                 
-                # Gradient clipping
+                # Gradient clipping - with special handling for auxiliary heads
+                # Clip all gradients
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                
+                # Additional protection: zero out NaN/inf gradients in auxiliary heads
+                for name, param in self.model.named_parameters():
+                    if 'aux' in name and param.grad is not None:
+                        if not torch.isfinite(param.grad).all():
+                            logger.warning(f"NaN/inf gradient detected in {name}, zeroing out")
+                            param.grad = torch.where(
+                                torch.isfinite(param.grad),
+                                param.grad,
+                                torch.zeros_like(param.grad)
+                            )
                 
                 # Optimize
                 self.optimizer.step()

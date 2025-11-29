@@ -79,17 +79,54 @@ def generate_prediction(
             position_tensor, time_tensor, news_mask
         )
         
-        pred_1h = output["pred_1h"].item()
-        pred_24h = output["pred_24h"].item()
+        # Extract predictions - handle both batched and unbatched outputs
+        pred_1h_tensor = output["pred_1h"]
+        pred_24h_tensor = output["pred_24h"]
+        
+        # If batched, take first element
+        if pred_1h_tensor.dim() > 1:
+            pred_1h = pred_1h_tensor[0].item()
+        else:
+            pred_1h = pred_1h_tensor.item()
+            
+        if pred_24h_tensor.dim() > 1:
+            pred_24h = pred_24h_tensor[0].item()
+        else:
+            pred_24h = pred_24h_tensor.item()
+        
+        # Log raw predictions for debugging
+        logger.debug(f"Raw predictions - 1h: {pred_1h}, 24h: {pred_24h}")
+        
+        # Check if predictions are zero or near-zero (might indicate untrained model)
+        if abs(pred_1h) < 1e-6 and abs(pred_24h) < 1e-6:
+            logger.warning(
+                "Predictions are near-zero. This may indicate: "
+                "1) Model hasn't been trained yet, "
+                "2) Auxiliary heads need more training, or "
+                "3) Model needs retraining with auxiliary loss focus."
+            )
         
         # For confidence, we could use:
         # 1. Model uncertainty (if we had ensemble or dropout)
         # 2. Value estimate variance
         # 3. Entropy of action distribution
         # For now, use a simple heuristic based on value estimate
-        value_estimate = output["value"].item()
-        confidence_1h = min(1.0, max(0.0, abs(value_estimate) * 2.0))  # Simple heuristic
-        confidence_24h = confidence_1h * 0.8  # 24h predictions are less confident
+        value_estimate = output["value"].item() if output["value"].dim() == 0 else output["value"][0].item()
+        
+        # Confidence based on prediction magnitude and value estimate
+        # If predictions are near-zero, confidence should be low
+        pred_magnitude_1h = abs(pred_1h)
+        pred_magnitude_24h = abs(pred_24h)
+        
+        # Combine value estimate and prediction magnitude for confidence
+        confidence_1h = min(1.0, max(0.1, (abs(value_estimate) * 0.5 + pred_magnitude_1h * 10.0)))
+        confidence_24h = min(1.0, max(0.1, (abs(value_estimate) * 0.4 + pred_magnitude_24h * 8.0)))
+        
+        # If predictions are essentially zero, set low confidence
+        if abs(pred_1h) < 1e-6:
+            confidence_1h = 0.1  # Very low confidence for zero predictions
+        if abs(pred_24h) < 1e-6:
+            confidence_24h = 0.1  # Very low confidence for zero predictions
     
     return pred_1h, pred_24h, confidence_1h, confidence_24h
 

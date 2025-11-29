@@ -155,6 +155,28 @@ class ModelManager:
             if 'model_state_dict' not in checkpoint:
                 return False, "Checkpoint missing 'model_state_dict'"
             
+            # Check for NaN weights in model state (especially auxiliary heads)
+            model_state = checkpoint['model_state_dict']
+            nan_keys = []
+            for key, weight in model_state.items():
+                if isinstance(weight, torch.Tensor) and torch.isnan(weight).any():
+                    nan_keys.append(key)
+            
+            if nan_keys:
+                # Check if it's just auxiliary heads (can be fixed)
+                aux_nan_keys = [k for k in nan_keys if 'aux' in k]
+                other_nan_keys = [k for k in nan_keys if 'aux' not in k]
+                
+                if other_nan_keys:
+                    return False, f"Model has NaN weights in critical layers: {other_nan_keys[:3]}"
+                elif aux_nan_keys:
+                    logger.warning(
+                        f"Model has NaN weights in auxiliary heads: {aux_nan_keys}. "
+                        f"Run fix_auxiliary_heads.py to repair."
+                    )
+                    # For now, allow it but warn - predictions will be zero
+                    # In production, you might want to return False here
+            
             # Try to instantiate and load model
             try:
                 model = model_class(**model_kwargs)
