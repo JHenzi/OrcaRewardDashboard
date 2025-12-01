@@ -1508,6 +1508,22 @@ def sol_tracker():
             global news_analyzer
             if news_analyzer is None:
                 news_analyzer = NewsSentimentAnalyzer()
+            
+            # Force refresh if news is stale (older than 6 hours)
+            # Check last fetch time and force refresh if needed
+            try:
+                # Try to fetch fresh news if cooldown allows
+                articles = news_analyzer.fetch_news(force=False)
+                if articles:
+                    # Process and store new articles
+                    current_price = actual_current_price if actual_current_price else (prices[-1] if prices else 100.0)
+                    processed = news_analyzer.process_and_store_news(articles, current_price)
+                    if processed > 0:
+                        logger.info(f"Processed {processed} new news articles")
+            except Exception as e:
+                logger.debug(f"News fetch skipped (cooldown or error): {e}")
+            
+            # Get recent news features
             news_features = news_analyzer.get_recent_news_features(hours=24, crypto_only=True)
         except Exception as e:
             logger.warning(f"Failed to get news features: {e}")
@@ -1721,6 +1737,18 @@ def get_rl_agent_attention():
             # Get attention aggregated by cluster
             hours = int(request.args.get('hours', 24))
             cluster_stats = attention_logger.get_attention_by_cluster(hours=hours)
+            
+            # If no cluster stats, try to run clustering on recent news
+            if not cluster_stats or len(cluster_stats) == 0:
+                try:
+                    from news_sentiment import NewsSentimentAnalyzer
+                    news_analyzer = NewsSentimentAnalyzer()
+                    clusters = news_analyzer.cluster_news_topics(hours=168, n_clusters=10)  # Cluster last week
+                    if clusters:
+                        logger.info(f"Generated {len(clusters)} news clusters")
+                except Exception as e:
+                    logger.debug(f"Could not run clustering: {e}")
+            
             return jsonify({
                 'success': True,
                 'cluster_stats': cluster_stats
@@ -1760,11 +1788,28 @@ def get_rl_agent_risk():
         }), 503
     
     try:
-        # In a real implementation, this would get the actual risk manager instance
-        # For now, return placeholder structure
-        # TODO: Integrate with actual RL agent instance when it's running
+        # Get the actual risk manager instance from RL agent integration if available
+        global rl_agent_integration
+        if rl_agent_integration and hasattr(rl_agent_integration, 'risk_manager'):
+            risk_manager = rl_agent_integration.risk_manager
+        else:
+            # Fallback: create new instance (will have no history)
+            risk_manager = RiskManager()
+            # Initialize with default values if no history
+            if risk_manager.daily_start_value is None:
+                # Try to get portfolio value from database or use default
+                try:
+                    conn = sqlite3.connect("sol_prices.db")
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT rate FROM sol_prices ORDER BY timestamp DESC LIMIT 1")
+                    result = cursor.fetchone()
+                    current_price = result[0] if result else 100.0
+                    conn.close()
+                    # Initialize with a default portfolio value
+                    risk_manager.reset_daily_tracking(current_price * 100)  # Assume 100 SOL portfolio
+                except:
+                    risk_manager.reset_daily_tracking(10000.0)  # Default $10k portfolio
         
-        risk_manager = RiskManager()
         metrics = risk_manager.get_risk_metrics()
         
         return jsonify({
@@ -1808,6 +1853,28 @@ def get_rl_agent_rules():
             min_win_rate=min_win_rate,
             limit=limit,
         )
+        
+        # If no rules found, try to extract rules from recent decisions
+        if len(rules) == 0:
+            try:
+                logger.info("No rules found, attempting to extract rules from recent decisions...")
+                extracted_rules = rule_extractor.extract_rules_from_decisions(
+                    min_samples=50,
+                    max_depth=5,
+                    min_samples_split=10,
+                )
+                if extracted_rules:
+                    # Evaluate and store rules
+                    rule_extractor.store_rules(extracted_rules)
+                    # Get rules again after extraction
+                    rules = rule_extractor.get_discovered_rules(
+                        action=action,
+                        min_win_rate=min_win_rate,
+                        limit=limit,
+                    )
+                    logger.info(f"Extracted and stored {len(rules)} new rules")
+            except Exception as e:
+                logger.warning(f"Could not extract rules: {e}")
         
         return jsonify({
             'success': True,

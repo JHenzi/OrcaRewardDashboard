@@ -88,124 +88,56 @@
         <div class="mb-8 fade-in">
             <!-- Main Price Card -->
             <div class="bg-gradient-to-r {% if stats.percent_change is not none and stats.percent_change > 0 %}from-green-600 to-emerald-600{% elif stats.percent_change is not none and stats.percent_change < 0 %}from-red-600 to-rose-600{% else %}from-purple-600 to-blue-600{% endif %} rounded-2xl shadow-2xl p-6 border-2 {% if stats.percent_change is not none and stats.percent_change > 0 %}border-green-400{% elif stats.percent_change is not none and stats.percent_change < 0 %}border-red-400{% else %}border-purple-400{% endif %}">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
                     <!-- Left: Price & Change -->
-                    <div class="lg:col-span-1">
-                        <div class="flex items-center space-x-4">
-                            <div class="text-4xl md:text-5xl">
-                                {% if stats.percent_change_display is not none and stats.percent_change_display > 0 %}
-                                    📈
-                                {% elif stats.percent_change_display is not none and stats.percent_change_display < 0 %}
-                                    📉
+                    <div class="flex items-center space-x-4">
+                        <div class="text-4xl md:text-5xl">
+                            {% if stats.percent_change_display is not none and stats.percent_change_display > 0 %}
+                                📈
+                            {% elif stats.percent_change_display is not none and stats.percent_change_display < 0 %}
+                                📉
+                            {% else %}
+                                💰
+                            {% endif %}
+                        </div>
+                        <div>
+                            <div class="text-xs md:text-sm text-white/80 mb-1 font-medium">SOLANA (SOL)</div>
+                            <div class="text-3xl md:text-4xl font-extrabold text-white">
+                                ${{ "%.2f"|format(stats.current_price) if stats.current_price is not none else 'N/A' }}
+                            </div>
+                            <div class="flex items-center space-x-2 mt-1">
+                                {% if stats.percent_change_display is not none %}
+                                    <span class="text-lg md:text-xl font-bold text-white">
+                                        {% if stats.percent_change_display > 0 %}⬆️{% elif stats.percent_change_display < 0 %}⬇️{% else %}➡️{% endif %}
+                                        {{ "%.2f"|format(stats.percent_change_display) }}%
+                                    </span>
+                                    <span class="text-xs text-white/70">24h</span>
                                 {% else %}
-                                    💰
+                                    <span class="text-lg md:text-xl font-bold text-white/50">N/A</span>
                                 {% endif %}
-                            </div>
-                            <div>
-                                <div class="text-xs md:text-sm text-white/80 mb-1 font-medium">SOLANA (SOL)</div>
-                                <div class="text-3xl md:text-4xl font-extrabold text-white">
-                                    ${{ "%.2f"|format(stats.current_price) if stats.current_price is not none else 'N/A' }}
-                                </div>
-                                <div class="flex items-center space-x-2 mt-1">
-                                    {% if stats.percent_change_display is not none %}
-                                        <span class="text-lg md:text-xl font-bold text-white">
-                                            {% if stats.percent_change_display > 0 %}⬆️{% elif stats.percent_change_display < 0 %}⬇️{% else %}➡️{% endif %}
-                                            {{ "%.2f"|format(stats.percent_change_display) }}%
-                                        </span>
-                                        <span class="text-xs text-white/70">24h</span>
-                                    {% else %}
-                                        <span class="text-lg md:text-xl font-bold text-white/50">N/A</span>
-                                    {% endif %}
-                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Center: Key Stats Grid -->
-                    <div class="lg:col-span-1">
-                        <div class="grid grid-cols-2 gap-3">
-                            <!-- Range -->
-                            {% if stats.range is not none %}
-                            <div class="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
-                                <div class="text-xs text-white/70 mb-1">Range ({{ selected_range|capitalize }})</div>
-                                <div class="text-lg font-bold text-white">${{ "%.2f"|format(stats.range) }}</div>
-                                <div class="text-xs text-white/60">${{ "%.2f"|format(stats.low) }} - ${{ "%.2f"|format(stats.high) }}</div>
-                            </div>
-                            {% endif %}
-                            
-                            <!-- Std Dev -->
-                            {% if stats.std_dev is not none %}
-                            <div class="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
-                                <div class="text-xs text-white/70 mb-1">Volatility (Std Dev)</div>
-                                <div class="text-lg font-bold text-white">${{ "%.2f"|format(stats.std_dev) }}</div>
-                                <div class="text-xs {% if stats.std_dev > 2 %}text-red-300{% elif stats.std_dev > 1 %}text-yellow-300{% else %}text-green-300{% endif %}">
-                                    {% if stats.std_dev > 2 %}High{% elif stats.std_dev > 1 %}Moderate{% else %}Low{% endif %}
-                                </div>
-                            </div>
-                            {% endif %}
-                            
-                            <!-- RSI -->
-                            {% if stats.rsi is not none %}
-                            <div class="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
-                                <div class="text-xs text-white/70 mb-1">RSI (14)</div>
-                                <div class="text-lg font-bold {% if stats.rsi > 70 %}text-red-300{% elif stats.rsi < 30 %}text-green-300{% else %}text-white{% endif %}">
-                                    {{ "%.1f"|format(stats.rsi) }}
-                                </div>
-                                <div class="text-xs {% if stats.rsi > 70 %}text-red-300{% elif stats.rsi < 30 %}text-green-300{% else %}text-white/70{% endif %}">
-                                    {% if stats.rsi > 70 %}Overbought{% elif stats.rsi < 30 %}Oversold{% else %}Neutral{% endif %}
-                                </div>
-                            </div>
-                            {% endif %}
-                            
-                            <!-- Current Signal -->
-                            {% if stats.rsi is not none %}
-                            <div class="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
-                                <div class="text-xs text-white/70 mb-1">Current Signal</div>
-                                <div class="text-lg font-bold {% if stats.rsi < 30 %}text-green-300{% elif stats.rsi > 70 %}text-red-300{% else %}text-yellow-300{% endif %}">
-                                    {% if stats.rsi < 30 %}🟢 BUY{% elif stats.rsi > 70 %}🔴 SELL{% else %}🟡 HOLD{% endif %}
-                                </div>
-                                <div class="text-xs text-white/60">
-                                    {% if stats.rsi < 30 %}Oversold{% elif stats.rsi > 70 %}Overbought{% else %}Neutral{% endif %}
-                                </div>
-                            </div>
-                            {% endif %}
+                    <!-- Right: Price Range & Volatility -->
+                    <div class="flex flex-wrap items-center gap-4">
+                        {% if stats.range is not none %}
+                        <div class="text-center">
+                            <div class="text-xs text-white/70 mb-1">24h Range</div>
+                            <div class="text-lg font-bold text-white">${{ "%.2f"|format(stats.low) }} - ${{ "%.2f"|format(stats.high) }}</div>
+                            <div class="text-xs text-white/60">${{ "%.2f"|format(stats.range) }} spread</div>
                         </div>
-                    </div>
-
-                    <!-- Right: Signal Performance Trends -->
-                    <div class="lg:col-span-1">
-                        <div class="bg-white/10 rounded-lg p-4 backdrop-blur-sm">
-                            <div class="text-xs text-white/70 mb-3 font-semibold">Signal Performance (24h)</div>
-                            <div class="space-y-2">
-                                {% if performance_stats.rsi_buy and performance_stats.rsi_buy.win_rate is not none and performance_stats.rsi_buy.win_rate > 0 %}
-                                <div class="flex items-center justify-between">
-                                    <span class="text-xs text-white/80">RSI Buy:</span>
-                                    <span class="text-sm font-bold {% if performance_stats.rsi_buy.win_rate >= 60 %}text-green-300{% elif performance_stats.rsi_buy.win_rate >= 50 %}text-yellow-300{% else %}text-red-300{% endif %}">
-                                        {{ "%.0f"|format(performance_stats.rsi_buy.win_rate) }}% win
-                                    </span>
-                                </div>
-                                {% endif %}
-                                {% if performance_stats.rsi_sell and performance_stats.rsi_sell.win_rate is not none and performance_stats.rsi_sell.win_rate > 0 %}
-                                <div class="flex items-center justify-between">
-                                    <span class="text-xs text-white/80">RSI Sell:</span>
-                                    <span class="text-sm font-bold {% if performance_stats.rsi_sell.win_rate >= 60 %}text-green-300{% elif performance_stats.rsi_sell.win_rate >= 50 %}text-yellow-300{% else %}text-red-300{% endif %}">
-                                        {{ "%.0f"|format(performance_stats.rsi_sell.win_rate) }}% win
-                                    </span>
-                                </div>
-                                {% endif %}
-                                {% if performance_stats.rsi_hold and performance_stats.rsi_hold.win_rate is not none and performance_stats.rsi_hold.win_rate > 0 %}
-                                <div class="flex items-center justify-between">
-                                    <span class="text-xs text-white/80">RSI Hold:</span>
-                                    <span class="text-sm font-bold {% if performance_stats.rsi_hold.win_rate >= 60 %}text-green-300{% elif performance_stats.rsi_hold.win_rate >= 50 %}text-yellow-300{% else %}text-red-300{% endif %}">
-                                        {{ "%.0f"|format(performance_stats.rsi_hold.win_rate) }}% win
-                                    </span>
-                                </div>
-                                {% endif %}
-                                {% if not (performance_stats.rsi_buy and performance_stats.rsi_buy.win_rate) and not (performance_stats.rsi_sell and performance_stats.rsi_sell.win_rate) and not (performance_stats.rsi_hold and performance_stats.rsi_hold.win_rate) %}
-                                <div class="text-xs text-white/60 italic">Collecting signal data...</div>
-                                {% endif %}
+                        {% endif %}
+                        
+                        {% if stats.std_dev is not none %}
+                        <div class="text-center">
+                            <div class="text-xs text-white/70 mb-1">Volatility</div>
+                            <div class="text-lg font-bold text-white">${{ "%.2f"|format(stats.std_dev) }}</div>
+                            <div class="text-xs {% if stats.std_dev > 2 %}text-red-300{% elif stats.std_dev > 1 %}text-yellow-300{% else %}text-green-300{% endif %}">
+                                {% if stats.std_dev > 2 %}High{% elif stats.std_dev > 1 %}Moderate{% else %}Low{% endif %}
                             </div>
                         </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -240,37 +172,351 @@
             </div>
         </div>
 
-        <!-- RSI-Based Trading Signal -->
+        <!-- Unified Trading Signals Panel -->
         <div class="mb-8 fade-in">
-          {% if stats.rsi is not none %}
-            {% if stats.rsi < 30 %}
-              <!-- BUY Signal - RSI Oversold -->
-              <div class="bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl shadow-2xl p-8 border-2 border-green-400 animate-pulse">
-                <div class="text-center">
-                  <div class="text-5xl font-extrabold mb-4 flex items-center justify-center space-x-4">
-                    <span>🟢 BUY SIGNAL</span>
-                  </div>
-                  <div class="text-2xl mb-4 opacity-90">RSI indicates oversold conditions</div>
-                  <div class="grid grid-cols-3 gap-6 mt-6">
-                    <div class="bg-white/10 rounded-lg p-4">
-                      <div class="text-sm opacity-80 mb-1">RSI Value</div>
-                      <div class="text-3xl font-bold">{{ "%.1f"|format(stats.rsi) }}</div>
-                    </div>
-                    <div class="bg-white/10 rounded-lg p-4">
-                      <div class="text-sm opacity-80 mb-1">Current Price</div>
-                      <div class="text-3xl font-bold">${{ "%.2f"|format(stats.current_price) if stats.current_price is not none else 'N/A' }}</div>
-                    </div>
-                    <div class="bg-white/10 rounded-lg p-4">
-                      <div class="text-sm opacity-80 mb-1">Signal Strength</div>
-                      <div class="text-3xl font-bold">Strong</div>
-                    </div>
-                  </div>
-                  <div class="mt-6 text-sm opacity-75 italic">
-                    RSI below 30 suggests potential buying opportunity. Consider entering long positions.
-                  </div>
+          <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-lg">
+            <h2 class="text-2xl font-bold text-white mb-6 flex items-center space-x-2">
+              <span>📊</span>
+              <span>Trading Signals</span>
+            </h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+              <!-- RSI Signal -->
+              {% if stats.rsi is not none %}
+                {% if stats.rsi < 30 %}
+                  {% set rsi_signal = 'BUY' %}
+                  {% set rsi_color = 'green' %}
+                  {% set rsi_arrow = '⬆️' %}
+                  {% set rsi_message = 'Oversold' %}
+                {% elif stats.rsi > 70 %}
+                  {% set rsi_signal = 'SELL' %}
+                  {% set rsi_color = 'red' %}
+                  {% set rsi_arrow = '⬇️' %}
+                  {% set rsi_message = 'Overbought' %}
+                {% else %}
+                  {% set rsi_signal = 'HOLD' %}
+                  {% set rsi_color = 'yellow' %}
+                  {% set rsi_arrow = '➡️' %}
+                  {% set rsi_message = 'Neutral' %}
+                {% endif %}
+              {% else %}
+                {% set rsi_signal = 'N/A' %}
+                {% set rsi_color = 'gray' %}
+                {% set rsi_arrow = '—' %}
+                {% set rsi_message = 'No Data' %}
+              {% endif %}
+              
+              <div class="bg-gray-700/50 rounded-lg p-4 border-2 {% if rsi_color == 'green' %}border-green-500{% elif rsi_color == 'red' %}border-red-500{% elif rsi_color == 'yellow' %}border-yellow-500{% else %}border-gray-600{% endif %}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-sm font-semibold text-gray-300">RSI Signal</span>
+                  <span class="text-2xl">{{ rsi_arrow }}</span>
                 </div>
+                <div class="flex items-center space-x-2 mb-1">
+                  <span class="text-xl font-bold {% if rsi_color == 'green' %}text-green-400{% elif rsi_color == 'red' %}text-red-400{% elif rsi_color == 'yellow' %}text-yellow-400{% else %}text-gray-400{% endif %}">
+                    {{ rsi_signal }}
+                  </span>
+                  {% if stats.rsi is not none %}
+                    <span class="text-xs text-gray-400">({{ "%.1f"|format(stats.rsi) }})</span>
+                  {% endif %}
+                </div>
+                <p class="text-xs text-gray-400">{{ rsi_message }}</p>
               </div>
+
+              <!-- Bandit Recommendation -->
+              {% if latest_bandit %}
+                {% if latest_bandit.action == 'buy' %}
+                  {% set bandit_signal = 'BUY' %}
+                  {% set bandit_color = 'green' %}
+                  {% set bandit_arrow = '⬆️' %}
+                {% elif latest_bandit.action == 'sell' %}
+                  {% set bandit_signal = 'SELL' %}
+                  {% set bandit_color = 'red' %}
+                  {% set bandit_arrow = '⬇️' %}
+                {% else %}
+                  {% set bandit_signal = 'HOLD' %}
+                  {% set bandit_color = 'yellow' %}
+                  {% set bandit_arrow = '➡️' %}
+                {% endif %}
+              {% else %}
+                {% set bandit_signal = 'N/A' %}
+                {% set bandit_color = 'gray' %}
+                {% set bandit_arrow = '—' %}
+              {% endif %}
+              
+              <div class="bg-gray-700/50 rounded-lg p-4 border-2 {% if bandit_color == 'green' %}border-green-500{% elif bandit_color == 'red' %}border-red-500{% elif bandit_color == 'yellow' %}border-yellow-500{% else %}border-gray-600{% endif %}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-sm font-semibold text-gray-300">Bandit</span>
+                  <span class="text-2xl">{{ bandit_arrow }}</span>
+                </div>
+                <div class="flex items-center space-x-2 mb-1">
+                  <span class="text-xl font-bold {% if bandit_color == 'green' %}text-green-400{% elif bandit_color == 'red' %}text-red-400{% elif bandit_color == 'yellow' %}text-yellow-400{% else %}text-gray-400{% endif %}">
+                    {{ bandit_signal }}
+                  </span>
+                </div>
+                {% if latest_bandit and latest_bandit.reward is not none %}
+                  <p class="text-xs text-gray-400">Reward: {{ "%.4f"|format(latest_bandit.reward) }}</p>
+                {% else %}
+                  <p class="text-xs text-gray-400">No recommendation</p>
+                {% endif %}
+              </div>
+              
+              <!-- Signal Consensus Summary -->
+              {% set bullish_count = 0 %}
+              {% set bearish_count = 0 %}
+              {% set neutral_count = 0 %}
+              
+              {% if stats.rsi is not none %}
+                {% if stats.rsi < 30 %}{% set bullish_count = bullish_count + 1 %}
+                {% elif stats.rsi > 70 %}{% set bearish_count = bearish_count + 1 %}
+                {% else %}{% set neutral_count = neutral_count + 1 %}{% endif %}
+              {% endif %}
+              
+              {% if stats.sma_1h is not none and stats.current_price is not none %}
+                {% set sma1h_signal = 'BULLISH' if stats.current_price > stats.sma_1h else ('BEARISH' if stats.current_price < stats.sma_1h else 'NEUTRAL') %}
+                {% if sma1h_signal == 'BULLISH' %}{% set bullish_count = bullish_count + 1 %}
+                {% elif sma1h_signal == 'BEARISH' %}{% set bearish_count = bearish_count + 1 %}
+                {% else %}{% set neutral_count = neutral_count + 1 %}{% endif %}
+              {% endif %}
+              
+              {% if stats.sma_4h is not none and stats.current_price is not none %}
+                {% set sma4h_signal = 'BULLISH' if stats.current_price > stats.sma_4h else ('BEARISH' if stats.current_price < stats.sma_4h else 'NEUTRAL') %}
+                {% if sma4h_signal == 'BULLISH' %}{% set bullish_count = bullish_count + 1 %}
+                {% elif sma4h_signal == 'BEARISH' %}{% set bearish_count = bearish_count + 1 %}
+                {% else %}{% set neutral_count = neutral_count + 1 %}{% endif %}
+              {% endif %}
+              
+              {% if stats.sma_24h is not none and stats.current_price is not none %}
+                {% set sma24h_signal = 'BULLISH' if stats.current_price > stats.sma_24h else ('BEARISH' if stats.current_price < stats.sma_24h else 'NEUTRAL') %}
+                {% if sma24h_signal == 'BULLISH' %}{% set bullish_count = bullish_count + 1 %}
+                {% elif sma24h_signal == 'BEARISH' %}{% set bearish_count = bearish_count + 1 %}
+                {% else %}{% set neutral_count = neutral_count + 1 %}{% endif %}
+              {% endif %}
+              
+              {% if stats.macd_line is not none and stats.macd_signal is not none %}
+                {% set macd_signal = 'BULLISH' if stats.macd_line > stats.macd_signal else ('BEARISH' if stats.macd_line < stats.macd_signal else 'NEUTRAL') %}
+                {% if macd_signal == 'BULLISH' %}{% set bullish_count = bullish_count + 1 %}
+                {% elif macd_signal == 'BEARISH' %}{% set bearish_count = bearish_count + 1 %}
+                {% else %}{% set neutral_count = neutral_count + 1 %}{% endif %}
+              {% endif %}
+              
+              {% if stats.bb_position is not none %}
+                {% set bb_signal = 'OVERSOLD' if stats.bb_position < 20 else ('OVERBOUGHT' if stats.bb_position > 80 else 'NEUTRAL') %}
+                {% if bb_signal == 'OVERSOLD' %}{% set bullish_count = bullish_count + 1 %}
+                {% elif bb_signal == 'OVERBOUGHT' %}{% set bearish_count = bearish_count + 1 %}
+                {% else %}{% set neutral_count = neutral_count + 1 %}{% endif %}
+              {% endif %}
+              
+              {% if stats.momentum_10 is not none %}
+                {% set momentum_signal = 'BULLISH' if stats.momentum_10 > 2 else ('BEARISH' if stats.momentum_10 < -2 else 'NEUTRAL') %}
+                {% if momentum_signal == 'BULLISH' %}{% set bullish_count = bullish_count + 1 %}
+                {% elif momentum_signal == 'BEARISH' %}{% set bearish_count = bearish_count + 1 %}
+                {% else %}{% set neutral_count = neutral_count + 1 %}{% endif %}
+              {% endif %}
+              
+              {% set total_signals = bullish_count + bearish_count + neutral_count %}
+              {% if bullish_count > bearish_count and bullish_count > neutral_count %}
+                {% set consensus_signal = 'BULLISH' %}
+                {% set consensus_color = 'green' %}
+                {% set consensus_arrow = '⬆️' %}
+              {% elif bearish_count > bullish_count and bearish_count > neutral_count %}
+                {% set consensus_signal = 'BEARISH' %}
+                {% set consensus_color = 'red' %}
+                {% set consensus_arrow = '⬇️' %}
+              {% else %}
+                {% set consensus_signal = 'MIXED' %}
+                {% set consensus_color = 'yellow' %}
+                {% set consensus_arrow = '➡️' %}
+              {% endif %}
+              
+              <div class="bg-gray-700/50 rounded-lg p-4 border-2 {% if consensus_color == 'green' %}border-green-500{% elif consensus_color == 'red' %}border-red-500{% else %}border-yellow-500{% endif %}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-sm font-semibold text-gray-300">Consensus</span>
+                  <span class="text-2xl">{{ consensus_arrow }}</span>
+                </div>
+                <div class="flex items-center space-x-2 mb-1">
+                  <span class="text-xl font-bold {% if consensus_color == 'green' %}text-green-400{% elif consensus_color == 'red' %}text-red-400{% else %}text-yellow-400{% endif %}">
+                    {{ consensus_signal }}
+                  </span>
+                </div>
+                <p class="text-xs text-gray-400">{{ bullish_count }}/{{ total_signals }} indicators bullish</p>
+              </div>
+            </div>
+            
+            <!-- Detailed Technical Indicators -->
+            <div class="mt-6 pt-4 border-t border-gray-700">
+              <h3 class="text-sm font-semibold text-gray-300 mb-4">Detailed Technical Indicators</h3>
+              <div class="grid grid-cols-2 gap-4">
+                  {% if stats.rsi is not none %}
+            {% if stats.rsi < 30 %}
+              {% set rsi_signal = 'BUY' %}
+              {% set rsi_color = 'green' %}
+              {% set rsi_arrow = '⬆️' %}
+              {% set rsi_message = 'Oversold - Buy Opportunity' %}
             {% elif stats.rsi > 70 %}
+              {% set rsi_signal = 'SELL' %}
+              {% set rsi_color = 'red' %}
+              {% set rsi_arrow = '⬇️' %}
+              {% set rsi_message = 'Overbought - Sell Opportunity' %}
+            {% else %}
+              {% set rsi_signal = 'HOLD' %}
+              {% set rsi_color = 'yellow' %}
+              {% set rsi_arrow = '➡️' %}
+              {% set rsi_message = 'Neutral - Wait for Clear Signal' %}
+            {% endif %}
+          {% else %}
+            {% set rsi_signal = 'N/A' %}
+            {% set rsi_color = 'gray' %}
+            {% set rsi_arrow = '—' %}
+            {% set rsi_message = 'Insufficient Data' %}
+          {% endif %}
+          
+          <div class="bg-gray-700/50 rounded-lg p-4 border {% if rsi_color == 'green' %}border-green-500/50{% elif rsi_color == 'red' %}border-red-500/50{% elif rsi_color == 'yellow' %}border-yellow-500/50{% else %}border-gray-600{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-semibold text-gray-300">RSI (14)</span>
+              <span class="text-2xl">{{ rsi_arrow }}</span>
+            </div>
+            <div class="flex items-center space-x-2 mb-1">
+              <span class="text-lg font-bold {% if rsi_color == 'green' %}text-green-400{% elif rsi_color == 'red' %}text-red-400{% elif rsi_color == 'yellow' %}text-yellow-400{% else %}text-gray-400{% endif %}">
+                {{ rsi_signal }}
+              </span>
+              {% if stats.rsi is not none %}
+                <span class="text-sm text-gray-400">({{ "%.1f"|format(stats.rsi) }})</span>
+              {% endif %}
+            </div>
+            <p class="text-xs text-gray-400">{{ rsi_message }}</p>
+          </div>
+
+          <!-- Price vs SMA 1h -->
+          {% if stats.price_vs_sma_1h is not none %}
+            {% if stats.price_vs_sma_1h > 2 %}
+              {% set sma1h_signal = 'BULLISH' %}
+              {% set sma1h_color = 'green' %}
+              {% set sma1h_arrow = '⬆️' %}
+              {% set sma1h_message = 'Price well above 1h average' %}
+            {% elif stats.price_vs_sma_1h < -2 %}
+              {% set sma1h_signal = 'BEARISH' %}
+              {% set sma1h_color = 'red' %}
+              {% set sma1h_arrow = '⬇️' %}
+              {% set sma1h_message = 'Price well below 1h average' %}
+            {% else %}
+              {% set sma1h_signal = 'NEUTRAL' %}
+              {% set sma1h_color = 'gray' %}
+              {% set sma1h_arrow = '➡️' %}
+              {% set sma1h_message = 'Price near 1h average' %}
+            {% endif %}
+          {% else %}
+            {% set sma1h_signal = 'N/A' %}
+            {% set sma1h_color = 'gray' %}
+            {% set sma1h_arrow = '—' %}
+            {% set sma1h_message = 'Insufficient Data' %}
+          {% endif %}
+          
+          <div class="bg-gray-700/50 rounded-lg p-4 border {% if sma1h_color == 'green' %}border-green-500/50{% elif sma1h_color == 'red' %}border-red-500/50{% else %}border-gray-600{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-semibold text-gray-300">Price vs SMA (1h)</span>
+              <span class="text-2xl">{{ sma1h_arrow }}</span>
+            </div>
+            <div class="flex items-center space-x-2 mb-1">
+              <span class="text-lg font-bold {% if sma1h_color == 'green' %}text-green-400{% elif sma1h_color == 'red' %}text-red-400{% else %}text-gray-400{% endif %}">
+                {{ sma1h_signal }}
+              </span>
+              {% if stats.price_vs_sma_1h is not none %}
+                <span class="text-sm text-gray-400">({{ "%+.2f"|format(stats.price_vs_sma_1h) }}%)</span>
+              {% endif %}
+            </div>
+            <p class="text-xs text-gray-400">{{ sma1h_message }}</p>
+          </div>
+
+          <!-- Price vs SMA 4h -->
+          {% if stats.price_vs_sma_4h is not none %}
+            {% if stats.price_vs_sma_4h > 2 %}
+              {% set sma4h_signal = 'BULLISH' %}
+              {% set sma4h_color = 'green' %}
+              {% set sma4h_arrow = '⬆️' %}
+              {% set sma4h_message = 'Price well above 4h average' %}
+            {% elif stats.price_vs_sma_4h < -2 %}
+              {% set sma4h_signal = 'BEARISH' %}
+              {% set sma4h_color = 'red' %}
+              {% set sma4h_arrow = '⬇️' %}
+              {% set sma4h_message = 'Price well below 4h average' %}
+            {% else %}
+              {% set sma4h_signal = 'NEUTRAL' %}
+              {% set sma4h_color = 'gray' %}
+              {% set sma4h_arrow = '➡️' %}
+              {% set sma4h_message = 'Price near 4h average' %}
+            {% endif %}
+          {% else %}
+            {% set sma4h_signal = 'N/A' %}
+            {% set sma4h_color = 'gray' %}
+            {% set sma4h_arrow = '—' %}
+            {% set sma4h_message = 'Insufficient Data' %}
+          {% endif %}
+          
+          <div class="bg-gray-700/50 rounded-lg p-4 border {% if sma4h_color == 'green' %}border-green-500/50{% elif sma4h_color == 'red' %}border-red-500/50{% else %}border-gray-600{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-semibold text-gray-300">Price vs SMA (4h)</span>
+              <span class="text-2xl">{{ sma4h_arrow }}</span>
+            </div>
+            <div class="flex items-center space-x-2 mb-1">
+              <span class="text-lg font-bold {% if sma4h_color == 'green' %}text-green-400{% elif sma4h_color == 'red' %}text-red-400{% else %}text-gray-400{% endif %}">
+                {{ sma4h_signal }}
+              </span>
+              {% if stats.price_vs_sma_4h is not none %}
+                <span class="text-sm text-gray-400">({{ "%+.2f"|format(stats.price_vs_sma_4h) }}%)</span>
+              {% endif %}
+            </div>
+            <p class="text-xs text-gray-400">{{ sma4h_message }}</p>
+          </div>
+
+          <!-- Price vs SMA 24h -->
+          {% if stats.price_vs_sma_24h is not none %}
+            {% if stats.price_vs_sma_24h > 2 %}
+              {% set sma24h_signal = 'BULLISH' %}
+              {% set sma24h_color = 'green' %}
+              {% set sma24h_arrow = '⬆️' %}
+              {% set sma24h_message = 'Price well above 24h average' %}
+            {% elif stats.price_vs_sma_24h < -2 %}
+              {% set sma24h_signal = 'BEARISH' %}
+              {% set sma24h_color = 'red' %}
+              {% set sma24h_arrow = '⬇️' %}
+              {% set sma24h_message = 'Price well below 24h average' %}
+            {% else %}
+              {% set sma24h_signal = 'NEUTRAL' %}
+              {% set sma24h_color = 'gray' %}
+              {% set sma24h_arrow = '➡️' %}
+              {% set sma24h_message = 'Price near 24h average' %}
+            {% endif %}
+          {% else %}
+            {% set sma24h_signal = 'N/A' %}
+            {% set sma24h_color = 'gray' %}
+            {% set sma24h_arrow = '—' %}
+            {% set sma24h_message = 'Insufficient Data' %}
+          {% endif %}
+          
+          <div class="bg-gray-700/50 rounded-lg p-4 border {% if sma24h_color == 'green' %}border-green-500/50{% elif sma24h_color == 'red' %}border-red-500/50{% else %}border-gray-600{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-semibold text-gray-300">Price vs SMA (24h)</span>
+              <span class="text-2xl">{{ sma24h_arrow }}</span>
+            </div>
+            <div class="flex items-center space-x-2 mb-1">
+              <span class="text-lg font-bold {% if sma24h_color == 'green' %}text-green-400{% elif sma24h_color == 'red' %}text-red-400{% else %}text-gray-400{% endif %}">
+                {{ sma24h_signal }}
+              </span>
+              {% if stats.price_vs_sma_24h is not none %}
+                <span class="text-sm text-gray-400">({{ "%+.2f"|format(stats.price_vs_sma_24h) }}%)</span>
+              {% endif %}
+            </div>
+            <p class="text-xs text-gray-400">{{ sma24h_message }}</p>
+          </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Remove the old RSI flash box and bandit section - they're now in the unified panel above -->
+        {% if false %}
+            {% if stats.rsi is not none %}
+            {% if stats.rsi < 30 %}
               <!-- SELL Signal - RSI Overbought -->
               <div class="bg-gradient-to-r from-red-600 to-pink-600 text-white rounded-xl shadow-2xl p-8 border-2 border-red-400 animate-pulse">
                 <div class="text-center">
@@ -331,9 +577,11 @@
               <div class="text-sm text-gray-500 mt-2">Need at least 15 price points to calculate RSI</div>
             </div>
           {% endif %}
-        </div>
+        {% endif %}
 
-        <!-- Comprehensive Technical Signals Panel -->
+        <!-- Old sections removed - now consolidated in Unified Trading Signals Panel above -->
+        {% if false %}
+        <!-- Comprehensive Technical Signals Panel (REMOVED - consolidated above) -->
         <div class="mb-8 fade-in">
           <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-lg">
             <h2 class="text-2xl font-bold text-white mb-6 flex items-center space-x-2">
@@ -681,6 +929,7 @@
             </div>
           </div>
         </div>
+        {% endif %}
 
         <!-- News Sentiment Analysis -->
         {% if news_features %}
@@ -768,77 +1017,13 @@
         </div>
         {% endif %}
 
-        <!-- Latest Bandit Recommendation -->
+        <!-- Latest Bandit Recommendation (REMOVED - now consolidated in Unified Trading Signals Panel above) -->
+        {% if false %}
         {% if latest_bandit %}
         <div class="mb-8 fade-in">
-          <div class="bg-gradient-to-r from-purple-800 to-indigo-800 text-white rounded-xl shadow-2xl p-8 border-2 border-purple-500">
-            <div class="flex items-center justify-between mb-6">
-              <h2 class="text-2xl font-bold flex items-center space-x-3">
-                <span>🤖</span>
-                <span>Contextual Bandit Recommendation</span>
-              </h2>
-              <div class="text-sm text-purple-200">
-                {{ latest_bandit.timestamp }}
-              </div>
-            </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <!-- Action Recommendation -->
-              <div class="bg-white/10 rounded-lg p-6">
-                <div class="text-sm text-purple-200 mb-2">Recommended Action</div>
-                <div class="flex items-center space-x-4">
-                  {% if latest_bandit.action == 'buy' %}
-                    <div class="text-5xl font-extrabold text-green-400">🟢 BUY</div>
-                  {% elif latest_bandit.action == 'sell' %}
-                    <div class="text-5xl font-extrabold text-red-400">🔴 SELL</div>
-                  {% else %}
-                    <div class="text-5xl font-extrabold text-yellow-400">🟡 HOLD</div>
-                  {% endif %}
-                  <div>
-                    <div class="text-2xl font-bold">{{ latest_bandit.action|upper }}</div>
-                    {% if latest_bandit.reward is not none %}
-                      <div class="text-sm text-purple-200 mt-1">
-                        Reward: {{ "%.4f"|format(latest_bandit.reward) }}
-                      </div>
-                    {% endif %}
-                  </div>
-                </div>
-              </div>
-              
-              <!-- Prediction Scores -->
-              <div class="bg-white/10 rounded-lg p-6">
-                <div class="text-sm text-purple-200 mb-4">Prediction Scores</div>
-                <div class="space-y-3">
-                  <div class="flex justify-between items-center">
-                    <span class="text-gray-300">Buy Prediction:</span>
-                    <span class="font-bold {% if latest_bandit.prediction_buy is not none and latest_bandit.prediction_buy > 0 %}text-green-400{% else %}text-gray-400{% endif %}">
-                      {{ "%.4f"|format(latest_bandit.prediction_buy) if latest_bandit.prediction_buy is not none else 'N/A' }}
-                    </span>
-                  </div>
-                  <div class="flex justify-between items-center">
-                    <span class="text-gray-300">Sell Prediction:</span>
-                    <span class="font-bold {% if latest_bandit.prediction_sell is not none and latest_bandit.prediction_sell > 0 %}text-red-400{% else %}text-gray-400{% endif %}">
-                      {{ "%.4f"|format(latest_bandit.prediction_sell) if latest_bandit.prediction_sell is not none else 'N/A' }}
-                    </span>
-                  </div>
-                  <div class="flex justify-between items-center">
-                    <span class="text-gray-300">Hold Prediction:</span>
-                    <span class="font-bold {% if latest_bandit.prediction_hold is not none and latest_bandit.prediction_hold > 0 %}text-yellow-400{% else %}text-gray-400{% endif %}">
-                      {{ "%.4f"|format(latest_bandit.prediction_hold) if latest_bandit.prediction_hold is not none else 'N/A' }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div class="mt-6 pt-4 border-t border-purple-600/50">
-              <p class="text-sm text-purple-200 italic">
-                The contextual bandit algorithm analyzes market conditions and recommends actions based on learned patterns. 
-                This recommendation is for informational purposes only and should be used alongside other technical indicators.
-              </p>
-            </div>
-          </div>
+          <!-- Old bandit section removed -->
         </div>
+        {% endif %}
         {% endif %}
 
         <!-- Signal Performance & Reliability -->

@@ -342,6 +342,23 @@ class RLAgentIntegration:
                 conf_24h=conf_24h,
             )
             
+            # Store prediction in PredictionManager for tracking
+            if decision_id and decision_id > 0:
+                try:
+                    from .prediction_manager import PredictionManager
+                    prediction_manager = PredictionManager()
+                    prediction_manager.store_prediction(
+                        decision_id=decision_id,
+                        timestamp=datetime.now(),
+                        predicted_return_1h=pred_1h,
+                        predicted_return_24h=pred_24h,
+                        predicted_confidence_1h=conf_1h,
+                        predicted_confidence_24h=conf_24h,
+                        price_at_prediction=current_price,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to store prediction in PredictionManager: {e}")
+            
             # Validate decision_id - ensure it's an integer
             if decision_id is None:
                 logger.warning("Failed to store decision (decision_id is None)")
