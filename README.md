@@ -88,6 +88,7 @@ Intead launch `app.py` with python on a `screen` session. This will count the AP
 - **Multi-Horizon Forecasts**: 
   - **1-Hour Return Prediction**: Expected price change in 1 hour with confidence score
   - **24-Hour Return Prediction**: Expected price change in 24 hours with confidence score
+  - ✅ **Status**: Training infrastructure fixed and ready - predictions will be fully functional after next retraining (2025-12-05)
 - **Prediction Accuracy Tracking**: See how accurate past predictions were
 - **Attention Visualization**: See which news headlines influenced the AI's decisions
 - **Risk Management Dashboard**: Real-time monitoring of position limits, trade frequency, and daily loss caps
@@ -220,13 +221,17 @@ The application now includes a **Reinforcement Learning (RL) Trading Agent** bui
 - Discovered rules table with performance metrics
 - Feature importance charts
 
-**Status:** ✅ Infrastructure Complete - Ready for Model Training
+**Status:** ✅ Infrastructure Complete - Model Trained & Deployed
 
 **What's Complete:**
 - ✅ All RL agent modules implemented and tested
 - ✅ Full system integration (price + news)
 - ✅ **Model loading** - Automatic model loading on app startup
+- ✅ **Model trained** - Model trained (10 epochs) and deployed (2025-11-28)
+- ✅ **Training infrastructure fixed** - Auxiliary losses enabled, NaN handling improved (2025-12-01)
 - ✅ **Predictions** - Model generates 1h/24h return predictions automatically
+  - ⏳ **Note**: Predictions will be fully functional after next scheduled retraining (2025-12-05)
+  - ✅ Training infrastructure updated to enable auxiliary prediction heads
 - ✅ All API endpoints functional
 - ✅ Dashboard UI components added
 - ✅ News system with clustering
@@ -474,6 +479,12 @@ Visit `http://localhost:5030/backfill_newer` to manually trigger fetching newer 
 ### Training the RL Agent
 
 The RL agent can be trained on historical data and retrained periodically to stay current with market patterns.
+
+**Current Status (Updated 2025-12-01):**
+- ✅ **Training Infrastructure Fixed** - Auxiliary losses enabled, robust NaN handling added
+- ✅ **Model Trained** - Initial model trained and deployed (2025-11-28)
+- ⏳ **Next Retraining** - Scheduled for 2025-12-05 (will enable full prediction functionality)
+- ✅ **All Fixes in Place** - Training script updated, ready for next scheduled retraining
 
 **Important: News Data Availability**
 - ⚠️ **News data is limited** (2 days) compared to price data (5 months)
