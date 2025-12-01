@@ -2,7 +2,8 @@
 
 > **Status**: RL Agent infrastructure is **100% complete** ✅  
 > **Model Status**: **Trained model exists** ✅ (deployed 2025-11-28)  
-> **Next Priority**: Paper trading validation and performance analysis
+> **🔴 CRITICAL ISSUE**: **Predictions returning 0 values** - Auxiliary heads not trained  
+> **Next Priority**: **FIX PREDICTIONS** (see [RL_AGENT_PREDICTION_FIX_PLAN.md](RL_AGENT_PREDICTION_FIX_PLAN.md))
 
 ---
 
@@ -17,7 +18,11 @@ All core infrastructure for the RL agent is complete:
   - Checkpoint files exist: `checkpoint_epoch_10.pt`, `checkpoint_20251128_180539.pt`
   - Model metadata shows deployment on 2025-11-28
   - Next retraining scheduled for 2025-12-05
-- ✅ **Predictions**: Multi-horizon return predictions (1h/24h) - **Model generates predictions automatically**
+  - ⚠️ **ISSUE**: Model trained with `enable_auxiliary_losses=False` - prediction heads not trained
+- 🔴 **Predictions**: ❌ **BROKEN** - Returning 0 values
+  - **Root Cause**: Auxiliary heads (`aux_1h`, `aux_24h`) were never trained
+  - **Fix Required**: Retrain with auxiliary losses enabled OR fine-tune auxiliary heads
+  - **See**: [RL_AGENT_PREDICTION_FIX_PLAN.md](RL_AGENT_PREDICTION_FIX_PLAN.md) for detailed fix plan
 - ✅ **Attention**: News attention logging and visualization
 - ✅ **Risk Management**: Complete risk constraint system
 - ✅ **Explainability**: Rule extraction and SHAP analysis
@@ -36,6 +41,32 @@ See [RL_AGENT_IMPLEMENTATION_STATUS.md](RL_AGENT_IMPLEMENTATION_STATUS.md) for d
 ---
 
 ## 🎯 What's Left To Do (Prioritized)
+
+### 🔴 Priority 0: FIX PREDICTIONS (CRITICAL - BLOCKING)
+
+**Status**: Predictions are broken - returning 0 values
+
+**Issue**:
+- Model was trained with `enable_auxiliary_losses=False`
+- Auxiliary prediction heads (`aux_1h`, `aux_24h`) were never trained
+- Predictions always return 0.0
+
+**Fix Options**:
+1. **Quick Fix**: Fine-tune auxiliary heads only (1-2 days)
+2. **Proper Fix**: Retrain model with auxiliary losses enabled (1 week)
+
+**See**: [RL_AGENT_PREDICTION_FIX_PLAN.md](RL_AGENT_PREDICTION_FIX_PLAN.md) for detailed plan
+
+**Tasks**:
+- [ ] Diagnose why auxiliary losses caused NaN gradients
+- [ ] Create fine-tuning script for auxiliary heads
+- [ ] OR fix training script and retrain model
+- [ ] Validate predictions are non-zero
+- [ ] Test prediction accuracy
+
+**Estimated Time**: 1-2 days (fine-tuning) or 1 week (full retraining)
+
+---
 
 ### 🔴 Priority 1: Paper Trading Validation & Performance Analysis (HIGH PRIORITY)
 

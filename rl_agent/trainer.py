@@ -488,6 +488,14 @@ class PPOTrainer:
                             if not torch.isfinite(aux_1h_loss):
                                 aux_1h_loss = torch.tensor(0.0, device=self.device)
                                 logger.warning("aux_1h_loss was NaN/inf, setting to 0")
+                            else:
+                                # Log auxiliary loss periodically for monitoring
+                                if hasattr(self, '_aux_1h_log_counter'):
+                                    self._aux_1h_log_counter += 1
+                                else:
+                                    self._aux_1h_log_counter = 0
+                                if self._aux_1h_log_counter % 100 == 0:
+                                    logger.debug(f"aux_1h_loss: {aux_1h_loss.item():.6f}, pred_mean: {pred_1h_clipped.mean().item():.4f}, target_mean: {batch_returns_1h.mean().item():.4f}")
                         else:
                             # Skip auxiliary loss if data is invalid
                             aux_1h_loss = torch.tensor(0.0, device=self.device)
@@ -513,6 +521,14 @@ class PPOTrainer:
                             if not torch.isfinite(aux_24h_loss):
                                 aux_24h_loss = torch.tensor(0.0, device=self.device)
                                 logger.warning("aux_24h_loss was NaN/inf, setting to 0")
+                            else:
+                                # Log auxiliary loss periodically for monitoring
+                                if hasattr(self, '_aux_24h_log_counter'):
+                                    self._aux_24h_log_counter += 1
+                                else:
+                                    self._aux_24h_log_counter = 0
+                                if self._aux_24h_log_counter % 100 == 0:
+                                    logger.debug(f"aux_24h_loss: {aux_24h_loss.item():.6f}, pred_mean: {pred_24h_clipped.mean().item():.4f}, target_mean: {batch_returns_24h.mean().item():.4f}")
                         else:
                             # Skip auxiliary loss if data is invalid
                             aux_24h_loss = torch.tensor(0.0, device=self.device)

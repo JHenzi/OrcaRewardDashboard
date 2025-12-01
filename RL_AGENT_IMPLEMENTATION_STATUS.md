@@ -1,7 +1,8 @@
 # RL Agent Implementation Status
 
 > **Current Status**: All Phases **COMPLETE** ✅  
-> **Next Steps**: Model training and deployment
+> **🔴 CRITICAL ISSUE**: **Predictions returning 0 values** - Auxiliary heads not trained  
+> **Next Steps**: **FIX PREDICTIONS** (see [RL_AGENT_PREDICTION_FIX_PLAN.md](RL_AGENT_PREDICTION_FIX_PLAN.md))
 
 ---
 
@@ -167,7 +168,7 @@
   - Checkpoint save/load
 - ✅ Verified training loop produces valid metrics
 
-#### 7. Phase 4.2: Multi-Horizon Predictions ✅
+#### 7. Phase 4.2: Multi-Horizon Predictions ⚠️ **BROKEN**
 - ✅ Created `rl_agent/prediction_manager.py`:
   - Store predictions with timestamps
   - Track actual returns when available
@@ -187,6 +188,10 @@
   - Confidence indicators
   - Accuracy statistics
   - Auto-refresh every 5 minutes
+- 🔴 **ISSUE**: Predictions returning 0 values
+  - **Root Cause**: Model trained with `enable_auxiliary_losses=False`
+  - Auxiliary heads (`aux_1h`, `aux_24h`) were never trained
+  - **Fix Required**: See [RL_AGENT_PREDICTION_FIX_PLAN.md](RL_AGENT_PREDICTION_FIX_PLAN.md)
 
 #### 8. Phase 4.3: News Embedding & Attention Integration ✅
 - ✅ Created `rl_agent/attention_logger.py`:
@@ -489,9 +494,14 @@ The system is now ready for:
 **Current Status:**
 - ✅ All infrastructure complete
 - ✅ Model loading integrated in `app.py`
-- ✅ Predictions generated automatically when `make_decision()` is called
+- ✅ Model trained (10 epochs) and deployed
+- 🔴 **CRITICAL**: Predictions returning 0 values - auxiliary heads not trained
 - ✅ MLOps pipeline ready (versioning, retraining scheduler)
-- 🎯 **Next**: Train model using `python train_rl_agent.py --epochs 10`
+- 🎯 **Next**: **FIX PREDICTIONS** - See [RL_AGENT_PREDICTION_FIX_PLAN.md](RL_AGENT_PREDICTION_FIX_PLAN.md)
 
-All infrastructure is in place! 🚀
+**Known Issues:**
+- 🔴 Predictions are broken (returning 0) - Model trained with `enable_auxiliary_losses=False`
+- Need to either fine-tune auxiliary heads or retrain with auxiliary losses enabled
+
+All infrastructure is in place, but predictions need fixing! 🚀
 

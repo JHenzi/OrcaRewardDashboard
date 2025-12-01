@@ -41,6 +41,9 @@ def train_on_historical_data(
     checkpoint_dir: str = None,
     device: str = "cpu",
     resume_from: Optional[str] = None,
+    enable_auxiliary: bool = True,
+    aux_1h_coef: float = 0.01,
+    aux_24h_coef: float = 0.01,
 ):
     # Set default paths relative to project root
     if episodes_path is None:
@@ -114,10 +117,15 @@ def train_on_historical_data(
         lr=3e-4,
         device=device,
         checkpoint_dir=checkpoint_dir,
-        enable_auxiliary_losses=False,  # Temporarily disabled due to NaN gradient issues
-        # aux_1h_coef=0.01,  # Alternative: reduce coefficients instead
-        # aux_24h_coef=0.01,
+        enable_auxiliary_losses=enable_auxiliary,  # Enabled with improved NaN handling
+        aux_1h_coef=aux_1h_coef,  # Conservative coefficient to prevent NaN issues
+        aux_24h_coef=aux_24h_coef,  # Conservative coefficient to prevent NaN issues
     )
+    
+    if enable_auxiliary:
+        logger.info(f"✅ Auxiliary losses enabled: aux_1h_coef={aux_1h_coef}, aux_24h_coef={aux_24h_coef}")
+    else:
+        logger.warning("⚠️ Auxiliary losses disabled - predictions will not be trained")
     
     logger.info("✅ Components initialized")
     
@@ -393,8 +401,36 @@ if __name__ == "__main__":
         default=None,
         help="Path to checkpoint to resume from"
     )
+    parser.add_argument(
+        "--enable-auxiliary",
+        action="store_true",
+        default=True,
+        help="Enable auxiliary losses for 1h/24h return prediction (default: True)"
+    )
+    parser.add_argument(
+        "--disable-auxiliary",
+        action="store_true",
+        default=False,
+        help="Disable auxiliary losses (overrides --enable-auxiliary)"
+    )
+    parser.add_argument(
+        "--aux-1h-coef",
+        type=float,
+        default=0.01,
+        help="Coefficient for 1h auxiliary loss (default: 0.01)"
+    )
+    parser.add_argument(
+        "--aux-24h-coef",
+        type=float,
+        default=0.01,
+        help="Coefficient for 24h auxiliary loss (default: 0.01)"
+    )
     
     args = parser.parse_args()
+    
+    # Handle disable flag
+    if args.disable_auxiliary:
+        args.enable_auxiliary = False
     
     train_on_historical_data(
         episodes_path=args.episodes,
@@ -403,5 +439,8 @@ if __name__ == "__main__":
         checkpoint_dir=args.checkpoint_dir,
         device=args.device,
         resume_from=args.resume,
+        enable_auxiliary=args.enable_auxiliary,
+        aux_1h_coef=args.aux_1h_coef,
+        aux_24h_coef=args.aux_24h_coef,
     )
 
