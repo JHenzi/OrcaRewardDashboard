@@ -28,8 +28,9 @@ logger = logging.getLogger(__name__)
 DATA_CUTOFF_DATE = datetime(2025, 11, 27)  # Only export data from Nov 27 onwards
 
 # Export paths
-EXPORT_DIR = Path("training_data_exports")
-EXPORT_DIR.mkdir(exist_ok=True)
+EXPORT_DIR = Path("training_data_exports")  # For archives (ignored)
+LATEST_EXPORT_DIR = Path("training_data/export")  # For latest (committed)
+LATEST_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class TrainingDataExporter:
@@ -227,11 +228,23 @@ CREATE TABLE IF NOT EXISTS news_articles (
         self,
         output_dir: Optional[Path] = None,
         episodes_path: str = "training_data/episodes.pkl",
+        use_latest_location: bool = True,
     ) -> Path:
-        """Export all training data."""
+        """Export all training data.
+        
+        Args:
+            output_dir: Custom output directory (if None, uses latest location or archive)
+            episodes_path: Path to training episodes file
+            use_latest_location: If True and output_dir is None, export to committed location
+        """
         if output_dir is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = EXPORT_DIR / f"training_data_export_{timestamp}"
+            if use_latest_location:
+                # Export to committed location (latest)
+                output_dir = LATEST_EXPORT_DIR
+            else:
+                # Export to archive location (timestamped)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_dir = EXPORT_DIR / f"training_data_export_{timestamp}"
         
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -344,6 +357,11 @@ def main():
         default='training_data/episodes.pkl',
         help='Path to training episodes file'
     )
+    parser.add_argument(
+        '--archive',
+        action='store_true',
+        help='Export to archive location (timestamped) instead of latest location (committed)'
+    )
     
     args = parser.parse_args()
     
@@ -355,6 +373,7 @@ def main():
     output_dir = exporter.export_all(
         output_dir=Path(args.output_dir) if args.output_dir else None,
         episodes_path=args.episodes_path,
+        use_latest_location=not args.archive,
     )
     
     print(f"\n✅ Export complete!")

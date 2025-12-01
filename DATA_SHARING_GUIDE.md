@@ -24,8 +24,11 @@ Export training data when:
 ### How to Export
 
 ```bash
-# Export all training data (default cutoff: 2025-11-27)
+# Export to LATEST location (committed to repo) - DEFAULT
 python3 scripts/export_training_data.py
+
+# Export to archive location (timestamped, not committed)
+python3 scripts/export_training_data.py --archive
 
 # Export with custom cutoff date
 python3 scripts/export_training_data.py --cutoff-date "2025-11-27T00:00:00"
@@ -33,6 +36,8 @@ python3 scripts/export_training_data.py --cutoff-date "2025-11-27T00:00:00"
 # Export to specific directory
 python3 scripts/export_training_data.py --output-dir my_export
 ```
+
+**Important:** By default, exports go to `training_data/export/` which **IS committed** to the repository. This ensures users always have the latest training data. Use `--archive` flag to create timestamped archives that are NOT committed.
 
 ### What Gets Exported
 
@@ -60,6 +65,17 @@ python3 scripts/export_training_data.py --output-dir my_export
 
 ### Export Directory Structure
 
+**Latest Export (Committed):**
+```
+training_data/export/
+    ├── manifest.json
+    ├── README.md
+    ├── sol_prices_export.sql
+    ├── news_sentiment_export.sql
+    └── episodes.pkl (optional)
+```
+
+**Archive Exports (Not Committed):**
 ```
 training_data_exports/
 └── training_data_export_20251201_120000/
@@ -80,6 +96,10 @@ training_data_exports/
 
 2. **Import the data:**
    ```bash
+   # Import from latest export (default)
+   python3 scripts/import_training_data.py
+   
+   # Or import from specific directory
    python3 scripts/import_training_data.py <export_directory>
    ```
 

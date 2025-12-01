@@ -78,7 +78,13 @@ coverage.xml
 *.pkl
 *.pickle
 
-# Training data exports (users import these, we don't commit them)
+# Training data exports - archives (ignored)
 training_data_exports/
+
+# Training data export - latest (COMMITTED for sharing)
+# This is the latest export that users can import
+!training_data/export/
+training_data/export/*
+!training_data/export/.gitkeep
 
 bandit_state.json

@@ -192,7 +192,9 @@ def main():
     parser.add_argument(
         'export_dir',
         type=str,
-        help='Directory containing exported data (should contain manifest.json)'
+        nargs='?',
+        default='training_data/export',
+        help='Directory containing exported data (default: training_data/export)'
     )
     parser.add_argument(
         '--price-db',

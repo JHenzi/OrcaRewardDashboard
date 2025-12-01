@@ -84,8 +84,8 @@ def run_command(cmd, check=True, capture_output=False, cwd=None):
 
 
 def export_training_data(cutoff_date=None):
-    """Export training data."""
-    print_step(1, "Exporting training data...")
+    """Export training data to committed location (latest)."""
+    print_step(1, "Exporting training data (latest, will be committed)...")
     
     project_root = get_project_root()
     export_script = os.path.join(project_root, "scripts", "export_training_data.py")
@@ -93,10 +93,11 @@ def export_training_data(cutoff_date=None):
     cmd = ["python3", export_script]
     if cutoff_date:
         cmd.extend(["--cutoff-date", cutoff_date])
+    # Don't use --archive, so it exports to latest location (committed)
     
     try:
         subprocess.run(cmd, check=True, cwd=project_root)
-        print_success("Export complete")
+        print_success("Export complete (to training_data/export/)")
         return True
     except subprocess.CalledProcessError:
         print_error("Export failed!")
