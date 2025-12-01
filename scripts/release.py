@@ -101,7 +101,13 @@ def export_training_data(cutoff_date=None):
         return True
     except subprocess.CalledProcessError:
         print_error("Export failed!")
-        return False
+        print_warning("Continue with commit/push anyway? (y/n):")
+        response = input().strip().lower()
+        if response not in ['y', 'yes']:
+            print_warning("Aborting release")
+            return False
+        print_warning("Continuing despite export failure...")
+        return True  # Continue anyway
 
 
 def check_git_changes():
@@ -164,7 +170,7 @@ def commit_changes(message):
     print_success("Changes committed")
 
 
-def push_changes(force=False, skip_prompt=False):
+def push_changes(force=False, skip_prompt=True):
     """Push changes to remote."""
     print_step(6, "Pushing to remote...")
     
@@ -254,9 +260,9 @@ def main():
     # Step 5: Commit
     commit_changes(commit_msg)
     
-    # Step 6: Push
+    # Step 6: Push (automatic by default)
     if not args.skip_push:
-        push_changes(force=args.force_push, skip_prompt=args.auto_push)
+        push_changes(force=args.force_push, skip_prompt=True)  # Auto-push by default
     else:
         print_warning("Skipped push (--skip-push)")
     

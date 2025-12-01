@@ -31,13 +31,21 @@ echo -e "${GREEN}🚀 Starting release process...${NC}\n"
 # Step 1: Export training data
 echo -e "${YELLOW}Step 1: Exporting training data...${NC}"
 python scripts/export_training_data.py
+EXPORT_EXIT_CODE=$?
 
-if [ $? -ne 0 ]; then
+if [ $EXPORT_EXIT_CODE -ne 0 ]; then
     echo -e "${RED}❌ Export failed!${NC}"
-    exit 1
+    echo -e "${YELLOW}Continue with commit/push anyway? (y/n):${NC}"
+    read -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}⚠️  Aborting release${NC}"
+        exit 1
+    fi
+    echo -e "${YELLOW}⚠️  Continuing despite export failure...${NC}\n"
+else
+    echo -e "${GREEN}✅ Export complete${NC}\n"
 fi
-
-echo -e "${GREEN}✅ Export complete${NC}\n"
 
 # Step 2: Check for changes
 echo -e "${YELLOW}Step 2: Checking for changes...${NC}"
@@ -84,23 +92,16 @@ fi
 
 echo -e "${GREEN}✅ Changes committed${NC}\n"
 
-# Step 6: Push
+# Step 6: Push (automatic, no confirmation)
 echo -e "${YELLOW}Step 6: Pushing to remote...${NC}"
-read -p "Push to remote? (y/n): " -n 1 -r
-echo ""
+git push
 
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    git push
-    
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}❌ Push failed!${NC}"
-        exit 1
-    fi
-    
-    echo -e "${GREEN}✅ Pushed to remote${NC}\n"
-else
-    echo -e "${YELLOW}⚠️  Skipped push${NC}\n"
+if [ $? -ne 0 ]; then
+    echo -e "${RED}❌ Push failed!${NC}"
+    exit 1
 fi
+
+echo -e "${GREEN}✅ Pushed to remote${NC}\n"
 
 echo -e "${GREEN}🎉 Release complete!${NC}"
 

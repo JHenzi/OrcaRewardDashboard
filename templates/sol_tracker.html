@@ -344,7 +344,7 @@
             
             <!-- Detailed Technical Indicators -->
             <div class="mt-6 pt-4 border-t border-gray-700">
-              <h3 class="text-sm font-semibold text-gray-300 mb-4">Detailed Technical Indicators</h3>
+              <h3 class="text-sm font-semibold text-gray-300 mb-4">Detailed Technical Indicators (All 7 indicators used in consensus)</h3>
               <div class="grid grid-cols-2 gap-4">
                   {% if stats.rsi is not none %}
             {% if stats.rsi < 30 %}
@@ -507,6 +507,129 @@
               {% endif %}
             </div>
             <p class="text-xs text-gray-400">{{ sma24h_message }}</p>
+          </div>
+
+          <!-- MACD Signal -->
+          {% if stats.macd_line is not none and stats.macd_signal is not none %}
+            {% if stats.macd_line > stats.macd_signal and stats.macd_histogram is not none and stats.macd_histogram > 0 %}
+              {% set macd_signal = 'BULLISH' %}
+              {% set macd_color = 'green' %}
+              {% set macd_arrow = '⬆️' %}
+              {% set macd_message = 'MACD above signal - Uptrend' %}
+            {% elif stats.macd_line < stats.macd_signal and stats.macd_histogram is not none and stats.macd_histogram < 0 %}
+              {% set macd_signal = 'BEARISH' %}
+              {% set macd_color = 'red' %}
+              {% set macd_arrow = '⬇️' %}
+              {% set macd_message = 'MACD below signal - Downtrend' %}
+            {% else %}
+              {% set macd_signal = 'NEUTRAL' %}
+              {% set macd_color = 'gray' %}
+              {% set macd_arrow = '➡️' %}
+              {% set macd_message = 'MACD crossing - Wait' %}
+            {% endif %}
+          {% else %}
+            {% set macd_signal = 'N/A' %}
+            {% set macd_color = 'gray' %}
+            {% set macd_arrow = '—' %}
+            {% set macd_message = 'Insufficient Data' %}
+          {% endif %}
+          
+          <div class="bg-gray-700/50 rounded-lg p-4 border {% if macd_color == 'green' %}border-green-500/50{% elif macd_color == 'red' %}border-red-500/50{% else %}border-gray-600{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-semibold text-gray-300">MACD</span>
+              <span class="text-2xl">{{ macd_arrow }}</span>
+            </div>
+            <div class="flex items-center space-x-2 mb-1">
+              <span class="text-lg font-bold {% if macd_color == 'green' %}text-green-400{% elif macd_color == 'red' %}text-red-400{% else %}text-gray-400{% endif %}">
+                {{ macd_signal }}
+              </span>
+              {% if stats.macd_histogram is not none %}
+                <span class="text-sm text-gray-400">({{ "%+.4f"|format(stats.macd_histogram) }})</span>
+              {% endif %}
+            </div>
+            <p class="text-xs text-gray-400">{{ macd_message }}</p>
+          </div>
+
+          <!-- Bollinger Bands Position -->
+          {% if stats.bb_position is not none %}
+            {% if stats.bb_position > 80 %}
+              {% set bb_signal = 'OVERBOUGHT' %}
+              {% set bb_color = 'red' %}
+              {% set bb_arrow = '⬇️' %}
+              {% set bb_message = 'Price near upper band - Sell signal' %}
+            {% elif stats.bb_position < 20 %}
+              {% set bb_signal = 'OVERSOLD' %}
+              {% set bb_color = 'green' %}
+              {% set bb_arrow = '⬆️' %}
+              {% set bb_message = 'Price near lower band - Buy signal' %}
+            {% else %}
+              {% set bb_signal = 'NEUTRAL' %}
+              {% set bb_color = 'gray' %}
+              {% set bb_arrow = '➡️' %}
+              {% set bb_message = 'Price within bands - Normal range' %}
+            {% endif %}
+          {% else %}
+            {% set bb_signal = 'N/A' %}
+            {% set bb_color = 'gray' %}
+            {% set bb_arrow = '—' %}
+            {% set bb_message = 'Insufficient Data' %}
+          {% endif %}
+          
+          <div class="bg-gray-700/50 rounded-lg p-4 border {% if bb_color == 'green' %}border-green-500/50{% elif bb_color == 'red' %}border-red-500/50{% else %}border-gray-600{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-semibold text-gray-300">Bollinger Bands</span>
+              <span class="text-2xl">{{ bb_arrow }}</span>
+            </div>
+            <div class="flex items-center space-x-2 mb-1">
+              <span class="text-lg font-bold {% if bb_color == 'green' %}text-green-400{% elif bb_color == 'red' %}text-red-400{% else %}text-gray-400{% endif %}">
+                {{ bb_signal }}
+              </span>
+              {% if stats.bb_position is not none %}
+                <span class="text-sm text-gray-400">({{ "%.1f"|format(stats.bb_position) }}%)</span>
+              {% endif %}
+            </div>
+            <p class="text-xs text-gray-400">{{ bb_message }}</p>
+          </div>
+
+          <!-- Momentum -->
+          {% if stats.momentum_10 is not none %}
+            {% if stats.momentum_10 > 2 %}
+              {% set momentum_signal = 'BULLISH' %}
+              {% set momentum_color = 'green' %}
+              {% set momentum_arrow = '⬆️' %}
+              {% set momentum_message = 'Strong upward momentum' %}
+            {% elif stats.momentum_10 < -2 %}
+              {% set momentum_signal = 'BEARISH' %}
+              {% set momentum_color = 'red' %}
+              {% set momentum_arrow = '⬇️' %}
+              {% set momentum_message = 'Strong downward momentum' %}
+            {% else %}
+              {% set momentum_signal = 'NEUTRAL' %}
+              {% set momentum_color = 'gray' %}
+              {% set momentum_arrow = '➡️' %}
+              {% set momentum_message = 'Weak momentum' %}
+            {% endif %}
+          {% else %}
+            {% set momentum_signal = 'N/A' %}
+            {% set momentum_color = 'gray' %}
+            {% set momentum_arrow = '—' %}
+            {% set momentum_message = 'Insufficient Data' %}
+          {% endif %}
+          
+          <div class="bg-gray-700/50 rounded-lg p-4 border {% if momentum_color == 'green' %}border-green-500/50{% elif momentum_color == 'red' %}border-red-500/50{% else %}border-gray-600{% endif %}">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-semibold text-gray-300">Momentum (10)</span>
+              <span class="text-2xl">{{ momentum_arrow }}</span>
+            </div>
+            <div class="flex items-center space-x-2 mb-1">
+              <span class="text-lg font-bold {% if momentum_color == 'green' %}text-green-400{% elif momentum_color == 'red' %}text-red-400{% else %}text-gray-400{% endif %}">
+                {{ momentum_signal }}
+              </span>
+              {% if stats.momentum_10 is not none %}
+                <span class="text-sm text-gray-400">({{ "%+.2f"|format(stats.momentum_10) }}%)</span>
+              {% endif %}
+            </div>
+            <p class="text-xs text-gray-400">{{ momentum_message }}</p>
           </div>
               </div>
             </div>
