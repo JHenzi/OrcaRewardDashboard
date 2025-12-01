@@ -78,4 +78,7 @@ coverage.xml
 *.pkl
 *.pickle
 
+# Training data exports (users import these, we don't commit them)
+training_data_exports/
+
 bandit_state.json

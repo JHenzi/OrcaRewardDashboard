@@ -69,6 +69,10 @@ def train_on_historical_data(
     logger.info("RL Agent Training on Historical Data")
     logger.info("=" * 60)
     
+    # Note: Ensure news data gaps are filled before training
+    # Run: python3 scripts/fill_news_gaps.py
+    # See: NEWS_GAP_FILLING_PLAN.md for details
+    
     # Load training episodes
     logger.info(f"Loading training episodes from {episodes_path}")
     if not Path(episodes_path).exists():

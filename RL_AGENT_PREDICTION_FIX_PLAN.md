@@ -24,6 +24,21 @@
 
 ## 📋 Detailed Fix Plan
 
+### Phase 0: Fill News Data Gaps (NEW - Required Before Training)
+
+**Issue**: News data has gaps where price data exists but news articles are missing. This can cause training issues.
+
+**Solution**: Run gap filling script before training to ensure consistent news coverage.
+
+**Steps**:
+1. Run gap analysis: `python3 scripts/fill_news_gaps.py --dry-run`
+2. Fill gaps: `python3 scripts/fill_news_gaps.py`
+3. Validate: Re-run analysis to confirm gaps are filled
+
+**See**: [NEWS_GAP_FILLING_PLAN.md](NEWS_GAP_FILLING_PLAN.md) for details
+
+---
+
 ### Phase 1: Fix Training Script Configuration (1-2 hours)
 
 #### 1.1 Investigate NaN Gradient Issues
