@@ -111,9 +111,16 @@ class TrainingDataPrep:
         """
         Get news articles available at a given timestamp.
         
+        IMPORTANT: Uses published_date (not fetched_date) to ensure temporal correctness.
+        News matters when it was PUBLISHED, not when we fetched it. The model needs to learn:
+        "What news was published at time T, and how did it affect prices?"
+        
+        We may fetch news lazily (e.g., fetch on 12/2 for news published on 12/1), but that
+        news should still be included in training data for 12/1 because it was available then.
+        
         Args:
-            timestamp: Current timestamp
-            hours_back: How many hours of news to include
+            timestamp: Current timestamp (training step time)
+            hours_back: How many hours of news to include (looks back from timestamp)
             
         Returns:
             List of news dicts with embeddings and sentiment
@@ -127,40 +134,74 @@ class TrainingDataPrep:
         
         cutoff_time = timestamp - timedelta(hours=hours_back)
         
+        # Use published_date - news matters when it was published, not when we fetched it
+        # Include news published between cutoff_time and timestamp
         query = """
-            SELECT id, title, embedding, sentiment_score
+            SELECT id, title, embedding, sentiment_score, published_date, fetched_date
             FROM news_articles
             WHERE published_date >= ? AND published_date <= ?
+            AND embedding IS NOT NULL
             ORDER BY published_date DESC
             LIMIT ?
         """
         
-        cursor.execute(query, (cutoff_time.isoformat(), timestamp.isoformat(), self.max_news_headlines))
+        # Fetch more than needed to account for potential corrupted embeddings
+        fetch_limit = self.max_news_headlines * 2
+        cursor.execute(query, (cutoff_time.isoformat(), timestamp.isoformat(), fetch_limit))
         rows = cursor.fetchall()
         conn.close()
         
         news_items = []
         for row in rows:
-            article_id, title, embedding_blob, sentiment_score = row
+            if len(news_items) >= self.max_news_headlines:
+                break
+                
+            article_id, title, embedding_blob, sentiment_score, pub_date, fetched_date = row
+            
             # cluster_id is not stored in news_articles table
             # Use -1 to indicate no cluster (state encoder handles this)
             cluster_id = -1
             
-            # Decode embedding (stored as bytes/pickle)
+            # Decode embedding with robust error handling (like fill_news_gaps.py)
             try:
-                if embedding_blob:
-                    if isinstance(embedding_blob, bytes):
-                        embedding = pickle.loads(embedding_blob)
-                    else:
-                        embedding = embedding_blob
-                else:
+                if not embedding_blob:
                     continue  # Skip if no embedding
                 
-                # Ensure it's the right shape
-                if isinstance(embedding, np.ndarray):
-                    embedding = embedding.astype(np.float32)
+                embedding = None
+                
+                # Try pickle first (most common format)
+                if isinstance(embedding_blob, bytes):
+                    try:
+                        embedding = pickle.loads(embedding_blob)
+                    except (pickle.UnpicklingError, EOFError, ValueError):
+                        # Try raw numpy bytes (fallback)
+                        try:
+                            embedding = np.frombuffer(embedding_blob, dtype=np.float32)
+                        except (ValueError, TypeError):
+                            logger.debug(f"Could not decode embedding for article {article_id}")
+                            continue
                 else:
+                    embedding = embedding_blob
+                
+                # Validate embedding
+                if embedding is None:
+                    continue
+                
+                # Convert to numpy array
+                if not isinstance(embedding, np.ndarray):
                     embedding = np.array(embedding, dtype=np.float32)
+                else:
+                    embedding = embedding.astype(np.float32)
+                
+                # Validate shape and values
+                if embedding.shape != (self.embedding_dim,):
+                    logger.warning(f"Invalid embedding shape for article {article_id}: {embedding.shape}, expected ({self.embedding_dim},)")
+                    continue
+                
+                # Check for NaN/inf values
+                if not np.isfinite(embedding).all():
+                    logger.warning(f"Non-finite values in embedding for article {article_id}")
+                    continue
                 
                 news_items.append({
                     "embedding": embedding,
@@ -169,8 +210,11 @@ class TrainingDataPrep:
                     "cluster_id": int(cluster_id) if cluster_id else -1,
                 })
             except Exception as e:
-                logger.warning(f"Error processing news embedding: {e}")
+                logger.warning(f"Error processing news embedding for article {article_id}: {e}")
                 continue
+        
+        if len(news_items) < len(rows) // 2:
+            logger.warning(f"Only {len(news_items)}/{len(rows)} news articles had valid embeddings")
         
         return news_items
     

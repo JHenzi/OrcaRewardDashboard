@@ -289,6 +289,75 @@ class NewsSentimentAnalyzer:
         
         return True
     
+    def get_latest_news_timestamp(self) -> Optional[datetime]:
+        """
+        Get the timestamp of the most recently fetched news article.
+        
+        Returns:
+            Datetime of latest news, or None if no news exists
+        """
+        try:
+            conn = sqlite3.connect(NEWS_DB)
+            cursor = conn.cursor()
+            cursor.execute("SELECT MAX(fetched_date) FROM news_articles")
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result and result[0]:
+                # Parse the timestamp string - handle various formats
+                ts_str = str(result[0])
+                try:
+                    # Try ISO format first (with or without timezone)
+                    if 'T' in ts_str:
+                        # Handle ISO format: remove timezone if present
+                        if ts_str.endswith('Z'):
+                            ts_clean = ts_str[:-1]
+                            return datetime.fromisoformat(ts_clean)
+                        elif '+' in ts_str or ts_str.count('-') > 2:
+                            # Has timezone info
+                            return datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                        else:
+                            return datetime.fromisoformat(ts_str)
+                    else:
+                        # Try SQLite datetime format: 'YYYY-MM-DD HH:MM:SS'
+                        return datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S')
+                except (ValueError, AttributeError) as e:
+                    logger.warning(f"Failed to parse timestamp '{ts_str}': {e}")
+                    return None
+            return None
+        except Exception as e:
+            logger.error(f"Error getting latest news timestamp: {e}")
+            return None
+    
+    def is_news_stale(self, stale_hours: int = 1) -> bool:
+        """
+        Check if news is stale (older than specified hours).
+        
+        Default is 1 hour to ensure fresh data for RL agent training.
+        The 5-minute cooldown prevents rate limit issues while allowing
+        frequent updates.
+        
+        Args:
+            stale_hours: Number of hours to consider news stale (default: 1)
+            
+        Returns:
+            True if news is stale or doesn't exist, False otherwise
+        """
+        latest = self.get_latest_news_timestamp()
+        if latest is None:
+            return True  # No news = stale
+        
+        # Ensure both datetimes are timezone-aware for comparison
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        if latest.tzinfo is None:
+            latest = latest.replace(tzinfo=timezone.utc)
+        
+        time_since_latest = now - latest
+        stale_threshold = timedelta(hours=stale_hours)
+        
+        return time_since_latest > stale_threshold
+    
     def fetch_news(self, hours_back: int = None, force: bool = False) -> List[Dict]:
         """
         Fetch news from all configured RSS sources.
@@ -949,6 +1018,12 @@ class NewsSentimentAnalyzer:
         else:
             overall_label = "neutral"
         
+        # Get latest news timestamp for display
+        latest_timestamp = self.get_latest_news_timestamp()
+        latest_timestamp_str = None
+        if latest_timestamp:
+            latest_timestamp_str = latest_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        
         return {
             "news_sentiment_score": float(avg_sentiment),  # Explicit float conversion
             "news_sentiment_label": str(overall_label),  # Explicit string conversion
@@ -956,6 +1031,7 @@ class NewsSentimentAnalyzer:
             "news_positive_count": int(positive_count),  # Explicit int conversion
             "news_negative_count": int(negative_count),  # Explicit int conversion
             "news_crypto_count": int(sum(1 for r in results if r[3])),  # Explicit int conversion
+            "latest_news_timestamp": latest_timestamp_str,  # Latest news fetch timestamp
         }
     
     def train_sentiment_classifier(self, min_labeled_samples: int = 50):

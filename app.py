@@ -1509,17 +1509,26 @@ def sol_tracker():
             if news_analyzer is None:
                 news_analyzer = NewsSentimentAnalyzer()
             
-            # Force refresh if news is stale (older than 6 hours)
-            # Check last fetch time and force refresh if needed
+            # Force refresh if news is stale (older than 1 hour)
+            # This ensures RL agent has fresh data for training
             try:
-                # Try to fetch fresh news if cooldown allows
-                articles = news_analyzer.fetch_news(force=False)
+                # Check if news is stale (older than 1 hour)
+                is_stale = news_analyzer.is_news_stale(stale_hours=1)
+                force_fetch = is_stale
+                
+                if force_fetch:
+                    logger.info("News is stale (older than 1 hour), forcing fetch...")
+                
+                # Try to fetch fresh news (force if stale, otherwise respect cooldown)
+                articles = news_analyzer.fetch_news(force=force_fetch)
                 if articles:
                     # Process and store new articles
                     current_price = actual_current_price if actual_current_price else (prices[-1] if prices else 100.0)
                     processed = news_analyzer.process_and_store_news(articles, current_price)
                     if processed > 0:
                         logger.info(f"Processed {processed} new news articles")
+                elif force_fetch:
+                    logger.warning("Forced news fetch returned no articles - may indicate an error")
             except Exception as e:
                 logger.debug(f"News fetch skipped (cooldown or error): {e}")
             
@@ -2276,8 +2285,9 @@ def news_fetch_loop():
         logger.warning("News analyzer not available. Skipping news fetching.")
         return
     
-    # Fetch news every 6 hours (but cooldown is handled by analyzer)
-    fetch_interval = 6 * 60 * 60  # 6 hours in seconds
+    # Fetch news every hour (cooldown is handled by analyzer to respect rate limits)
+    # This ensures fresh data for RL agent training while avoiding rate limit issues
+    fetch_interval = 60 * 60  # 1 hour in seconds
     
     try:
         news_analyzer = NewsSentimentAnalyzer()

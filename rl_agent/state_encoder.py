@@ -136,12 +136,35 @@ class StateEncoder:
         for item in news_data:
             embedding = item.get("embedding")
             if embedding is not None:
+                # Handle bytes embeddings (shouldn't happen if training_data_prep is correct, but be safe)
                 if isinstance(embedding, bytes):
-                    # If stored as bytes, need to decode (would need pickle or similar)
-                    # For now, assume it's already an array
-                    logger.warning("Embedding stored as bytes, skipping")
+                    try:
+                        import pickle
+                        embedding = pickle.loads(embedding)
+                    except (pickle.UnpicklingError, EOFError, ValueError):
+                        try:
+                            embedding = np.frombuffer(embedding, dtype=np.float32)
+                        except (ValueError, TypeError):
+                            logger.warning("Could not decode bytes embedding, skipping")
+                            continue
+                
+                # Convert to numpy array and validate
+                if not isinstance(embedding, np.ndarray):
+                    embedding = np.array(embedding, dtype=np.float32)
+                else:
+                    embedding = embedding.astype(np.float32)
+                
+                # Validate shape
+                if embedding.shape != (self.embedding_dim,):
+                    logger.warning(f"Invalid embedding shape: {embedding.shape}, expected ({self.embedding_dim},), skipping")
                     continue
-                embeddings.append(np.array(embedding, dtype=np.float32))
+                
+                # Validate values (should be finite)
+                if not np.isfinite(embedding).all():
+                    logger.warning("Non-finite values in embedding, skipping")
+                    continue
+                
+                embeddings.append(embedding)
                 sentiment_scores.append(item.get("sentiment_score", 0.0))
                 # Handle cluster_id - ensure it's an int, default to -1 if None
                 cluster_id = item.get("cluster_id", -1)
