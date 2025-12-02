@@ -1,19 +1,19 @@
 # RL Agent News Data Pipeline Audit
 
 **Date**: 2025-12-02  
-**Status**: ✅ **FIXED** - Critical issues identified and resolved
+**Status**: ✅ **COMPLETE** - Critical issues identified and resolved
 
 ## Executive Summary
 
-Audited the news data extraction and preparation pipeline for RL agent training. Found **3 critical issues** that could cause data leakage, training failures, or incorrect model behavior. All issues have been fixed.
+Audited the news data extraction and preparation pipeline for RL agent training. Found **2 critical issues** that could cause training failures or incorrect model behavior. All issues have been fixed. The temporal data correctness was verified to be correct (uses `published_date` as it should).
 
 ---
 
 ## Issues Found & Fixed
 
-### ✅ **CORRECTED: Temporal Data Correctness**
+### ✅ **VERIFIED: Temporal Data Correctness**
 
-**Correct Understanding**: `get_news_at_time()` correctly uses `published_date` to filter news.
+**Correct Implementation**: `get_news_at_time()` correctly uses `published_date` to filter news.
 
 **Why This Is Correct**:
 - News matters when it was **PUBLISHED**, not when we fetched it
@@ -29,11 +29,9 @@ WHERE published_date >= ? AND published_date <= ?
 
 **Location**: `rl_agent/training_data_prep.py::get_news_at_time()`
 
-**Note**: The original implementation was correct. The audit initially incorrectly suggested using `fetched_date`, but this has been corrected. We should be lazy in fetching - the point is to learn what news at that moment affected price, not when we read it.
-
 ---
 
-### 🔴 **CRITICAL ISSUE #2: Weak Embedding Decoding**
+### 🔴 **CRITICAL ISSUE #1: Weak Embedding Decoding**
 
 **Problem**: Embedding decoding only tried `pickle.loads()` and failed silently on corrupted data.
 
@@ -58,7 +56,7 @@ WHERE published_date >= ? AND published_date <= ?
 
 ---
 
-### 🟡 **ISSUE #3: State Encoder Bytes Handling**
+### 🟡 **ISSUE #2: State Encoder Bytes Handling**
 
 **Problem**: State encoder had a placeholder warning for bytes embeddings but didn't handle them.
 
@@ -72,7 +70,7 @@ WHERE published_date >= ? AND published_date <= ?
 
 ---
 
-## Data Pipeline Flow (After Fixes)
+## Data Pipeline Flow
 
 ### 1. **News Fetching** (Hourly)
 - Background loop fetches news every hour
@@ -174,9 +172,9 @@ For each training timestamp T:
 
 ## Next Steps
 
-1. ✅ **Fixed temporal data leakage** - uses `fetched_date` correctly
-2. ✅ **Fixed embedding decoding** - robust error handling
-3. ✅ **Fixed state encoder** - handles bytes embeddings
+1. ✅ **Fixed embedding decoding** - robust error handling
+2. ✅ **Fixed state encoder** - handles bytes embeddings
+3. ✅ **Verified temporal correctness** - uses `published_date` correctly
 4. ⏳ **Recommended**: Run `fill_news_gaps.py` before next training to fill historical gaps
 5. ⏳ **Recommended**: Add unit tests for temporal correctness
 6. ⏳ **Recommended**: Monitor training logs for embedding validation warnings

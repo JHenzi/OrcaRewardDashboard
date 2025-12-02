@@ -251,12 +251,18 @@ The application now includes a **Reinforcement Learning (RL) Trading Agent** bui
 - 🎯 Production deployment (after validation)
 
 **Documentation:**
-- [RL_AGENT_IMPLEMENTATION_STATUS.md](RL_AGENT_IMPLEMENTATION_STATUS.md) - Detailed implementation status
+- [Documentation/reference/RL_AGENT_IMPLEMENTATION_STATUS.md](Documentation/reference/RL_AGENT_IMPLEMENTATION_STATUS.md) - Detailed implementation status
 - [Documentation/reference/NewAgent.md](Documentation/reference/NewAgent.md) - Original design specification
 - [Documentation/reference/TRAINING_GUIDE.md](Documentation/reference/TRAINING_GUIDE.md) - Complete training guide with historical data
 - [Documentation/reference/RETRAINING_STRATEGY.md](Documentation/reference/RETRAINING_STRATEGY.md) - Automated retraining strategies and setup
+- [Documentation/reference/RL_AGENT_NEWS_DATA_PIPELINE_AUDIT.md](Documentation/reference/RL_AGENT_NEWS_DATA_PIPELINE_AUDIT.md) - News data pipeline audit and fixes
+- [Documentation/reference/RL_AGENT_PREDICTION_FIX_PLAN.md](Documentation/reference/RL_AGENT_PREDICTION_FIX_PLAN.md) - RL agent prediction fix plan
+- [Documentation/reference/NEWS_GAP_FILLING_PLAN.md](Documentation/reference/NEWS_GAP_FILLING_PLAN.md) - News data gap filling strategy
+- [Documentation/reference/SOL_TRACKER_IMPROVEMENT_PLAN.md](Documentation/reference/SOL_TRACKER_IMPROVEMENT_PLAN.md) - Complete improvement plan with status
+- [Documentation/reference/AI_FEATURES_IMPLEMENTATION_PLAN.md](Documentation/reference/AI_FEATURES_IMPLEMENTATION_PLAN.md) - AI features roadmap
+- [Documentation/reference/DATA_SHARING_GUIDE.md](Documentation/reference/DATA_SHARING_GUIDE.md) - Training data sharing guide
+- [Documentation/reference/IMPLEMENTATION_CHECKLIST.md](Documentation/reference/IMPLEMENTATION_CHECKLIST.md) - Implementation checklist
 - [WHAT_REMAINS.md](WHAT_REMAINS.md) - What's left to do (training, validation, deployment)
-- [SOL_TRACKER_IMPROVEMENT_PLAN.md](SOL_TRACKER_IMPROVEMENT_PLAN.md) - Complete improvement plan with status
 
 ### Future Enhancements
 
@@ -293,7 +299,7 @@ We're building a next-generation trading intelligence system that unifies all ou
 - 🎯 Production deployment
 - 🎯 Advanced features (enhanced clustering, rule validation)
 
-See [SOL_TRACKER_IMPROVEMENT_PLAN.md](SOL_TRACKER_IMPROVEMENT_PLAN.md) for the complete technical roadmap.
+See [Documentation/reference/SOL_TRACKER_IMPROVEMENT_PLAN.md](Documentation/reference/SOL_TRACKER_IMPROVEMENT_PLAN.md) for the complete technical roadmap.
 
 ---
 
