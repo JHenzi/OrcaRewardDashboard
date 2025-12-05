@@ -50,22 +50,29 @@ class TrainingDataPrep:
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
         min_points: int = 100,
+        fill_gaps: bool = True,
+        expected_interval_minutes: int = 5,
+        max_gap_hours: int = 24,
     ) -> List[Tuple[datetime, float]]:
         """
-        Get historical price data.
+        Get historical price data, optionally filling gaps using delta values and smoothing.
         
         Args:
             start_time: Start timestamp (None = from beginning)
             end_time: End timestamp (None = to now)
             min_points: Minimum number of data points required
+            fill_gaps: If True, fill gaps using delta values and smoothing
+            expected_interval_minutes: Expected interval between price points (default: 5 minutes)
+            max_gap_hours: Maximum gap size to fill (default: 24 hours)
             
         Returns:
-            List of (timestamp, price) tuples
+            List of (timestamp, price) tuples, with gaps filled if fill_gaps=True
         """
         conn = sqlite3.connect(self.price_db_path)
         cursor = conn.cursor()
         
-        query = "SELECT timestamp, rate FROM sol_prices WHERE 1=1"
+        # Fetch price data with delta values for gap filling
+        query = "SELECT timestamp, rate, delta_hour, delta_day FROM sol_prices WHERE 1=1"
         params = []
         
         if start_time:
@@ -86,7 +93,7 @@ class TrainingDataPrep:
             logger.warning(f"Only {len(rows)} price points available (minimum {min_points} required)")
             return []
         
-        # Parse timestamps
+        # Parse timestamps and prices
         price_data = []
         for row in rows:
             try:
@@ -95,13 +102,165 @@ class TrainingDataPrep:
                 else:
                     ts = row[0]
                 price = float(row[1])
-                price_data.append((ts, price))
+                delta_hour = float(row[2]) if row[2] is not None else 1.0
+                delta_day = float(row[3]) if row[3] is not None else 1.0
+                price_data.append((ts, price, delta_hour, delta_day))
             except Exception as e:
                 logger.warning(f"Error parsing price row: {e}")
                 continue
         
-        logger.info(f"Retrieved {len(price_data)} price points")
-        return price_data
+        if not fill_gaps:
+            # Return without gap filling
+            result = [(ts, price) for ts, price, _, _ in price_data]
+            logger.info(f"Retrieved {len(result)} price points (no gap filling)")
+            return result
+        
+        # Fill gaps using delta values and smoothing
+        filled_data = self._fill_price_gaps(
+            price_data,
+            expected_interval_minutes=expected_interval_minutes,
+            max_gap_hours=max_gap_hours,
+        )
+        
+        original_count = len(price_data)
+        filled_count = len(filled_data) - original_count
+        if filled_count > 0:
+            logger.info(f"Filled {filled_count} missing price points using delta values and smoothing")
+        logger.info(f"Retrieved {len(filled_data)} price points ({original_count} original + {filled_count} filled)")
+        return filled_data
+    
+    def _fill_price_gaps(
+        self,
+        price_data: List[Tuple[datetime, float, float, float]],
+        expected_interval_minutes: int = 5,
+        max_gap_hours: int = 24,
+    ) -> List[Tuple[datetime, float]]:
+        """
+        Fill gaps in price data using delta values and smoothing.
+        
+        Args:
+            price_data: List of (timestamp, price, delta_hour, delta_day) tuples
+            expected_interval_minutes: Expected interval between price points
+            max_gap_hours: Maximum gap size to fill
+            
+        Returns:
+            List of (timestamp, price) tuples with gaps filled
+        """
+        if len(price_data) < 2:
+            return [(ts, price) for ts, price, _, _ in price_data]
+        
+        filled_data = []
+        expected_interval = timedelta(minutes=expected_interval_minutes)
+        max_gap = timedelta(hours=max_gap_hours)
+        
+        for i in range(len(price_data)):
+            current_ts, current_price, current_delta_hour, current_delta_day = price_data[i]
+            filled_data.append((current_ts, current_price))
+            
+            # Check if there's a gap before the next point
+            if i < len(price_data) - 1:
+                next_ts, next_price, next_delta_hour, next_delta_day = price_data[i + 1]
+                gap = next_ts - current_ts
+                
+                # Only fill if gap is larger than expected interval but smaller than max
+                if gap > expected_interval * 1.5 and gap <= max_gap:
+                    # Calculate number of missing points
+                    num_missing = int(gap.total_seconds() / expected_interval.total_seconds()) - 1
+                    
+                    if num_missing > 0:
+                        gap_hours = gap.total_seconds() / 3600
+                        logger.debug(f"Filling gap of {gap_hours:.2f} hours ({num_missing} missing points) between {current_ts} and {next_ts}")
+                        # Use delta values to estimate price change
+                        # delta_hour represents change over 1 hour, so for 5-minute intervals:
+                        # change_per_5min = delta_hour^(1/12)  (12 * 5min = 1 hour)
+                        # Or use linear interpolation with delta-based trend
+                        
+                        # Calculate average delta for interpolation
+                        avg_delta_hour = (current_delta_hour + next_delta_hour) / 2.0
+                        
+                        # Estimate price change per interval
+                        # If delta_hour = 1.02 (2% increase per hour), then per 5min ≈ 1.02^(1/12) ≈ 1.00165
+                        if avg_delta_hour > 0:
+                            change_per_interval = avg_delta_hour ** (expected_interval_minutes / 60.0)
+                        else:
+                            # Fallback to linear interpolation if delta is invalid
+                            change_per_interval = 1.0
+                        
+                        # Interpolate prices
+                        for j in range(1, num_missing + 1):
+                            # Time interpolation weight
+                            t = j / (num_missing + 1)
+                            
+                            # Linear interpolation of price
+                            linear_price = current_price + (next_price - current_price) * t
+                            
+                            # Delta-based adjustment (smooth transition)
+                            # Use exponential interpolation based on delta
+                            if change_per_interval != 1.0:
+                                # Apply delta-based change
+                                delta_based_price = current_price * (change_per_interval ** j)
+                                # Blend linear and delta-based (70% linear, 30% delta-based for smoothing)
+                                interpolated_price = 0.7 * linear_price + 0.3 * delta_based_price
+                            else:
+                                interpolated_price = linear_price
+                            
+                            # Calculate timestamp for this interpolated point
+                            interpolated_ts = current_ts + expected_interval * j
+                            
+                            filled_data.append((interpolated_ts, interpolated_price))
+        
+        # Apply smoothing to reduce noise in interpolated data
+        smoothed_data = self._smooth_prices(filled_data)
+        
+        return smoothed_data
+    
+    def _smooth_prices(
+        self,
+        price_data: List[Tuple[datetime, float]],
+        window_size: int = 3,
+    ) -> List[Tuple[datetime, float]]:
+        """
+        Apply moving average smoothing to price data.
+        Uses a weighted average that preserves original data points more than interpolated ones.
+        
+        Args:
+            price_data: List of (timestamp, price) tuples
+            window_size: Size of smoothing window (default: 3)
+            
+        Returns:
+            Smoothed price data
+        """
+        if len(price_data) < window_size:
+            return price_data
+        
+        smoothed = []
+        half_window = window_size // 2
+        
+        for i in range(len(price_data)):
+            ts, price = price_data[i]
+            
+            # Calculate window bounds
+            start_idx = max(0, i - half_window)
+            end_idx = min(len(price_data), i + half_window + 1)
+            
+            # Calculate weighted moving average (center point gets more weight)
+            window_prices = [p for _, p in price_data[start_idx:end_idx]]
+            weights = []
+            for j in range(start_idx, end_idx):
+                # Center point (current) gets weight 2, others get weight 1
+                weight = 2.0 if j == i else 1.0
+                weights.append(weight)
+            
+            # Normalize weights
+            total_weight = sum(weights)
+            weights = [w / total_weight for w in weights]
+            
+            # Weighted average
+            smoothed_price = sum(p * w for p, w in zip(window_prices, weights))
+            
+            smoothed.append((ts, smoothed_price))
+        
+        return smoothed
     
     def get_news_at_time(
         self,

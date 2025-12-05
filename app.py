@@ -1526,11 +1526,17 @@ def sol_tracker():
                     current_price = actual_current_price if actual_current_price else (prices[-1] if prices else 100.0)
                     processed = news_analyzer.process_and_store_news(articles, current_price)
                     if processed > 0:
-                        logger.info(f"Processed {processed} new news articles")
+                        logger.info(f"Processed {processed} new news articles on sol-tracker page")
+                    else:
+                        logger.warning(f"Fetched {len(articles)} articles but processed 0 - may indicate duplicate filtering")
                 elif force_fetch:
-                    logger.warning("Forced news fetch returned no articles - may indicate an error")
+                    logger.error("Forced news fetch returned no articles - this indicates a problem with RSS feeds or network")
+                    logger.error("Check RSS feed URLs in news_feeds.json and network connectivity")
+                else:
+                    logger.debug("News fetch skipped (in cooldown period)")
             except Exception as e:
-                logger.debug(f"News fetch skipped (cooldown or error): {e}")
+                logger.error(f"Error fetching news on sol-tracker page: {e}")
+                logger.error(traceback.format_exc())
             
             # Get recent news features
             news_features = news_analyzer.get_recent_news_features(hours=24, crypto_only=True)
@@ -2205,6 +2211,49 @@ def start_sol_price_collection(interval_minutes):
     price_fetch_thread.start()
     logger.info(f"Started SOL price collection with {interval_minutes} minute interval")
 
+def check_price_data_gap():
+    """Check if there's a significant gap in price data (server was offline)."""
+    try:
+        conn = sqlite3.connect("sol_prices.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT timestamp FROM sol_prices ORDER BY timestamp DESC LIMIT 1")
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            last_timestamp_str = result[0]
+            try:
+                # Parse timestamp (could be ISO format or SQLite datetime)
+                if 'T' in last_timestamp_str:
+                    last_timestamp = datetime.fromisoformat(last_timestamp_str.replace('Z', '+00:00'))
+                else:
+                    last_timestamp = datetime.strptime(last_timestamp_str, '%Y-%m-%d %H:%M:%S')
+                
+                # Make timezone-aware for comparison
+                from datetime import timezone
+                now = datetime.now(timezone.utc)
+                if last_timestamp.tzinfo is None:
+                    last_timestamp = last_timestamp.replace(tzinfo=timezone.utc)
+                
+                gap = now - last_timestamp
+                gap_hours = gap.total_seconds() / 3600
+                
+                if gap_hours > 1:  # More than 1 hour gap
+                    logger.warning(f"Price data gap detected: {gap_hours:.1f} hours since last price update")
+                    logger.warning(f"Last price timestamp: {last_timestamp_str}, Current time: {now.isoformat()}")
+                    logger.warning("This indicates the server was offline. Price data will resume from now.")
+                    return gap_hours
+                else:
+                    logger.debug(f"Price data is current (gap: {gap_hours:.2f} hours)")
+            except Exception as e:
+                logger.warning(f"Could not parse last timestamp '{last_timestamp_str}': {e}")
+        else:
+            logger.info("No price data found in database - this appears to be a fresh start")
+    except Exception as e:
+        logger.error(f"Error checking price data gap: {e}")
+    
+    return 0
+
 def sol_price_fetch_loop(initial_interval_minutes):
     global price_fetcher, price_fetch_active
 
@@ -2212,6 +2261,11 @@ def sol_price_fetch_loop(initial_interval_minutes):
     interval_seconds = initial_interval_minutes * 60
     cycle_count = 0
     check_credits_every = 1000  # only used in fast mode
+    
+    # Check for data gap on startup
+    gap_hours = check_price_data_gap()
+    if gap_hours > 0:
+        logger.info(f"Server was offline for {gap_hours:.1f} hours. Resuming price collection...")
 
     while price_fetch_active:
         try:
@@ -2285,9 +2339,10 @@ def news_fetch_loop():
         logger.warning("News analyzer not available. Skipping news fetching.")
         return
     
-    # Fetch news every hour (cooldown is handled by analyzer to respect rate limits)
-    # This ensures fresh data for RL agent training while avoiding rate limit issues
-    fetch_interval = 60 * 60  # 1 hour in seconds
+    # Check for news every 10 minutes (cooldown is handled by analyzer to respect rate limits)
+    # The analyzer has a 5-minute cooldown, so checking every 10 minutes ensures we catch
+    # when the cooldown expires while not being too aggressive
+    check_interval = 10 * 60  # 10 minutes in seconds
     
     try:
         news_analyzer = NewsSentimentAnalyzer()
@@ -2296,8 +2351,42 @@ def news_fetch_loop():
         logger.error(f"Failed to initialize news analyzer: {e}")
         return
     
+    # Perform initial fetch immediately on startup
+    logger.info("Performing initial news fetch on startup...")
+    try:
+        if price_fetcher:
+            price_data = price_fetcher.fetch_sol_price()
+            current_price = price_data.get('rate', 0.0) if price_data else 0.0
+        else:
+            conn = sqlite3.connect("sol_prices.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT rate FROM sol_prices ORDER BY timestamp DESC LIMIT 1")
+            result = cursor.fetchone()
+            current_price = result[0] if result else 0.0
+            conn.close()
+        
+        if current_price > 0:
+            articles = news_analyzer.fetch_news(force=True)  # Force initial fetch
+            if articles:
+                processed = news_analyzer.process_and_store_news(articles, current_price)
+                logger.info(f"Initial fetch: Processed {processed} news articles")
+            else:
+                logger.info("Initial fetch: No new articles found")
+        else:
+            logger.warning("Initial fetch skipped: no valid SOL price available")
+    except Exception as e:
+        logger.error(f"Error in initial news fetch: {e}")
+        logger.error(traceback.format_exc())
+    
     while news_fetch_active:
         try:
+            # Check if news is stale (older than 1 hour) - force fetch if so
+            is_stale = news_analyzer.is_news_stale(stale_hours=1)
+            force_fetch = is_stale
+            
+            if force_fetch:
+                logger.info("News is stale (older than 1 hour), forcing fetch...")
+            
             # Get current SOL price for tracking
             if price_fetcher:
                 price_data = price_fetcher.fetch_sol_price()
@@ -2312,24 +2401,33 @@ def news_fetch_loop():
                 conn.close()
             
             if current_price > 0:
-                logger.info("Fetching news articles...")
-                # fetch_news() now handles cooldown internally
-                articles = news_analyzer.fetch_news()
+                logger.info("Checking for news articles in background loop...")
+                # fetch_news() handles cooldown internally, but we can force if stale
+                articles = news_analyzer.fetch_news(force=force_fetch)
                 if articles:  # Only process if we got articles (not in cooldown)
                     processed = news_analyzer.process_and_store_news(articles, current_price)
-                    logger.info(f"Processed {processed} news articles")
+                    logger.info(f"Background loop: Processed {processed} news articles")
+                elif force_fetch:
+                    logger.error("Background loop: Forced news fetch returned no articles - check RSS feeds and network")
                 else:
-                    logger.info("News fetch skipped (cooldown or no new articles)")
+                    logger.debug("Background loop: News fetch skipped (in cooldown)")
+            else:
+                logger.warning("Cannot fetch news: no valid SOL price available")
             
         except Exception as e:
             logger.error(f"Error in news fetch loop: {e}")
             logger.error(traceback.format_exc())
+            # Continue running even after errors
         
-        # Sleep for fetch_interval
-        for _ in range(fetch_interval):
+        # Sleep for check_interval using a single sleep call
+        # Break the sleep into smaller chunks to allow for graceful shutdown
+        sleep_chunks = 60  # Check every minute if we should stop
+        chunk_duration = check_interval / sleep_chunks
+        
+        for _ in range(sleep_chunks):
             if not news_fetch_active:
                 break
-            time.sleep(1)
+            time.sleep(chunk_duration)
 
 def start_news_fetch():
     """Start the news fetching in a separate thread."""

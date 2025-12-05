@@ -966,7 +966,7 @@ class NewsSentimentAnalyzer:
             crypto_only: Only include crypto-related news
             
         Returns:
-            Dictionary of news features for bandit system
+            Dictionary of news features for bandit system, including latest_fetch_timestamp
         """
         conn = sqlite3.connect(NEWS_DB)
         cursor = conn.cursor()
@@ -985,6 +985,26 @@ class NewsSentimentAnalyzer:
         
         cursor.execute(query, params)
         results = cursor.fetchall()
+        
+        # Get latest fetch timestamp
+        cursor.execute("SELECT MAX(fetched_date) FROM news_articles")
+        latest_fetch_result = cursor.fetchone()
+        latest_fetch_timestamp = None
+        if latest_fetch_result and latest_fetch_result[0]:
+            try:
+                ts_str = str(latest_fetch_result[0])
+                if 'T' in ts_str:
+                    if ts_str.endswith('Z'):
+                        latest_fetch_timestamp = datetime.fromisoformat(ts_str[:-1])
+                    elif '+' in ts_str or ts_str.count('-') > 2:
+                        latest_fetch_timestamp = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                    else:
+                        latest_fetch_timestamp = datetime.fromisoformat(ts_str)
+                else:
+                    latest_fetch_timestamp = datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S')
+            except (ValueError, AttributeError):
+                pass
+        
         conn.close()
         
         if not results:
@@ -996,6 +1016,7 @@ class NewsSentimentAnalyzer:
                 "news_positive_count": 0,
                 "news_negative_count": 0,
                 "news_crypto_count": 0,
+                "latest_fetch_timestamp": latest_fetch_timestamp,
             }
         
         sentiment_scores = [r[0] for r in results if r[0] is not None]
@@ -1018,11 +1039,10 @@ class NewsSentimentAnalyzer:
         else:
             overall_label = "neutral"
         
-        # Get latest news timestamp for display
-        latest_timestamp = self.get_latest_news_timestamp()
+        # Get latest news timestamp for display (use the one we already fetched)
         latest_timestamp_str = None
-        if latest_timestamp:
-            latest_timestamp_str = latest_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        if latest_fetch_timestamp:
+            latest_timestamp_str = latest_fetch_timestamp.strftime("%Y-%m-%d %H:%M:%S")
         
         return {
             "news_sentiment_score": float(avg_sentiment),  # Explicit float conversion
@@ -1031,7 +1051,8 @@ class NewsSentimentAnalyzer:
             "news_positive_count": int(positive_count),  # Explicit int conversion
             "news_negative_count": int(negative_count),  # Explicit int conversion
             "news_crypto_count": int(sum(1 for r in results if r[3])),  # Explicit int conversion
-            "latest_news_timestamp": latest_timestamp_str,  # Latest news fetch timestamp
+            "latest_fetch_timestamp": latest_fetch_timestamp,  # Latest news fetch timestamp (datetime object)
+            "latest_fetch_timestamp_str": latest_timestamp_str,  # Latest news fetch timestamp (formatted string)
         }
     
     def train_sentiment_classifier(self, min_labeled_samples: int = 50):

@@ -512,6 +512,16 @@ python scripts/train_rl_agent.py --epochs 10
 - For timestamps without news (July - Nov 26): Pads with zeros (model learns to ignore)
 - Model trains successfully on price patterns, news enhances later
 
+**Price Data Gap Filling:**
+When the system is offline (e.g., server downtime), gaps in price data are automatically filled during training data preparation:
+- **Gap Detection**: Identifies missing price points when intervals exceed expected collection frequency
+- **Delta-Based Interpolation**: Uses stored `delta_hour` and `delta_day` values to estimate price changes during gaps
+- **Smoothing**: Applies weighted moving average smoothing to interpolated prices for more realistic training data
+- **Automatic**: Gap filling is enabled by default in `TrainingDataPrep.get_price_history()` (can be disabled with `fill_gaps=False`)
+- **Limits**: Only fills gaps up to 24 hours (configurable via `max_gap_hours` parameter)
+
+This ensures training data has consistent intervals even when the server was offline, using delta values and smoothing to produce realistic interpolated prices.
+
 **After Training:**
 - Model is automatically loaded on app startup via `initialize_rl_agent()`
 - When `make_decision()` is called, the model automatically generates:
