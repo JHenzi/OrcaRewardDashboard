@@ -10,6 +10,11 @@ Retraining Strategy:
 - Adaptive: Retrain based on data volume or performance metrics
 """
 
+import os
+# Set tokenizers parallelism before any imports that might use tokenizers
+# This prevents warnings when subprocesses are spawned
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 import argparse
 import logging
 from pathlib import Path
@@ -18,7 +23,6 @@ from typing import Optional, Tuple
 import sqlite3
 import subprocess
 import sys
-import os
 
 # Add project root to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -194,11 +198,13 @@ def retrain_model(
     checkpoint_dir: str = None,
     device: str = "cpu",
 ) -> bool:
+    # Get project root (needed for resolving script paths)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = Path(os.path.dirname(script_dir))
+    
     # Set default checkpoint directory if not provided
     if checkpoint_dir is None:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(script_dir)
-        checkpoint_dir = os.path.join(project_root, "models", "rl_agent")
+        checkpoint_dir = str(project_root / "models" / "rl_agent")
     """
     Retrain the RL agent model.
     
@@ -220,7 +226,24 @@ def retrain_model(
         if checkpoint_dir_path.exists():
             checkpoints = list(checkpoint_dir_path.glob("checkpoint_epoch_*.pt"))
             if checkpoints:
-                checkpoints.sort(key=lambda p: int(p.stem.split('_')[-1]))
+                # Extract epoch number from filename (handles both "checkpoint_epoch_N.pt" and "checkpoint_epoch_N_suffix.pt")
+                def get_epoch_number(path):
+                    stem = path.stem  # e.g., "checkpoint_epoch_10_fixed" or "checkpoint_epoch_1"
+                    parts = stem.split('_')
+                    # Find the index of "epoch" and get the next part
+                    try:
+                        epoch_idx = parts.index('epoch')
+                        if epoch_idx + 1 < len(parts):
+                            return int(parts[epoch_idx + 1])
+                    except (ValueError, IndexError):
+                        pass
+                    # Fallback: try to extract number from last part if it's numeric
+                    try:
+                        return int(parts[-1])
+                    except ValueError:
+                        return -1  # Invalid checkpoint, will be sorted first
+                
+                checkpoints.sort(key=get_epoch_number)
                 resume_from = str(checkpoints[-1])
                 logger.info(f"Resuming from: {resume_from}")
     
@@ -246,9 +269,14 @@ def retrain_model(
     
     # Train model
     logger.info("Training model...")
+    # Resolve train_rl_agent.py path relative to project root
+    train_script_path = project_root / "scripts" / "train_rl_agent.py"
+    if not train_script_path.exists():
+        logger.error(f"Training script not found at: {train_script_path}")
+        return False
     train_cmd = [
         sys.executable,
-        "train_rl_agent.py",
+        str(train_script_path),
         "--epochs", str(epochs),
         "--device", device,
         "--checkpoint-dir", checkpoint_dir,

@@ -33,8 +33,8 @@ class RetrainingScheduler:
     def __init__(
         self,
         model_manager,
-        retrain_script: str = "retrain_rl_agent.py",
-        training_script: str = "train_rl_agent.py",
+        retrain_script: str = "scripts/retrain_rl_agent.py",
+        training_script: str = "scripts/train_rl_agent.py",
         data_prep_script: str = "rl_agent/training_data_prep.py",
         interval_days: int = 7,
         enabled: bool = True,
@@ -51,9 +51,21 @@ class RetrainingScheduler:
             enabled: Whether scheduler is enabled
         """
         self.model_manager = model_manager
-        self.retrain_script = Path(retrain_script)
-        self.training_script = Path(training_script)
-        self.data_prep_script = Path(data_prep_script)
+        
+        # Resolve paths relative to project root (where app.py is located)
+        # Get project root by going up from this file's directory
+        project_root = Path(__file__).parent.parent.resolve()
+        self.retrain_script = (project_root / retrain_script).resolve()
+        self.training_script = (project_root / training_script).resolve()
+        self.data_prep_script = (project_root / data_prep_script).resolve()
+        
+        # Validate that retrain script exists
+        if not self.retrain_script.exists():
+            logger.error(f"❌ Retrain script not found at: {self.retrain_script}")
+            logger.error(f"   Project root: {project_root}")
+            logger.error(f"   Expected path: {self.retrain_script}")
+            raise FileNotFoundError(f"Retrain script not found: {self.retrain_script}")
+        
         self.interval_days = interval_days
         self.enabled = enabled
         

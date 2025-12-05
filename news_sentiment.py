@@ -12,6 +12,11 @@ Features:
 - Integration with bandit trading system
 """
 
+import os
+# Set tokenizers parallelism before importing sentence-transformers
+# This prevents warnings when subprocesses are spawned
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 import sqlite3
 import json
 import logging

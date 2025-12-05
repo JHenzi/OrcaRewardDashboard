@@ -1,3 +1,8 @@
+import os
+# Set tokenizers parallelism before any imports that might use tokenizers
+# This prevents warnings when subprocesses are spawned
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 import requests
 import time
 import sqlite3
@@ -6,7 +11,6 @@ from flask import Flask, jsonify, render_template, request
 import threading
 import json
 from datetime import datetime, timedelta
-import os
 from dotenv import load_dotenv
 from sol_price_fetcher import SOLPriceFetcher
 from statistics import mean, stdev
@@ -2339,10 +2343,10 @@ def news_fetch_loop():
         logger.warning("News analyzer not available. Skipping news fetching.")
         return
     
-    # Check for news every 10 minutes (cooldown is handled by analyzer to respect rate limits)
-    # The analyzer has a 5-minute cooldown, so checking every 10 minutes ensures we catch
-    # when the cooldown expires while not being too aggressive
-    check_interval = 10 * 60  # 10 minutes in seconds
+    # Check for news every 6 minutes (cooldown is handled by analyzer to respect rate limits)
+    # The analyzer has a 5-minute cooldown, so checking every 6 minutes ensures we catch
+    # when the cooldown expires quickly while not being too aggressive
+    check_interval = 6 * 60  # 6 minutes in seconds
     
     try:
         news_analyzer = NewsSentimentAnalyzer()
@@ -2378,6 +2382,8 @@ def news_fetch_loop():
         logger.error(f"Error in initial news fetch: {e}")
         logger.error(traceback.format_exc())
     
+    logger.info("News fetch background loop started - will check every 6 minutes")
+    
     while news_fetch_active:
         try:
             # Check if news is stale (older than 1 hour) - force fetch if so
@@ -2386,6 +2392,8 @@ def news_fetch_loop():
             
             if force_fetch:
                 logger.info("News is stale (older than 1 hour), forcing fetch...")
+            else:
+                logger.debug("News is fresh, will attempt fetch (respecting cooldown if needed)")
             
             # Get current SOL price for tracking
             if price_fetcher:
@@ -2402,7 +2410,9 @@ def news_fetch_loop():
             
             if current_price > 0:
                 logger.info("Checking for news articles in background loop...")
-                # fetch_news() handles cooldown internally, but we can force if stale
+                # Always attempt to fetch - fetch_news() handles cooldown internally
+                # Force fetch if news is stale (older than 1 hour), otherwise respect cooldown
+                # This ensures regular fetching every ~6 minutes (after 5-min cooldown expires)
                 articles = news_analyzer.fetch_news(force=force_fetch)
                 if articles:  # Only process if we got articles (not in cooldown)
                     processed = news_analyzer.process_and_store_news(articles, current_price)
@@ -2410,7 +2420,7 @@ def news_fetch_loop():
                 elif force_fetch:
                     logger.error("Background loop: Forced news fetch returned no articles - check RSS feeds and network")
                 else:
-                    logger.debug("Background loop: News fetch skipped (in cooldown)")
+                    logger.debug("Background loop: News fetch skipped (in cooldown period, will retry in ~6 minutes)")
             else:
                 logger.warning("Cannot fetch news: no valid SOL price available")
             
