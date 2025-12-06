@@ -71,6 +71,10 @@ news_analyzer = None
 news_fetch_thread = None
 news_fetch_active = False
 
+# Global variables for RL agent decision loop
+rl_decision_thread = None
+rl_decision_active = False
+
 # For timezones - which suck.
 utc = pytz.utc
 #eastern = pytz.timezone("US/Eastern")  # or use tzlocal()
@@ -2074,6 +2078,68 @@ def make_rl_agent_decision():
             'error': str(e)
         }), 500
 
+@app.route('/api/news/force-fetch', methods=['POST'])
+def force_news_fetch():
+    """
+    Manually trigger a news fetch (bypasses cooldown).
+    Useful for debugging and ensuring fresh news.
+    """
+    global news_analyzer
+    
+    if not NEWS_ANALYZER_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'News analyzer not available'
+        }), 503
+    
+    try:
+        if news_analyzer is None:
+            news_analyzer = NewsSentimentAnalyzer()
+        
+        # Get current SOL price
+        if price_fetcher:
+            price_data = price_fetcher.fetch_sol_price()
+            current_price = price_data.get('rate', 0.0) if price_data else 0.0
+        else:
+            conn = sqlite3.connect("sol_prices.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT rate FROM sol_prices ORDER BY timestamp DESC LIMIT 1")
+            result = cursor.fetchone()
+            current_price = result[0] if result else 0.0
+            conn.close()
+        
+        if current_price <= 0:
+            return jsonify({
+                'success': False,
+                'error': 'No valid SOL price available'
+            }), 400
+        
+        # Force fetch news
+        articles = news_analyzer.fetch_news(force=True)
+        if articles:
+            processed = news_analyzer.process_and_store_news(articles, current_price)
+            return jsonify({
+                'success': True,
+                'articles_fetched': len(articles),
+                'articles_processed': processed,
+                'message': f'Fetched {len(articles)} articles, processed {processed} new ones'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'No articles returned from RSS feeds. Check feed URLs and network connectivity.',
+                'articles_fetched': 0,
+                'articles_processed': 0
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Error in force news fetch: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/rl-agent/feature-importance', methods=['GET'])
 def get_rl_agent_feature_importance():
     """
@@ -2413,14 +2479,22 @@ def news_fetch_loop():
                 # Always attempt to fetch - fetch_news() handles cooldown internally
                 # Force fetch if news is stale (older than 1 hour), otherwise respect cooldown
                 # This ensures regular fetching every ~6 minutes (after 5-min cooldown expires)
-                articles = news_analyzer.fetch_news(force=force_fetch)
-                if articles:  # Only process if we got articles (not in cooldown)
-                    processed = news_analyzer.process_and_store_news(articles, current_price)
-                    logger.info(f"Background loop: Processed {processed} news articles")
-                elif force_fetch:
-                    logger.error("Background loop: Forced news fetch returned no articles - check RSS feeds and network")
-                else:
-                    logger.debug("Background loop: News fetch skipped (in cooldown period, will retry in ~6 minutes)")
+                try:
+                    articles = news_analyzer.fetch_news(force=force_fetch)
+                    if articles:  # Only process if we got articles (not in cooldown)
+                        processed = news_analyzer.process_and_store_news(articles, current_price)
+                        if processed > 0:
+                            logger.info(f"Background loop: Processed {processed} new news articles")
+                        else:
+                            logger.debug(f"Background loop: Fetched {len(articles)} articles but processed 0 (duplicates)")
+                    elif force_fetch:
+                        logger.error("Background loop: Forced news fetch returned no articles - check RSS feeds and network")
+                        logger.error("This may indicate: 1) RSS feed URLs are broken, 2) Network connectivity issues, 3) Feeds are empty")
+                    else:
+                        logger.debug("Background loop: News fetch skipped (in cooldown period, will retry in ~6 minutes)")
+                except Exception as fetch_error:
+                    logger.error(f"Error fetching news in background loop: {fetch_error}")
+                    logger.error(traceback.format_exc())
             else:
                 logger.warning("Cannot fetch news: no valid SOL price available")
             
@@ -2455,6 +2529,77 @@ def start_news_fetch():
     news_fetch_thread = threading.Thread(target=news_fetch_loop, daemon=True)
     news_fetch_thread.start()
     logger.info("Started news sentiment fetching")
+
+def rl_decision_loop():
+    """Background loop to make RL agent decisions regularly and generate predictions."""
+    global rl_agent_integration, rl_decision_active
+    
+    if not RL_AGENT_AVAILABLE:
+        logger.warning("RL agent not available. Skipping decision loop.")
+        return
+    
+    # Decision interval: make a decision every hour (configurable)
+    decision_interval = int(os.getenv("RL_DECISION_INTERVAL_MINUTES", "60"))  # Default: 60 minutes
+    decision_interval_seconds = decision_interval * 60
+    
+    logger.info(f"RL agent decision loop started - will make decisions every {decision_interval} minutes")
+    
+    while rl_decision_active:
+        try:
+            if rl_agent_integration is None:
+                logger.debug("RL agent integration not initialized yet, waiting...")
+                time.sleep(60)  # Check every minute
+                continue
+            
+            # Make a decision (this also generates predictions)
+            try:
+                logger.info("Making scheduled RL agent decision...")
+                decision = rl_agent_integration.make_decision()
+                
+                action = decision.get('action', 'N/A')
+                confidence = decision.get('confidence', 0)
+                pred_1h = decision.get('predicted_return_1h', 0)
+                pred_24h = decision.get('predicted_return_24h', 0)
+                
+                logger.info(
+                    f"✅ Scheduled decision made: {action} "
+                    f"(confidence: {confidence:.2f}, "
+                    f"1h: {pred_1h*100:.2f}%, 24h: {pred_24h*100:.2f}%)"
+                )
+            except Exception as e:
+                logger.error(f"Error making RL agent decision: {e}")
+                logger.error(traceback.format_exc())
+                # Continue running even after errors
+            
+        except Exception as e:
+            logger.error(f"Error in RL decision loop: {e}")
+            logger.error(traceback.format_exc())
+        
+        # Sleep for decision interval, checking every minute if we should stop
+        sleep_chunks = decision_interval  # Check every minute
+        chunk_duration = 60  # 1 minute
+        
+        for _ in range(sleep_chunks):
+            if not rl_decision_active:
+                break
+            time.sleep(chunk_duration)
+
+def start_rl_decision_loop():
+    """Start the RL agent decision loop in a separate thread."""
+    global rl_decision_thread, rl_decision_active
+    
+    if not RL_AGENT_AVAILABLE:
+        logger.info("RL agent not available. Skipping decision loop thread.")
+        return
+    
+    if rl_decision_active:
+        logger.info("RL decision loop already active")
+        return
+    
+    rl_decision_active = True
+    rl_decision_thread = threading.Thread(target=rl_decision_loop, daemon=True)
+    rl_decision_thread.start()
+    logger.info("Started RL agent decision loop")
 
 def initialize_rl_agent():
     """Initialize RL agent model manager and scheduler."""
@@ -2505,6 +2650,9 @@ def initialize_rl_agent():
                 logger.warning(f"Failed to make initial decision: {e}")
                 import traceback
                 logger.error(traceback.format_exc())  # Use error level to see full traceback
+            
+            # Start the decision loop to make regular decisions and generate predictions
+            start_rl_decision_loop()
         else:
             logger.info("⚠️ No trained RL agent model found. Will wait for scheduled training.")
         
