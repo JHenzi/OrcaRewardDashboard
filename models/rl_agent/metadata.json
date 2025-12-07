@@ -6,9 +6,17 @@
       "source_path": "models/rl_agent/checkpoint_epoch_10.pt",
       "active_path": "models/rl_agent/checkpoint_20251128_180539.pt",
       "auto_deployed": true
+    },
+    {
+      "version": "20251206_101811",
+      "deployed_at": "2025-12-06T10:18:11.493713",
+      "source_path": "models/rl_agent/checkpoint_epoch_5.pt",
+      "active_path": "models/rl_agent/checkpoint_20251206_101811.pt",
+      "training_epochs": null,
+      "training_loss": null
     }
   ],
-  "current_version": "20251128_180539",
-  "last_retrain_time": null,
-  "next_retrain_time": "2025-12-05T17:17:15.630549"
+  "current_version": "20251206_101811",
+  "last_retrain_time": "2025-12-06T10:18:11.497706",
+  "next_retrain_time": "2025-12-13T10:18:11.497706"
 }

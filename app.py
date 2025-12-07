@@ -1913,6 +1913,85 @@ def get_rl_agent_rules():
             'error': str(e)
         }), 500
 
+@app.route('/api/rl-agent/diagnostics', methods=['GET'])
+def get_rl_agent_diagnostics():
+    """
+    Get detailed diagnostics about the RL agent model, including prediction health.
+    """
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    try:
+        diagnostics = {
+            'model_loaded': rl_agent_integration is not None,
+            'predictions_available': False,
+            'latest_prediction': None,
+            'prediction_health': 'unknown',
+            'recommendations': []
+        }
+        
+        if rl_agent_integration is None:
+            diagnostics['recommendations'].append('RL agent model not loaded. Check if model exists in models/rl_agent/')
+            return jsonify({
+                'success': True,
+                'diagnostics': diagnostics
+            })
+        
+        # Check for recent predictions
+        prediction_manager = PredictionManager()
+        latest_pred = prediction_manager.get_current_prediction()
+        
+        if latest_pred:
+            diagnostics['predictions_available'] = True
+            diagnostics['latest_prediction'] = {
+                'timestamp': latest_pred.get('timestamp'),
+                'pred_1h': latest_pred.get('predicted_return_1h'),
+                'pred_24h': latest_pred.get('predicted_return_24h'),
+                'conf_1h': latest_pred.get('predicted_confidence_1h'),
+                'conf_24h': latest_pred.get('predicted_confidence_24h'),
+            }
+            
+            # Check prediction health
+            pred_1h = latest_pred.get('predicted_return_1h', 0)
+            pred_24h = latest_pred.get('predicted_return_24h', 0)
+            
+            if abs(pred_1h) < 1e-6 and abs(pred_24h) < 1e-6:
+                diagnostics['prediction_health'] = 'unhealthy'
+                diagnostics['recommendations'].extend([
+                    'Predictions are zero - auxiliary heads may not be trained',
+                    'Run: python scripts/fix_auxiliary_heads.py --checkpoint models/rl_agent/checkpoint_*.pt',
+                    'Or retrain with: python scripts/train_rl_agent.py --enable-auxiliary --epochs 10'
+                ])
+            elif abs(pred_1h) < 0.001 or abs(pred_24h) < 0.001:
+                diagnostics['prediction_health'] = 'weak'
+                diagnostics['recommendations'].append('Predictions are very small - consider retraining with auxiliary losses')
+            else:
+                diagnostics['prediction_health'] = 'healthy'
+        else:
+            diagnostics['recommendations'].append('No predictions found. Make a decision first: POST /api/rl-agent/decision')
+        
+        # Check accuracy stats
+        accuracy_stats = prediction_manager.get_prediction_accuracy_stats(hours=24)
+        diagnostics['accuracy_stats'] = accuracy_stats
+        
+        if accuracy_stats['count'] == 0:
+            diagnostics['recommendations'].append('No accuracy data available - predictions need time to mature (1h+ for 1h predictions, 24h+ for 24h predictions)')
+        
+        return jsonify({
+            'success': True,
+            'diagnostics': diagnostics
+        })
+    except Exception as e:
+        logger.error(f"Error in RL agent diagnostics: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/rl-agent/status', methods=['GET'])
 def get_rl_agent_status():
     """Get RL agent status including model info and scheduler status."""

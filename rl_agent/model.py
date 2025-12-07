@@ -57,12 +57,26 @@ class MultiHeadAttention(nn.Module):
         # Scaled dot-product attention
         scores = torch.matmul(Q, K.transpose(-2, -1)) / np.sqrt(self.head_dim)
         
+        # Clamp scores to prevent extreme values that could cause NaN in softmax
+        scores = torch.clamp(scores, min=-50.0, max=50.0)
+        
         # Apply mask if provided
         if mask is not None:
             mask = mask.unsqueeze(1).unsqueeze(2)  # (batch_size, 1, 1, seq_len)
-            scores = scores.masked_fill(mask == 0, float('-inf'))
+            # Use large negative value instead of -inf to prevent NaN in softmax
+            scores = scores.masked_fill(mask == 0, -1e9)
+        
+        # Validate scores before softmax
+        scores = torch.where(torch.isfinite(scores), scores, torch.zeros_like(scores))
         
         attention_weights = F.softmax(scores, dim=-1)
+        
+        # Validate attention weights
+        attention_weights = torch.where(torch.isfinite(attention_weights), attention_weights, torch.zeros_like(attention_weights))
+        
+        # Renormalize to ensure valid probability distribution
+        attention_weights = attention_weights / (attention_weights.sum(dim=-1, keepdim=True) + 1e-10)
+        
         attention_weights = self.dropout(attention_weights)
         
         # Apply attention to values

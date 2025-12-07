@@ -80,10 +80,19 @@ def train_on_historical_data(
         logger.info("Run training_data_prep.py first to create episodes")
         return
     
-    with open(episodes_path, 'rb') as f:
-        episodes = pickle.load(f)
-    
-    logger.info(f"Loaded {len(episodes)} training episodes")
+    # Try to load episodes with error handling for corrupted files
+    try:
+        with open(episodes_path, 'rb') as f:
+            episodes = pickle.load(f)
+        logger.info(f"Loaded {len(episodes)} training episodes")
+    except (EOFError, pickle.UnpicklingError, Exception) as e:
+        logger.error(f"Failed to load episodes file: {e}")
+        logger.error("The episodes.pkl file appears to be corrupted or incomplete.")
+        logger.info("To fix this, regenerate the episodes file:")
+        logger.info("  python -m rl_agent.training_data_prep")
+        logger.info("Or use the script:")
+        logger.info("  python scripts/prepare_training_data.py")
+        return
     
     # Initialize components
     logger.info("Initializing model and environment...")
@@ -109,11 +118,34 @@ def train_on_historical_data(
     )
     
     # Load checkpoint if resuming
+    # NOTE: If checkpoint has NaN, we skip loading and train from scratch
     if resume_from and Path(resume_from).exists():
-        logger.info(f"Loading checkpoint from {resume_from}")
-        checkpoint = torch.load(resume_from, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        logger.info("Checkpoint loaded")
+        logger.info(f"Checking checkpoint from {resume_from}...")
+        try:
+            checkpoint = torch.load(resume_from, map_location=device)
+            model_state = checkpoint.get('model_state_dict', {})
+            
+            # Check for NaN in checkpoint
+            has_nan = False
+            for name, param in model_state.items():
+                if torch.isnan(param).any():
+                    has_nan = True
+                    logger.error(f"Checkpoint has NaN in {name} - will train from scratch instead")
+                    break
+            
+            if not has_nan:
+                model.load_state_dict(model_state)
+                logger.info("✅ Checkpoint loaded successfully")
+            else:
+                logger.warning("⚠️ Checkpoint corrupted - training from scratch with fresh model")
+                resume_from = None  # Don't use corrupted checkpoint
+        except Exception as e:
+            logger.error(f"Error loading checkpoint: {e} - training from scratch")
+            resume_from = None
+    
+    # CRITICAL: For now, disable auxiliary losses to train stable core model first
+    # Once core model is stable, we can add auxiliary losses back
+    use_auxiliary = enable_auxiliary and False  # Force disable for now
     
     trainer = PPOTrainer(
         model=model,
@@ -121,15 +153,16 @@ def train_on_historical_data(
         lr=3e-4,
         device=device,
         checkpoint_dir=checkpoint_dir,
-        enable_auxiliary_losses=enable_auxiliary,  # Enabled with improved NaN handling
-        aux_1h_coef=aux_1h_coef,  # Conservative coefficient to prevent NaN issues
-        aux_24h_coef=aux_24h_coef,  # Conservative coefficient to prevent NaN issues
+        enable_auxiliary_losses=use_auxiliary,  # Disabled to train stable core first
+        aux_1h_coef=aux_1h_coef,
+        aux_24h_coef=aux_24h_coef,
     )
     
-    if enable_auxiliary:
+    if use_auxiliary:
         logger.info(f"✅ Auxiliary losses enabled: aux_1h_coef={aux_1h_coef}, aux_24h_coef={aux_24h_coef}")
     else:
-        logger.warning("⚠️ Auxiliary losses disabled - predictions will not be trained")
+        logger.warning("⚠️ Auxiliary losses DISABLED - training core model only (policy + value)")
+        logger.warning("   This prevents NaN issues. Predictions will be generated but not trained.")
     
     logger.info("✅ Components initialized")
     

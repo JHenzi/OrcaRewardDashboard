@@ -95,15 +95,18 @@ def generate_prediction(
             pred_24h = pred_24h_tensor.item()
         
         # Log raw predictions for debugging
-        logger.debug(f"Raw predictions - 1h: {pred_1h}, 24h: {pred_24h}")
+        logger.info(f"Raw predictions - 1h: {pred_1h:.6f}, 24h: {pred_24h:.6f}")
         
         # Check if predictions are zero or near-zero (might indicate untrained model)
         if abs(pred_1h) < 1e-6 and abs(pred_24h) < 1e-6:
             logger.warning(
-                "Predictions are near-zero. This may indicate: "
+                "⚠️ Predictions are near-zero (1h: {:.6f}, 24h: {:.6f}). "
+                "This may indicate: "
                 "1) Model hasn't been trained yet, "
                 "2) Auxiliary heads need more training, or "
-                "3) Model needs retraining with auxiliary loss focus."
+                "3) Model needs retraining with auxiliary loss focus. "
+                "Run: python scripts/fix_auxiliary_heads.py --checkpoint <checkpoint_path> "
+                "or retrain with: python scripts/train_rl_agent.py --enable-auxiliary".format(pred_1h, pred_24h)
             )
         
         # For confidence, we could use:
