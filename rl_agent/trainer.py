@@ -46,8 +46,8 @@ class PPOTrainer:
         clip_epsilon: float = 0.2,  # PPO clip epsilon
         value_coef: float = 0.5,  # Value loss coefficient
         entropy_coef: float = 0.01,  # Entropy bonus coefficient
-        aux_1h_coef: float = 0.1,  # Auxiliary 1h loss coefficient (increased from 0.01 for better training)
-        aux_24h_coef: float = 0.1,  # Auxiliary 24h loss coefficient (increased from 0.01 for better training)
+        aux_1h_coef: float = 1.0,  # Auxiliary 1h loss coefficient (increased significantly - auxiliary heads need strong signal)
+        aux_24h_coef: float = 1.0,  # Auxiliary 24h loss coefficient (increased significantly - auxiliary heads need strong signal)
         enable_auxiliary_losses: bool = True,  # Can disable if causing issues
         max_grad_norm: float = 0.5,
         device: str = "cpu",
@@ -109,6 +109,12 @@ class PPOTrainer:
         
         # Store rollout data for later updates (when 1h/24h returns become available)
         self.pending_rollouts = []
+        
+        # Track variance warnings to reduce noise
+        self._last_aux_1h_std = None
+        self._last_aux_24h_std = None
+        self._zero_variance_warned_1h = False
+        self._zero_variance_warned_24h = False
         
         # Track NaN gradient occurrences for adaptive coefficient reduction
         self.aux_nan_count = 0
@@ -657,9 +663,17 @@ class PPOTrainer:
                                     self._aux_1h_log_counter = 0
                                 if self._aux_1h_log_counter % 100 == 0:
                                     pred_std = pred_1h_clipped.std().item()
-                                    logger.debug(f"aux_1h_loss: {aux_1h_loss.item():.6f}, pred_mean: {pred_1h_clipped.mean().item():.4f}, pred_std: {pred_std:.4f}, target_mean: {batch_returns_1h.mean().item():.4f}")
+                                    # Only warn if variance changed or is consistently zero
                                     if pred_std < 0.001:
-                                        logger.warning(f"⚠️ aux_1h predictions have very low variance (std={pred_std:.6f}) - predictions may be constant!")
+                                        if not self._zero_variance_warned_1h or (self._last_aux_1h_std is not None and self._last_aux_1h_std >= 0.001):
+                                            logger.warning(f"⚠️ aux_1h predictions have zero variance (std={pred_std:.6f}) - predictions are constant! Loss={aux_1h_loss.item():.6f}, Mean={pred_1h_clipped.mean().item():.6f}")
+                                            self._zero_variance_warned_1h = True
+                                    else:
+                                        # Variance recovered - reset warning flag
+                                        if self._zero_variance_warned_1h:
+                                            logger.info(f"✅ aux_1h variance recovered: std={pred_std:.6f}")
+                                            self._zero_variance_warned_1h = False
+                                    self._last_aux_1h_std = pred_std
                         else:
                             # Skip auxiliary loss if data is invalid
                             aux_1h_loss = torch.tensor(0.0, device=self.device)
@@ -693,9 +707,17 @@ class PPOTrainer:
                                     self._aux_24h_log_counter = 0
                                 if self._aux_24h_log_counter % 100 == 0:
                                     pred_std = pred_24h_clipped.std().item()
-                                    logger.debug(f"aux_24h_loss: {aux_24h_loss.item():.6f}, pred_mean: {pred_24h_clipped.mean().item():.4f}, pred_std: {pred_std:.4f}, target_mean: {batch_returns_24h.mean().item():.4f}")
+                                    # Only warn if variance changed or is consistently zero
                                     if pred_std < 0.001:
-                                        logger.warning(f"⚠️ aux_24h predictions have very low variance (std={pred_std:.6f}) - predictions may be constant!")
+                                        if not self._zero_variance_warned_24h or (self._last_aux_24h_std is not None and self._last_aux_24h_std >= 0.001):
+                                            logger.warning(f"⚠️ aux_24h predictions have zero variance (std={pred_std:.6f}) - predictions are constant! Loss={aux_24h_loss.item():.6f}, Mean={pred_24h_clipped.mean().item():.6f}")
+                                            self._zero_variance_warned_24h = True
+                                    else:
+                                        # Variance recovered - reset warning flag
+                                        if self._zero_variance_warned_24h:
+                                            logger.info(f"✅ aux_24h variance recovered: std={pred_std:.6f}")
+                                            self._zero_variance_warned_24h = False
+                                    self._last_aux_24h_std = pred_std
                         else:
                             # Skip auxiliary loss if data is invalid
                             aux_24h_loss = torch.tensor(0.0, device=self.device)
@@ -705,13 +727,44 @@ class PPOTrainer:
                     aux_1h_loss = torch.tensor(0.0, device=self.device)
                     aux_24h_loss = torch.tensor(0.0, device=self.device)
                 
-                # Total loss
+                # RESEARCH-BASED FIX: Normalize auxiliary losses relative to value_loss
+                # This prevents gradient signal vanishing (auxiliary gradients too small)
+                # Based on: "Gradient signal vanishing" in multi-task RL research
+                # We scale auxiliary losses to have similar magnitude to value_loss
+                normalized_aux_1h_loss = aux_1h_loss
+                normalized_aux_24h_loss = aux_24h_loss
+                
+                if isinstance(aux_1h_loss, torch.Tensor) and torch.isfinite(aux_1h_loss) and aux_1h_loss.item() > 0:
+                    # Scale aux_1h_loss to be similar magnitude to value_loss
+                    # Use running average to avoid instability from single-batch fluctuations
+                    if not hasattr(self, '_avg_value_loss'):
+                        self._avg_value_loss = value_loss.item() if torch.isfinite(value_loss) else 0.001
+                    else:
+                        # Exponential moving average
+                        self._avg_value_loss = 0.99 * self._avg_value_loss + 0.01 * value_loss.item()
+                    
+                    if self._avg_value_loss > 1e-6:
+                        # Scale auxiliary loss to match value_loss magnitude
+                        scale_factor = self._avg_value_loss / (aux_1h_loss.item() + 1e-8)
+                        # Cap scaling to prevent extreme values (max 1000x)
+                        scale_factor = min(scale_factor, 1000.0)
+                        normalized_aux_1h_loss = aux_1h_loss * scale_factor
+                
+                if isinstance(aux_24h_loss, torch.Tensor) and torch.isfinite(aux_24h_loss) and aux_24h_loss.item() > 0:
+                    if not hasattr(self, '_avg_value_loss'):
+                        self._avg_value_loss = value_loss.item() if torch.isfinite(value_loss) else 0.001
+                    if self._avg_value_loss > 1e-6:
+                        scale_factor = self._avg_value_loss / (aux_24h_loss.item() + 1e-8)
+                        scale_factor = min(scale_factor, 1000.0)
+                        normalized_aux_24h_loss = aux_24h_loss * scale_factor
+                
+                # Total loss with normalized auxiliary losses
                 total_loss = (
                     policy_loss
                     + self.value_coef * value_loss
                     - self.entropy_coef * entropy
-                    + self.aux_1h_coef * aux_1h_loss
-                    + self.aux_24h_coef * aux_24h_loss
+                    + self.aux_1h_coef * normalized_aux_1h_loss
+                    + self.aux_24h_coef * normalized_aux_24h_loss
                 )
                 
                 # Validate total loss before backward
