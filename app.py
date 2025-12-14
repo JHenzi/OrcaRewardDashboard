@@ -75,6 +75,10 @@ news_fetch_active = False
 rl_decision_thread = None
 rl_decision_active = False
 
+# Global variables for prediction actuals update loop
+prediction_update_thread = None
+prediction_update_active = False
+
 # For timezones - which suck.
 utc = pytz.utc
 #eastern = pytz.timezone("US/Eastern")  # or use tzlocal()
@@ -2680,6 +2684,178 @@ def start_rl_decision_loop():
     rl_decision_thread.start()
     logger.info("Started RL agent decision loop")
 
+def update_prediction_actuals_loop():
+    """Background loop to update predictions with actual return values."""
+    global prediction_update_active
+    
+    if not RL_AGENT_AVAILABLE:
+        logger.warning("RL agent not available. Skipping prediction update loop.")
+        return
+    
+    # Run every 15 minutes
+    update_interval_seconds = 15 * 60
+    
+    logger.info("Prediction actuals update loop started - will check every 15 minutes")
+    
+    while prediction_update_active:
+        try:
+            from rl_agent.prediction_manager import PredictionManager
+            prediction_manager = PredictionManager()
+            
+            # Get predictions that need updating
+            # 1h predictions: older than 1h but no actual_return_1h
+            # 24h predictions: older than 24h but no actual_return_24h
+            # PredictionManager uses sol_prices.db by default
+            pred_db_path = os.getenv("DATABASE_PATH", "sol_prices.db")
+            conn = sqlite3.connect(pred_db_path)
+            cursor = conn.cursor()
+            
+            now = datetime.now()
+            one_hour_ago = (now - timedelta(hours=1)).isoformat()
+            twenty_four_hours_ago = (now - timedelta(hours=24)).isoformat()
+            
+            # Find predictions needing 1h updates
+            cursor.execute("""
+                SELECT id, timestamp, price_at_prediction
+                FROM rl_prediction_accuracy
+                WHERE timestamp <= ? 
+                AND actual_return_1h IS NULL
+                AND price_at_prediction IS NOT NULL
+                ORDER BY timestamp DESC
+                LIMIT 50
+            """, (one_hour_ago,))
+            
+            predictions_1h = cursor.fetchall()
+            
+            # Find predictions needing 24h updates
+            cursor.execute("""
+                SELECT id, timestamp, price_at_prediction
+                FROM rl_prediction_accuracy
+                WHERE timestamp <= ? 
+                AND actual_return_24h IS NULL
+                AND price_at_prediction IS NOT NULL
+                ORDER BY timestamp DESC
+                LIMIT 50
+            """, (twenty_four_hours_ago,))
+            
+            predictions_24h = cursor.fetchall()
+            conn.close()
+            
+            updated_count = 0
+            
+            # Update 1h predictions
+            for pred_id, pred_timestamp, price_at_pred in predictions_1h:
+                try:
+                    pred_dt = datetime.fromisoformat(pred_timestamp.replace('Z', '+00:00'))
+                    target_dt = pred_dt + timedelta(hours=1)
+                    
+                    # Get price 1 hour later (within 30 min window)
+                    price_conn = sqlite3.connect("sol_prices.db")
+                    price_cursor = price_conn.cursor()
+                    price_cursor.execute("""
+                        SELECT rate, timestamp
+                        FROM sol_prices
+                        WHERE timestamp >= ? AND timestamp <= ?
+                        ORDER BY ABS(julianday(timestamp) - julianday(?))
+                        LIMIT 1
+                    """, (
+                        (target_dt - timedelta(minutes=30)).isoformat(),
+                        (target_dt + timedelta(minutes=30)).isoformat(),
+                        target_dt.isoformat()
+                    ))
+                    
+                    price_row = price_cursor.fetchone()
+                    price_conn.close()
+                    
+                    if price_row and price_at_pred and price_at_pred > 0:
+                        price_1h_later = price_row[0]
+                        actual_return_1h = (price_1h_later - price_at_pred) / price_at_pred
+                        # Clamp to ±100%
+                        actual_return_1h = max(-1.0, min(1.0, actual_return_1h))
+                        
+                        prediction_manager.update_actual_returns(
+                            prediction_id=pred_id,
+                            actual_return_1h=actual_return_1h,
+                            price_1h_later=price_1h_later,
+                        )
+                        updated_count += 1
+                        logger.debug(f"Updated prediction {pred_id} with 1h actual return: {actual_return_1h:.4f}")
+                except Exception as e:
+                    logger.warning(f"Error updating 1h actual for prediction {pred_id}: {e}")
+            
+            # Update 24h predictions
+            for pred_id, pred_timestamp, price_at_pred in predictions_24h:
+                try:
+                    pred_dt = datetime.fromisoformat(pred_timestamp.replace('Z', '+00:00'))
+                    target_dt = pred_dt + timedelta(hours=24)
+                    
+                    # Get price 24 hours later (within 1 hour window)
+                    price_conn = sqlite3.connect("sol_prices.db")
+                    price_cursor = price_conn.cursor()
+                    price_cursor.execute("""
+                        SELECT rate, timestamp
+                        FROM sol_prices
+                        WHERE timestamp >= ? AND timestamp <= ?
+                        ORDER BY ABS(julianday(timestamp) - julianday(?))
+                        LIMIT 1
+                    """, (
+                        (target_dt - timedelta(hours=1)).isoformat(),
+                        (target_dt + timedelta(hours=1)).isoformat(),
+                        target_dt.isoformat()
+                    ))
+                    
+                    price_row = price_cursor.fetchone()
+                    price_conn.close()
+                    
+                    if price_row and price_at_pred and price_at_pred > 0:
+                        price_24h_later = price_row[0]
+                        actual_return_24h = (price_24h_later - price_at_pred) / price_at_pred
+                        # Clamp to ±100%
+                        actual_return_24h = max(-1.0, min(1.0, actual_return_24h))
+                        
+                        prediction_manager.update_actual_returns(
+                            prediction_id=pred_id,
+                            actual_return_24h=actual_return_24h,
+                            price_24h_later=price_24h_later,
+                        )
+                        updated_count += 1
+                        logger.debug(f"Updated prediction {pred_id} with 24h actual return: {actual_return_24h:.4f}")
+                except Exception as e:
+                    logger.warning(f"Error updating 24h actual for prediction {pred_id}: {e}")
+            
+            if updated_count > 0:
+                logger.info(f"✅ Updated {updated_count} predictions with actual returns")
+            
+        except Exception as e:
+            logger.error(f"Error in prediction actuals update loop: {e}")
+            logger.error(traceback.format_exc())
+        
+        # Sleep for update interval, checking every minute if we should stop
+        sleep_chunks = update_interval_seconds // 60  # Check every minute
+        chunk_duration = 60  # 1 minute
+        
+        for _ in range(sleep_chunks):
+            if not prediction_update_active:
+                break
+            time.sleep(chunk_duration)
+
+def start_prediction_update_loop():
+    """Start the prediction actuals update loop in a separate thread."""
+    global prediction_update_thread, prediction_update_active
+    
+    if not RL_AGENT_AVAILABLE:
+        logger.info("RL agent not available. Skipping prediction update loop thread.")
+        return
+    
+    if prediction_update_active:
+        logger.info("Prediction update loop already active")
+        return
+    
+    prediction_update_active = True
+    prediction_update_thread = threading.Thread(target=update_prediction_actuals_loop, daemon=True)
+    prediction_update_thread.start()
+    logger.info("Started prediction actuals update loop")
+
 def initialize_rl_agent():
     """Initialize RL agent model manager and scheduler."""
     global rl_agent_integration, rl_model_manager, rl_retraining_scheduler
@@ -2732,6 +2908,9 @@ def initialize_rl_agent():
             
             # Start the decision loop to make regular decisions and generate predictions
             start_rl_decision_loop()
+            
+            # Start the prediction actuals update loop to track accuracy
+            start_prediction_update_loop()
         else:
             logger.info("⚠️ No trained RL agent model found. Will wait for scheduled training.")
         
