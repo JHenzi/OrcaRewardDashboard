@@ -152,32 +152,21 @@ class RetrainingScheduler:
         try:
             logger.info("🔄 Starting automated retraining...")
             
-            # Step 1: Prepare training data
-            logger.info("Step 1: Preparing training data...")
-            prep_result = subprocess.run(
-                [sys.executable, "-m", "rl_agent.training_data_prep"],
-                capture_output=True,
-                text=True,
-                timeout=3600,  # 1 hour timeout
-            )
-            
-            if prep_result.returncode != 0:
-                error_msg = f"Data preparation failed: {prep_result.stderr}"
-                logger.error(f"❌ {error_msg}")
-                return False, error_msg, None
-            
-            logger.info("✅ Training data prepared")
-            
-            # Step 2: Run retraining
-            logger.info("Step 2: Training model...")
-            
-            # Determine checkpoint path for new model
-            version = self.model_manager._generate_version()
             checkpoint_dir = self.model_manager.model_dir
-            checkpoint_path = checkpoint_dir / f"checkpoint_{version}.pt"
+            
+            # CRITICAL: Record existing checkpoints BEFORE training starts
+            # This prevents deploying old checkpoints if training doesn't create new ones
+            existing_checkpoints = {}
+            if checkpoint_dir.exists():
+                for checkpoint in checkpoint_dir.glob("checkpoint_*.pt"):
+                    existing_checkpoints[checkpoint] = checkpoint.stat().st_mtime
+            training_start_time = time.time()
+            logger.info(f"📋 Found {len(existing_checkpoints)} existing checkpoints before training")
+            
+            # Run retraining (retrain script handles data prep and training)
+            logger.info("Running retraining script (handles data prep and training)...")
             
             # Run training using train_rl_agent.py (retrain_rl_agent.py is a wrapper)
-            # First run retrain script which handles data prep and training
             train_result = subprocess.run(
                 [
                     sys.executable,
@@ -191,30 +180,59 @@ class RetrainingScheduler:
                 timeout=7200,  # 2 hour timeout
             )
             
+            # Log training output for debugging
+            if train_result.stdout:
+                logger.info(f"Training stdout: {train_result.stdout[-500:]}")  # Last 500 chars
+            if train_result.stderr:
+                logger.warning(f"Training stderr: {train_result.stderr[-500:]}")
+            
             if train_result.returncode != 0:
-                error_msg = f"Training failed: {train_result.stderr}"
-                logger.error(f"❌ {error_msg}")
-                # Clean up failed checkpoint if created
-                if checkpoint_path.exists():
-                    try:
-                        checkpoint_path.unlink()
-                    except:
-                        pass
-                return False, error_msg, None
-            
-            # Find the latest checkpoint (training script saves as checkpoint_epoch_N.pt)
-            # We'll look for the most recently created checkpoint
-            checkpoints = list(checkpoint_dir.glob("checkpoint_*.pt"))
-            if not checkpoints:
-                error_msg = "Training completed but no checkpoint found"
+                error_msg = f"Training failed (exit code {train_result.returncode}): {train_result.stderr}"
                 logger.error(f"❌ {error_msg}")
                 return False, error_msg, None
             
-            # Get the most recently modified checkpoint
-            checkpoint_path = max(checkpoints, key=lambda p: p.stat().st_mtime)
-            logger.info(f"Using latest checkpoint: {checkpoint_path}")
+            # Step 3: Find NEW checkpoints created during training
+            # Only consider checkpoints that are NEW or were modified AFTER training started
+            all_checkpoints = list(checkpoint_dir.glob("checkpoint_*.pt"))
+            new_checkpoints = []
             
-            logger.info(f"✅ Model trained: {checkpoint_path}")
+            for checkpoint in all_checkpoints:
+                checkpoint_mtime = checkpoint.stat().st_mtime
+                is_new = checkpoint not in existing_checkpoints
+                was_modified = checkpoint in existing_checkpoints and checkpoint_mtime > existing_checkpoints[checkpoint]
+                created_during_training = checkpoint_mtime >= training_start_time
+                
+                if is_new or was_modified or created_during_training:
+                    new_checkpoints.append((checkpoint, checkpoint_mtime))
+                    logger.info(f"✅ Found new/modified checkpoint: {checkpoint.name} (mtime: {checkpoint_mtime:.0f})")
+            
+            if not new_checkpoints:
+                error_msg = (
+                    f"❌ Training completed but NO NEW checkpoints were created! "
+                    f"Found {len(all_checkpoints)} total checkpoints, but none were created/modified during training. "
+                    f"This indicates training did not actually run or failed silently."
+                )
+                logger.error(error_msg)
+                logger.error(f"Existing checkpoints before training: {list(existing_checkpoints.keys())}")
+                logger.error(f"All checkpoints after training: {[c.name for c in all_checkpoints]}")
+                return False, error_msg, None
+            
+            # Get the most recently created/modified NEW checkpoint
+            checkpoint_path, checkpoint_mtime = max(new_checkpoints, key=lambda x: x[1])
+            logger.info(f"✅ Using newly created checkpoint: {checkpoint_path.name} (modified at {checkpoint_mtime:.0f})")
+            
+            # Validate that this checkpoint is actually from training (not just an old file)
+            if checkpoint_path in existing_checkpoints:
+                old_mtime = existing_checkpoints[checkpoint_path]
+                if checkpoint_mtime <= old_mtime:
+                    error_msg = (
+                        f"❌ Checkpoint {checkpoint_path.name} was not actually modified during training! "
+                        f"Old mtime: {old_mtime:.0f}, Current mtime: {checkpoint_mtime:.0f}"
+                    )
+                    logger.error(error_msg)
+                    return False, error_msg, None
+            
+            logger.info(f"✅ Model trained successfully: {checkpoint_path}")
             return True, None, checkpoint_path
             
         except subprocess.TimeoutExpired:
@@ -237,7 +255,7 @@ class RetrainingScheduler:
             
             if success and model_path:
                 # Deploy new model (ModelManager handles validation)
-                logger.info("Step 3: Deploying new model...")
+                logger.info("Deploying new model...")
                 from rl_agent.model import TradingActorCritic
                 
                 model_kwargs = {

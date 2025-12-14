@@ -17,6 +17,7 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 import argparse
 import logging
+import time
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
@@ -274,6 +275,18 @@ def retrain_model(
     if not train_script_path.exists():
         logger.error(f"Training script not found at: {train_script_path}")
         return False
+    
+    # Record checkpoints and their modification times before training
+    checkpoint_dir_path = Path(checkpoint_dir)
+    checkpoints_before = set()
+    checkpoint_mtimes_before = {}
+    training_start_time = time.time()
+    if checkpoint_dir_path.exists():
+        checkpoints_before = set(checkpoint_dir_path.glob("checkpoint_epoch_*.pt"))
+        for cp in checkpoints_before:
+            checkpoint_mtimes_before[cp] = cp.stat().st_mtime
+        logger.info(f"Found {len(checkpoints_before)} existing epoch checkpoints before training")
+    
     train_cmd = [
         sys.executable,
         str(train_script_path),
@@ -286,11 +299,71 @@ def retrain_model(
         train_cmd.extend(["--resume", resume_from])
     
     try:
-        result = subprocess.run(train_cmd, check=True)
-        logger.info("Training completed successfully")
+        # Run training with real-time output streaming
+        logger.info("Starting training (output will stream in real-time)...")
+        process = subprocess.Popen(
+            train_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Combine stderr into stdout
+            text=True,
+            bufsize=1,  # Line buffered
+            universal_newlines=True
+        )
+        
+        # Stream output in real-time
+        output_lines = []
+        for line in process.stdout:
+            line = line.rstrip()
+            if line:
+                print(line)  # Print to console immediately
+                output_lines.append(line)
+                # Also log important lines
+                if any(keyword in line.lower() for keyword in ['epoch', 'loss', 'checkpoint', 'error', 'warning', 'training']):
+                    logger.info(f"Training: {line}")
+        
+        # Wait for process to complete
+        return_code = process.wait()
+        
+        if return_code != 0:
+            error_msg = f"Training failed with exit code {return_code}"
+            logger.error(error_msg)
+            # Log last part of output
+            if output_lines:
+                logger.error(f"Last 20 lines of output:\n" + "\n".join(output_lines[-20:]))
+            raise subprocess.CalledProcessError(return_code, train_cmd)
+        
+        logger.info("✅ Training script completed successfully")
+        
+        # Validate that new or modified checkpoints exist
+        checkpoints_after = set(checkpoint_dir_path.glob("checkpoint_epoch_*.pt"))
+        new_checkpoints = checkpoints_after - checkpoints_before
+        modified_checkpoints = []
+        
+        # Check if any existing checkpoints were modified during training
+        for cp in checkpoints_before:
+            if cp in checkpoints_after:
+                new_mtime = cp.stat().st_mtime
+                old_mtime = checkpoint_mtimes_before[cp]
+                if new_mtime > old_mtime and new_mtime >= training_start_time:
+                    modified_checkpoints.append(cp)
+        
+        if new_checkpoints or modified_checkpoints:
+            if new_checkpoints:
+                logger.info(f"✅ Training created {len(new_checkpoints)} new checkpoint(s): {[c.name for c in new_checkpoints]}")
+            if modified_checkpoints:
+                logger.info(f"✅ Training updated {len(modified_checkpoints)} existing checkpoint(s): {[c.name for c in modified_checkpoints]}")
+        else:
+            logger.warning(f"⚠️ No new or modified checkpoints detected. This may indicate training didn't actually run.")
+            logger.warning(f"   Checkpoints before: {len(checkpoints_before)}, after: {len(checkpoints_after)}")
+            logger.warning(f"   Note: If training overwrote existing checkpoints, they should have been detected as modified.")
+        
         return True
     except subprocess.CalledProcessError as e:
-        logger.error(f"Training failed: {e}")
+        logger.error(f"Training failed with exit code {e.returncode}")
+        if e.stdout:
+            logger.error(f"Training stdout: {e.stdout[-1000:]}")
+        if e.stderr:
+            logger.error(f"Training stderr: {e.stderr[-1000:]}")
         return False
 
 

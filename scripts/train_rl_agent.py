@@ -143,9 +143,9 @@ def train_on_historical_data(
             logger.error(f"Error loading checkpoint: {e} - training from scratch")
             resume_from = None
     
-    # CRITICAL: For now, disable auxiliary losses to train stable core model first
-    # Once core model is stable, we can add auxiliary losses back
-    use_auxiliary = enable_auxiliary and False  # Force disable for now
+    # Auxiliary losses are now enabled by default since NaN issues are fixed
+    # (attention mechanism fixed, gradient clipping improved, input validation added)
+    use_auxiliary = enable_auxiliary
     
     trainer = PPOTrainer(
         model=model,
@@ -153,16 +153,17 @@ def train_on_historical_data(
         lr=3e-4,
         device=device,
         checkpoint_dir=checkpoint_dir,
-        enable_auxiliary_losses=use_auxiliary,  # Disabled to train stable core first
+        enable_auxiliary_losses=use_auxiliary,
         aux_1h_coef=aux_1h_coef,
         aux_24h_coef=aux_24h_coef,
     )
     
     if use_auxiliary:
-        logger.info(f"✅ Auxiliary losses enabled: aux_1h_coef={aux_1h_coef}, aux_24h_coef={aux_24h_coef}")
+        logger.info(f"✅ Auxiliary losses ENABLED: aux_1h_coef={aux_1h_coef}, aux_24h_coef={aux_24h_coef}")
+        logger.info("   Training 1h and 24h return prediction heads alongside policy/value")
     else:
         logger.warning("⚠️ Auxiliary losses DISABLED - training core model only (policy + value)")
-        logger.warning("   This prevents NaN issues. Predictions will be generated but not trained.")
+        logger.warning("   Predictions will be generated but not trained.")
     
     logger.info("✅ Components initialized")
     
@@ -344,6 +345,15 @@ def train_on_historical_data(
             trainer.buffer["pred_24h"].extend(episode_pred_24h)
             trainer.buffer["returns_1h"].extend(episode_returns_1h)
             trainer.buffer["returns_24h"].extend(episode_returns_24h)
+            
+            # Log returns statistics periodically to verify auxiliary loss data
+            if len(trainer.buffer["returns_1h"]) > 0 and len(trainer.buffer["returns_1h"]) % 1000 == 0:
+                non_zero_1h = sum(1 for r in trainer.buffer["returns_1h"] if abs(r) > 1e-6)
+                non_zero_24h = sum(1 for r in trainer.buffer["returns_24h"] if abs(r) > 1e-6)
+                total_returns = len(trainer.buffer["returns_1h"])
+                logger.info(f"Returns buffer stats: {total_returns} total, {non_zero_1h} non-zero 1h ({100*non_zero_1h/total_returns:.1f}%), {non_zero_24h} non-zero 24h ({100*non_zero_24h/total_returns:.1f}%)")
+                if non_zero_1h == 0 or non_zero_24h == 0:
+                    logger.warning("⚠️ All returns are zero! Auxiliary losses will be zero. Check if future_prices are available in training data.")
             
             # Train when buffer is large enough
             if len(trainer.buffer["states"]) >= batch_size * 4:
