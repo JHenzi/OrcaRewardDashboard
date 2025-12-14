@@ -1,8 +1,10 @@
 """
 Fix Corrupted Auxiliary Heads
 
-This script fixes NaN weights in the auxiliary prediction heads by reinitializing them.
-The auxiliary heads can get corrupted during training if NaN values propagate.
+This script fixes NaN weights OR constant outputs in the auxiliary prediction heads by reinitializing them.
+The auxiliary heads can get corrupted during training if:
+1. NaN values propagate
+2. Loss coefficients are too small, causing heads to learn constant outputs
 """
 
 import torch
@@ -15,13 +17,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def fix_auxiliary_heads(checkpoint_path: str, output_path: str = None):
+def fix_auxiliary_heads(checkpoint_path: str, output_path: str = None, force_reinit: bool = False):
     """
-    Fix NaN weights in auxiliary heads by reinitializing them.
+    Fix NaN weights or constant outputs in auxiliary heads by reinitializing them.
     
     Args:
         checkpoint_path: Path to corrupted checkpoint
         output_path: Path to save fixed checkpoint (default: adds '_fixed' suffix)
+        force_reinit: If True, reinitialize even if no NaN found (useful for constant outputs)
     """
     logger.info(f"Loading checkpoint: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
@@ -39,8 +42,8 @@ def fix_auxiliary_heads(checkpoint_path: str, output_path: str = None):
             has_nan = True
             logger.warning(f"{key} has NaN values")
     
-    if not has_nan:
-        logger.info("No NaN values found in auxiliary heads. Model is OK.")
+    if not has_nan and not force_reinit:
+        logger.info("No NaN values found in auxiliary heads. Use --force to reinitialize anyway (e.g., for constant outputs).")
         return
     
     logger.info("Reinitializing auxiliary heads...")
@@ -115,6 +118,11 @@ if __name__ == "__main__":
         default=None,
         help="Output path for fixed checkpoint (default: adds '_fixed' suffix)"
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force reinitialization even if no NaN found (useful for constant outputs)"
+    )
     
     args = parser.parse_args()
     
@@ -124,5 +132,5 @@ if __name__ == "__main__":
         project_root = os.path.dirname(script_dir)
         args.checkpoint = os.path.join(project_root, "models", "rl_agent", "checkpoint_epoch_10.pt")
     
-    fix_auxiliary_heads(args.checkpoint, args.output)
+    fix_auxiliary_heads(args.checkpoint, args.output, force_reinit=args.force)
 

@@ -46,8 +46,8 @@ class PPOTrainer:
         clip_epsilon: float = 0.2,  # PPO clip epsilon
         value_coef: float = 0.5,  # Value loss coefficient
         entropy_coef: float = 0.01,  # Entropy bonus coefficient
-        aux_1h_coef: float = 0.1,  # Auxiliary 1h loss coefficient
-        aux_24h_coef: float = 0.1,  # Auxiliary 24h loss coefficient
+        aux_1h_coef: float = 0.1,  # Auxiliary 1h loss coefficient (increased from 0.01 for better training)
+        aux_24h_coef: float = 0.1,  # Auxiliary 24h loss coefficient (increased from 0.01 for better training)
         enable_auxiliary_losses: bool = True,  # Can disable if causing issues
         max_grad_norm: float = 0.5,
         device: str = "cpu",
@@ -656,7 +656,10 @@ class PPOTrainer:
                                 else:
                                     self._aux_1h_log_counter = 0
                                 if self._aux_1h_log_counter % 100 == 0:
-                                    logger.debug(f"aux_1h_loss: {aux_1h_loss.item():.6f}, pred_mean: {pred_1h_clipped.mean().item():.4f}, target_mean: {batch_returns_1h.mean().item():.4f}")
+                                    pred_std = pred_1h_clipped.std().item()
+                                    logger.debug(f"aux_1h_loss: {aux_1h_loss.item():.6f}, pred_mean: {pred_1h_clipped.mean().item():.4f}, pred_std: {pred_std:.4f}, target_mean: {batch_returns_1h.mean().item():.4f}")
+                                    if pred_std < 0.001:
+                                        logger.warning(f"⚠️ aux_1h predictions have very low variance (std={pred_std:.6f}) - predictions may be constant!")
                         else:
                             # Skip auxiliary loss if data is invalid
                             aux_1h_loss = torch.tensor(0.0, device=self.device)
@@ -689,7 +692,10 @@ class PPOTrainer:
                                 else:
                                     self._aux_24h_log_counter = 0
                                 if self._aux_24h_log_counter % 100 == 0:
-                                    logger.debug(f"aux_24h_loss: {aux_24h_loss.item():.6f}, pred_mean: {pred_24h_clipped.mean().item():.4f}, target_mean: {batch_returns_24h.mean().item():.4f}")
+                                    pred_std = pred_24h_clipped.std().item()
+                                    logger.debug(f"aux_24h_loss: {aux_24h_loss.item():.6f}, pred_mean: {pred_24h_clipped.mean().item():.4f}, pred_std: {pred_std:.4f}, target_mean: {batch_returns_24h.mean().item():.4f}")
+                                    if pred_std < 0.001:
+                                        logger.warning(f"⚠️ aux_24h predictions have very low variance (std={pred_std:.6f}) - predictions may be constant!")
                         else:
                             # Skip auxiliary loss if data is invalid
                             aux_24h_loss = torch.tensor(0.0, device=self.device)

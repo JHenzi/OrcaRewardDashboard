@@ -42,8 +42,8 @@ def train_on_historical_data(
     device: str = "cpu",
     resume_from: Optional[str] = None,
     enable_auxiliary: bool = True,
-    aux_1h_coef: float = 0.01,
-    aux_24h_coef: float = 0.01,
+    aux_1h_coef: float = 0.1,  # Increased from 0.01 - auxiliary heads need stronger training signal
+    aux_24h_coef: float = 0.1,  # Increased from 0.01 - auxiliary heads need stronger training signal
 ):
     # Set default paths relative to project root
     if episodes_path is None:
@@ -463,14 +463,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--aux-1h-coef",
         type=float,
-        default=0.01,
-        help="Coefficient for 1h auxiliary loss (default: 0.01)"
+        default=0.1,
+        help="Coefficient for 1h auxiliary loss (default: 0.1, increased from 0.01 for better training)"
     )
     parser.add_argument(
         "--aux-24h-coef",
         type=float,
-        default=0.01,
-        help="Coefficient for 24h auxiliary loss (default: 0.01)"
+        default=0.1,
+        help="Coefficient for 24h auxiliary loss (default: 0.1, increased from 0.01 for better training)"
     )
     
     args = parser.parse_args()

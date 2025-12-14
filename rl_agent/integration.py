@@ -273,9 +273,27 @@ class RLAgentIntegration:
             unrealized_pnl=position_state["unrealized_pnl"],
         )
         
-        # Get action from model
+        # Get action from model and predictions
+        pred_1h = None
+        pred_24h = None
+        conf_1h = None
+        conf_24h = None
+        
         if force_action:
             action = force_action.upper()
+            # Still need to generate predictions even with force_action
+            pred_1h, pred_24h, conf_1h, conf_24h = generate_prediction(
+                self.model,
+                self.state_encoder,
+                prices,
+                price_features,
+                news_data,
+                position_state,
+                current_price,
+                datetime.now(),
+                self.device,
+            )
+            conf_1h = conf_1h  # Fix typo
         else:
             import torch
             price_tensor = torch.FloatTensor(state_dict["price"]).unsqueeze(0).to(self.device)
@@ -291,6 +309,22 @@ class RLAgentIntegration:
                     price_tensor, news_emb_tensor, news_sent_tensor,
                     position_tensor, time_tensor, news_mask
                 )
+                
+                # Get predictions FIRST so we can use them in action selection
+                pred_1h_tensor = output["pred_1h"]
+                pred_24h_tensor = output["pred_24h"]
+                
+                # Extract predictions
+                if pred_1h_tensor.dim() > 1:
+                    pred_1h = pred_1h_tensor[0].item()
+                else:
+                    pred_1h = pred_1h_tensor.item()
+                    
+                if pred_24h_tensor.dim() > 1:
+                    pred_24h = pred_24h_tensor[0].item()
+                else:
+                    pred_24h = pred_24h_tensor.item()
+                
                 # Model returns action_logits, need to convert to probabilities
                 import torch.nn.functional as F
                 action_logits = output["action_logits"]
@@ -299,6 +333,34 @@ class RLAgentIntegration:
                 actions = ["BUY", "SELL", "HOLD"]
                 action = actions[action_idx]
                 confidence = float(action_probs[action_idx])
+                
+                # CRITICAL FIX: Override action based on predictions if they're strongly negative
+                # If predictions suggest significant decline, don't buy
+                if action == "BUY" and (pred_1h < -0.05 or pred_24h < -0.10):
+                    logger.warning(
+                        f"⚠️ Overriding BUY action: predictions suggest decline "
+                        f"(1h: {pred_1h*100:.2f}%, 24h: {pred_24h*100:.2f}%). Switching to HOLD."
+                    )
+                    action = "HOLD"
+                    confidence = max(0.3, confidence * 0.7)  # Reduce confidence
+                elif action == "SELL" and (pred_1h > 0.05 or pred_24h > 0.10):
+                    logger.warning(
+                        f"⚠️ Overriding SELL action: predictions suggest gain "
+                        f"(1h: {pred_1h*100:.2f}%, 24h: {pred_24h*100:.2f}%). Switching to HOLD."
+                    )
+                    action = "HOLD"
+                    confidence = max(0.3, confidence * 0.7)  # Reduce confidence
+                
+                # Generate confidence scores for predictions
+                value_estimate = output["value"].item() if output["value"].dim() == 0 else output["value"][0].item()
+                pred_magnitude_1h = abs(pred_1h)
+                pred_magnitude_24h = abs(pred_24h)
+                conf_1h = min(1.0, max(0.1, (abs(value_estimate) * 0.5 + pred_magnitude_1h * 10.0)))
+                conf_24h = min(1.0, max(0.1, (abs(value_estimate) * 0.4 + pred_magnitude_24h * 8.0)))
+                if abs(pred_1h) < 1e-6:
+                    conf_1h = 0.1
+                if abs(pred_24h) < 1e-6:
+                    conf_24h = 0.1
         
         # Check risk constraints
         proposed_trade_value = self.portfolio_value * 0.1 if action == "BUY" else 0.0
@@ -313,19 +375,6 @@ class RLAgentIntegration:
             logger.info(f"Action {action} blocked by risk manager: {reason}")
             action = "HOLD"
             confidence = 0.5
-        
-        # Generate predictions
-        pred_1h, pred_24h, conf_1h, conf_24h = generate_prediction(
-            self.model,
-            self.state_encoder,
-            prices,
-            price_features,
-            news_data,
-            position_state,
-            current_price,
-            datetime.now(),
-            self.device,
-        )
         
         # Store decision in database
         decision_id = None
