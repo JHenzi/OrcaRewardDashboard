@@ -2062,6 +2062,74 @@ def trigger_retrain():
             'error': str(e)
         }), 500
 
+@app.route('/api/rl-agent/reload', methods=['POST'])
+def reload_rl_agent_model():
+    """Reload the RL agent model (useful after new training or checkpoint deployment)."""
+    global rl_agent_integration, rl_model_manager
+    
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    if rl_model_manager is None:
+        return jsonify({
+            'success': False,
+            'error': 'Model manager not initialized'
+        }), 503
+    
+    try:
+        from rl_agent.model import TradingActorCritic
+        
+        # Reload model (will auto-detect newer checkpoints)
+        model_kwargs = {
+            "price_window_size": 60,
+            "num_indicators": 10,
+            "embedding_dim": 384,
+            "max_news_headlines": 20,
+            "num_actions": 3,
+        }
+        
+        model = rl_model_manager.load_current_model(
+            model_class=TradingActorCritic,
+            model_kwargs=model_kwargs,
+        )
+        
+        if model:
+            # Reinitialize integration with reloaded model
+            rl_agent_integration = RLAgentIntegration(
+                model=model,
+                device="cpu",
+            )
+            
+            checkpoint_path = rl_model_manager.current_model_path
+            checkpoint_version = rl_model_manager.current_model_version
+            
+            logger.info(f"✅ RL agent model reloaded: {checkpoint_path.name} (version: {checkpoint_version})")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Model reloaded successfully',
+                'checkpoint': str(checkpoint_path),
+                'checkpoint_name': checkpoint_path.name if checkpoint_path else None,
+                'version': checkpoint_version,
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to load model. Check logs for details.'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error reloading RL agent model: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/rl-agent/decision', methods=['POST', 'GET'])
 def make_rl_agent_decision():
     """

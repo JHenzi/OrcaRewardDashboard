@@ -341,6 +341,53 @@ class ModelManager:
             current_version = self.metadata.get("current_version")
             
             if current_version:
+                # Check if there's a newer epoch checkpoint than what's deployed
+                epoch_checkpoints = list(self.model_dir.glob("checkpoint_epoch_*.pt"))
+                if epoch_checkpoints:
+                    latest_epoch = max(epoch_checkpoints, key=lambda p: p.stat().st_mtime)
+                    current_model_path = self._get_model_path(current_version, archived=False)
+                    
+                    if current_model_path.exists():
+                        current_mtime = current_model_path.stat().st_mtime
+                        latest_mtime = latest_epoch.stat().st_mtime
+                        
+                        # If latest epoch checkpoint is newer, auto-deploy it
+                        if latest_mtime > current_mtime:
+                            logger.info(f"🔄 Found newer checkpoint: {latest_epoch.name} (newer than deployed {current_version})")
+                            try:
+                                is_valid, error_msg = self.validate_model(latest_epoch, model_class, model_kwargs)
+                                if is_valid:
+                                    # Auto-deploy the newer checkpoint
+                                    version = self._generate_version()
+                                    active_model_path = self._get_model_path(version, archived=False)
+                                    shutil.copy2(str(latest_epoch), str(active_model_path))
+                                    
+                                    # Archive current model
+                                    archive_path = self._get_model_path(current_version, archived=True)
+                                    if current_model_path.exists() and current_model_path != active_model_path:
+                                        archive_path.parent.mkdir(parents=True, exist_ok=True)
+                                        shutil.move(str(current_model_path), str(archive_path))
+                                    
+                                    # Update metadata
+                                    model_info = {
+                                        "version": version,
+                                        "deployed_at": datetime.now().isoformat(),
+                                        "source_path": str(latest_epoch),
+                                        "active_path": str(active_model_path),
+                                        "auto_deployed": True,
+                                    }
+                                    
+                                    self.metadata["models"].append(model_info)
+                                    self.metadata["current_version"] = version
+                                    self._save_metadata()
+                                    
+                                    logger.info(f"✅ Auto-deployed newer checkpoint as version {version}")
+                                    current_version = version
+                                else:
+                                    logger.warning(f"Newer checkpoint validation failed: {error_msg}, using current version")
+                            except Exception as e:
+                                logger.warning(f"Failed to auto-deploy newer checkpoint: {e}, using current version")
+                
                 # Try to load from active location
                 active_model_path = self._get_model_path(current_version, archived=False)
                 if not active_model_path.exists():
@@ -396,6 +443,7 @@ class ModelManager:
                     # Load directly without registering
                     active_model_path = latest_checkpoint
             else:
+                # We have a current_version (either from metadata or auto-deployed)
                 active_model_path = self._get_model_path(current_version, archived=False)
                 if not active_model_path.exists():
                     archive_model_path = self._get_model_path(current_version, archived=True)
