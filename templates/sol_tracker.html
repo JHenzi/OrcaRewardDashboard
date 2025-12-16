@@ -143,9 +143,9 @@
             </div>
             
             <!-- Time Range Selector -->
-            <div class="mt-4 flex justify-end">
-                <form method="get" action="/sol-tracker" class="flex items-center space-x-2">
-                    <label for="range" class="text-sm font-medium text-gray-300">Time Range:</label>
+            <div class="mt-4 flex justify-end items-center space-x-4">
+                <form method="get" action="/sol-tracker" class="flex items-center space-x-2" id="range-form">
+                    <label for="range" class="text-sm font-medium text-gray-300">Initial Range:</label>
                     <select id="range" name="range" onchange="this.form.submit()" class="bg-gray-700 border border-gray-600 text-gray-100 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block px-4 py-2 shadow-sm hover:bg-gray-600 transition">
                         <option value="hour" {% if selected_range == 'hour' %}selected{% endif %}>1 Hour</option>
                         <option value="day" {% if selected_range == 'day' %}selected{% endif %}>1 Day</option>
@@ -154,6 +154,9 @@
                         <option value="year" {% if selected_range == 'year' %}selected{% endif %}>1 Year</option>
                     </select>
                 </form>
+                <div id="visible-range-display" class="text-sm text-gray-400 hidden">
+                    <span class="text-gray-500">Visible:</span> <span id="visible-range-text">-</span>
+                </div>
             </div>
         </div>
 
@@ -1768,6 +1771,8 @@
       const prices = {{ prices|tojson }};
       const rsiValues = {{ rsi_values|tojson }};
       const unixTimestamps = {{ unix_timestamps|tojson }};
+      const currentPrice = {{ stats.current_price|tojson if stats.current_price is not none else 'null' }};
+      const priceStart = {{ stats.price_start|tojson if stats.price_start is not none else 'null' }};
       
       console.log('Data received from server:', {
           timestamps: timestamps ? timestamps.length : 0,
@@ -2307,25 +2312,46 @@
               }
 
               // Update price display on crosshair move
-              // Store first price from filtered data for comparison
-              const firstValidPrice = finalPriceData.length > 0 ? finalPriceData[0].value : null;
+              // Use priceStart from stats for change calculation, fallback to first price in filtered data
+              const firstValidPrice = (priceStart !== null && priceStart !== undefined && !isNaN(priceStart) && priceStart > 0) 
+                  ? priceStart 
+                  : (finalPriceData.length > 0 ? finalPriceData[0].value : null);
+              
+              // Store reference to latest price for when crosshair is not active
+              const latestPriceForDisplay = (currentPrice !== null && currentPrice !== undefined && !isNaN(currentPrice)) 
+                  ? currentPrice 
+                  : (finalPriceData.length > 0 ? finalPriceData[finalPriceData.length - 1].value : null);
               
               chart.subscribeCrosshairMove(param => {
                   try {
+                      const priceEl = document.getElementById('chart-price');
+                      const changeEl = document.getElementById('chart-change');
+                      
+                      // If crosshair is not active or no data, show latest price
                       if (param === null || param === undefined || param.point === undefined || !param.time || !param.seriesData || param.seriesData.size === 0) {
+                          if (latestPriceForDisplay !== null && latestPriceForDisplay !== undefined) {
+                              if (priceEl) {
+                                  priceEl.textContent = `$${latestPriceForDisplay.toFixed(2)}`;
+                              }
+                              if (changeEl && firstValidPrice !== null && firstValidPrice !== undefined && !isNaN(firstValidPrice) && firstValidPrice > 0) {
+                                  const change = latestPriceForDisplay - firstValidPrice;
+                                  const changePercent = ((change / firstValidPrice) * 100).toFixed(2);
+                                  changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
+                                  changeEl.className = change >= 0 ? 'ml-2 text-green-400' : 'ml-2 text-red-400';
+                              }
+                          }
                           return;
                       }
+                      
                       const price = param.seriesData.get(priceSeries);
                       if (price && price.value !== null && price.value !== undefined && !isNaN(price.value) && isFinite(price.value)) {
-                          const currentPrice = price.value;
-                          if (firstValidPrice !== null && firstValidPrice !== undefined && !isNaN(firstValidPrice) && isFinite(firstValidPrice)) {
-                              const change = currentPrice - firstValidPrice;
+                          const hoverPrice = price.value;
+                          if (firstValidPrice !== null && firstValidPrice !== undefined && !isNaN(firstValidPrice) && isFinite(firstValidPrice) && firstValidPrice > 0) {
+                              const change = hoverPrice - firstValidPrice;
                               const changePercent = ((change / firstValidPrice) * 100).toFixed(2);
                               
-                              const priceEl = document.getElementById('chart-price');
-                              const changeEl = document.getElementById('chart-change');
                               if (priceEl) {
-                                  priceEl.textContent = `$${currentPrice.toFixed(2)}`;
+                                  priceEl.textContent = `$${hoverPrice.toFixed(2)}`;
                               }
                               if (changeEl) {
                                   changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
@@ -2445,8 +2471,9 @@
                       console.warn('No RSI data available');
                   }
 
-                  // Synchronize crosshair between charts
+                  // Synchronize crosshair and time scale between charts
                   if (chart && rsiChart && rsiSeries) {
+                      // Synchronize crosshair
                       chart.subscribeCrosshairMove(param => {
                           if (param.time && rsiChart) {
                               rsiChart.setCrosshairPosition(param.time, param.point);
@@ -2458,6 +2485,95 @@
                               chart.setCrosshairPosition(param.time, param.point);
                           }
                       });
+
+                      // Synchronize time scale (zoom/pan) between charts and update visible range display
+                      let isUpdatingTimeScale = false;
+                      
+                      // Function to format time range for display
+                      function formatTimeRange(from, to) {
+                          if (!from || !to) return 'N/A';
+                          const fromDate = new Date(from * 1000);
+                          const toDate = new Date(to * 1000);
+                          const hours = (to - from) / 3600;
+                          
+                          if (hours < 1) {
+                              const minutes = Math.round((to - from) / 60);
+                              return `${minutes}m`;
+                          } else if (hours < 24) {
+                              return `${hours.toFixed(1)}h`;
+                          } else {
+                              const days = (to - from) / 86400;
+                              return `${days.toFixed(1)}d`;
+                          }
+                      }
+                      
+                      // Function to update visible range display
+                      function updateVisibleRangeDisplay(timeRange) {
+                          if (!timeRange || !timeRange.from || !timeRange.to) return;
+                          
+                          const rangeText = formatTimeRange(timeRange.from, timeRange.to);
+                          const visibleRangeText = document.getElementById('visible-range-text');
+                          const visibleRangeDisplay = document.getElementById('visible-range-display');
+                          
+                          if (visibleRangeText) {
+                              visibleRangeText.textContent = rangeText;
+                          }
+                          if (visibleRangeDisplay) {
+                              visibleRangeDisplay.classList.remove('hidden');
+                          }
+                      }
+                      
+                      chart.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
+                          if (!isUpdatingTimeScale && timeRange && rsiChart) {
+                              isUpdatingTimeScale = true;
+                              try {
+                                  rsiChart.timeScale().setVisibleRange({
+                                      from: timeRange.from,
+                                      to: timeRange.to
+                                  });
+                                  // Update visible range display
+                                  updateVisibleRangeDisplay(timeRange);
+                              } catch (e) {
+                                  console.debug('Error syncing time scale to RSI chart:', e);
+                              }
+                              isUpdatingTimeScale = false;
+                          } else if (timeRange) {
+                              // Update display even if not syncing to RSI chart
+                              updateVisibleRangeDisplay(timeRange);
+                          }
+                      });
+
+                      rsiChart.timeScale().subscribeVisibleTimeRangeChange((timeRange) => {
+                          if (!isUpdatingTimeScale && timeRange && chart) {
+                              isUpdatingTimeScale = true;
+                              try {
+                                  chart.timeScale().setVisibleRange({
+                                      from: timeRange.from,
+                                      to: timeRange.to
+                                  });
+                                  // Update visible range display
+                                  updateVisibleRangeDisplay(timeRange);
+                              } catch (e) {
+                                  console.debug('Error syncing time scale to price chart:', e);
+                              }
+                              isUpdatingTimeScale = false;
+                          } else if (timeRange) {
+                              // Update display even if not syncing to price chart
+                              updateVisibleRangeDisplay(timeRange);
+                          }
+                      });
+                      
+                      // Initial visible range display
+                      setTimeout(() => {
+                          try {
+                              const initialRange = chart.timeScale().getVisibleRange();
+                              if (initialRange) {
+                                  updateVisibleRangeDisplay(initialRange);
+                              }
+                          } catch (e) {
+                              console.debug('Could not get initial visible range:', e);
+                          }
+                      }, 500);
 
                       // Handle window resize
                       window.addEventListener('resize', () => {
@@ -2472,8 +2588,31 @@
           }
       } // Close else block (priceData.length > 0)
 
-      // Set initial price display
-      if (prices && prices.length > 0) {
+      // Set initial price display - use currentPrice from stats (latest price) instead of last price in filtered range
+      if (currentPrice !== null && currentPrice !== undefined && !isNaN(currentPrice)) {
+          const priceEl = document.getElementById('chart-price');
+          const changeEl = document.getElementById('chart-change');
+          
+          if (priceEl) {
+              priceEl.textContent = `$${currentPrice.toFixed(2)}`;
+          }
+          
+          // Calculate change based on priceStart (first price in selected range) vs currentPrice
+          if (changeEl && priceStart !== null && priceStart !== undefined && !isNaN(priceStart) && priceStart > 0) {
+              const change = currentPrice - priceStart;
+              const changePercent = ((change / priceStart) * 100).toFixed(2);
+              changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
+              changeEl.className = change >= 0 ? 'ml-2 text-green-400' : 'ml-2 text-red-400';
+          } else if (changeEl && prices && prices.length > 0) {
+              // Fallback: use first price in filtered range if priceStart not available
+              const firstPrice = prices[0];
+              const change = currentPrice - firstPrice;
+              const changePercent = firstPrice > 0 ? ((change / firstPrice) * 100).toFixed(2) : '0.00';
+              changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
+              changeEl.className = change >= 0 ? 'ml-2 text-green-400' : 'ml-2 text-red-400';
+          }
+      } else if (prices && prices.length > 0) {
+          // Fallback: use last price in filtered range if currentPrice not available
           const lastPrice = prices[prices.length - 1];
           const firstPrice = prices[0];
           const change = lastPrice - firstPrice;

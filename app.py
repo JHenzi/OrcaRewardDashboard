@@ -1054,14 +1054,46 @@ def sol_tracker():
     # Pass time_threshold to get_price_history
     # Optimized: Only fetch columns we need (timestamp, rate) and limit results for performance
     # For very long ranges, we could implement data sampling/downsampling
-    max_data_points = 1000  # Limit to prevent chart overload
+    # Calculate appropriate limit based on range - assume data collected every 30 minutes
+    # Add buffer to ensure we get all data points
+    # For week/month, don't limit to ensure we get all available data
+    range_limits = {
+        "hour": 100,      # 1 hour = ~2 points (every 30 min)
+        "day": 50,        # 1 day = ~48 points (every 30 min)
+        "week": None,     # 1 week = ~336 points - no limit to get all data
+        "month": None,   # 1 month = ~1440 points - no limit to get all data
+        "year": 20000     # 1 year = ~17520 points (every 30 min) - use sampling for this
+    }
+    max_data_points = range_limits.get(selected_range, 1000)
     time_threshold_iso = time_threshold.isoformat()
-    logger.info(f"Fetching price history for range '{selected_range}' with threshold: {time_threshold_iso}")
+    logger.info(f"Fetching price history for range '{selected_range}' with threshold: {time_threshold_iso}, limit: {max_data_points}")
     all_data = fetcher.get_price_history(
         time_threshold=time_threshold_iso,
         limit=max_data_points
     )
     logger.info(f"get_price_history returned {len(all_data) if all_data else 0} records")
+    
+    # Log the actual time span of returned data for debugging
+    if all_data and len(all_data) > 0:
+        try:
+            first_ts = all_data[0][0]
+            last_ts = all_data[-1][0]
+            if isinstance(first_ts, str):
+                first_dt = datetime.fromisoformat(first_ts.replace('Z', '+00:00'))
+            else:
+                first_dt = first_ts
+            if isinstance(last_ts, str):
+                last_dt = datetime.fromisoformat(last_ts.replace('Z', '+00:00'))
+            else:
+                last_dt = last_ts
+            if first_dt.tzinfo is None:
+                first_dt = first_dt.replace(tzinfo=timezone.utc)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            time_span = last_dt - first_dt
+            logger.info(f"Data time span: {time_span} (from {first_dt.isoformat()} to {last_dt.isoformat()})")
+        except Exception as e:
+            logger.warning(f"Could not calculate data time span: {e}")
     fetcher.close()
 
     timestamps = []
@@ -1102,6 +1134,28 @@ def sol_tracker():
         logger.info(f"Sample unix timestamp: {unix_timestamps[0]}")
         logger.info(f"First timestamp: {timestamps[0] if timestamps else 'N/A'}, First price: {prices[0] if prices else 'N/A'}")
         logger.info(f"Last timestamp: {timestamps[-1] if timestamps else 'N/A'}, Last price: {prices[-1] if prices else 'N/A'}")
+        
+        # Check if we got the expected amount of data for the selected range
+        if unix_timestamps and len(unix_timestamps) > 1:
+            try:
+                first_unix = unix_timestamps[0]
+                last_unix = unix_timestamps[-1]
+                actual_span_seconds = last_unix - first_unix
+                actual_span = timedelta(seconds=actual_span_seconds)
+                expected_span = {
+                    "hour": timedelta(hours=1),
+                    "day": timedelta(days=1),
+                    "week": timedelta(weeks=1),
+                    "month": timedelta(days=30),
+                    "year": timedelta(days=365)
+                }.get(selected_range, timedelta(days=1))
+                
+                if actual_span < expected_span * 0.5:  # If we got less than 50% of expected
+                    logger.warning(f"⚠️ Data span mismatch: Expected ~{expected_span}, got {actual_span} "
+                                 f"({actual_span_seconds/3600:.1f} hours). "
+                                 f"This might indicate insufficient data in database or limit being hit.")
+            except Exception as e:
+                logger.debug(f"Could not compare time spans: {e}")
     else:
         logger.warning(f"No data processed! all_data length: {len(all_data) if all_data else 'None'}")
 
