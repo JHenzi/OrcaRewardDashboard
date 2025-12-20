@@ -317,9 +317,12 @@ def retrain_model(
             if line:
                 print(line)  # Print to console immediately
                 output_lines.append(line)
-                # Also log important lines
-                if any(keyword in line.lower() for keyword in ['epoch', 'loss', 'checkpoint', 'error', 'warning', 'training']):
-                    logger.info(f"Training: {line}")
+                # Only log important lines (errors, warnings, epoch summaries, checkpoints)
+                # Skip verbose "Training on X experiences" messages to reduce noise
+                if any(keyword in line.lower() for keyword in ['epoch', 'checkpoint', 'error', 'warning', 'complete', 'saved']):
+                    # Only log if it's not a verbose training message
+                    if 'training on' not in line.lower():
+                        logger.info(f"Training: {line}")
         
         # Wait for process to complete
         return_code = process.wait()

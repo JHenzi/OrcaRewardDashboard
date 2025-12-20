@@ -1051,24 +1051,29 @@ def sol_tracker():
     time_threshold = range_map.get(selected_range, now - timedelta(days=1))
 
     fetcher = SOLPriceFetcher()
-    # Pass time_threshold to get_price_history
-    # Optimized: Only fetch columns we need (timestamp, rate) and limit results for performance
-    # For very long ranges, we could implement data sampling/downsampling
-    # Calculate appropriate limit based on range - assume data collected every 30 minutes
-    # Add buffer to ensure we get all data points
-    # For week/month, don't limit to ensure we get all available data
-    range_limits = {
-        "hour": 100,      # 1 hour = ~2 points (every 30 min)
-        "day": 50,        # 1 day = ~48 points (every 30 min)
-        "week": None,     # 1 week = ~336 points - no limit to get all data
-        "month": None,   # 1 month = ~1440 points - no limit to get all data
-        "year": 20000     # 1 year = ~17520 points (every 30 min) - use sampling for this
-    }
-    max_data_points = range_limits.get(selected_range, 1000)
-    time_threshold_iso = time_threshold.isoformat()
-    logger.info(f"Fetching price history for range '{selected_range}' with threshold: {time_threshold_iso}, limit: {max_data_points}")
+    # CRITICAL FIX: Don't use LIMIT for time-based queries - it cuts off recent data!
+    # The LIMIT with ORDER BY ASC returns the OLDEST N records, excluding recent data.
+    # For time-based ranges, we want ALL data in that time range, not a limited subset.
+    # Only use limit for "year" range where we might need sampling for performance.
+    
+    # Convert threshold to string format matching DB storage (naive ISO, no timezone)
+    # Timestamps in DB are stored as datetime.now().isoformat() which is naive (no timezone)
+    time_threshold_str = time_threshold.isoformat()
+    # Remove timezone info to match DB format
+    if '+' in time_threshold_str:
+        time_threshold_str = time_threshold_str.split('+')[0]
+    elif time_threshold_str.endswith('Z'):
+        time_threshold_str = time_threshold_str[:-1]
+    
+    logger.info(f"Fetching price history for range '{selected_range}' with threshold: {time_threshold_str}")
+    
+    # Only apply limit for year range (for performance with very large datasets)
+    # For all other ranges, get ALL data in the time window
+    use_limit = (selected_range == "year")
+    max_data_points = 20000 if use_limit else None
+    
     all_data = fetcher.get_price_history(
-        time_threshold=time_threshold_iso,
+        time_threshold=time_threshold_str,
         limit=max_data_points
     )
     logger.info(f"get_price_history returned {len(all_data) if all_data else 0} records")
@@ -1227,6 +1232,7 @@ def sol_tracker():
     # Get the ACTUAL current/latest price (not from filtered time range)
     # This should always be the most recent price in the database, regardless of selected time range
     actual_current_price = None
+    latest_timestamp_obj = None
     price_24h_ago = None  # Price from exactly 24 hours ago (for 24h change calculation)
     try:
         conn = sqlite3.connect("sol_prices.db")
@@ -1244,17 +1250,28 @@ def sol_tracker():
             actual_current_price = round(latest_row[0], 4)
             latest_timestamp = latest_row[1]
             
-            # Calculate 24 hours ago from the latest timestamp
-            from datetime import timezone
+            # Parse latest timestamp
             if isinstance(latest_timestamp, str):
-                latest_dt = datetime.fromisoformat(latest_timestamp.replace('Z', '+00:00'))
+                latest_timestamp_obj = datetime.fromisoformat(latest_timestamp.replace('Z', '+00:00'))
             else:
-                latest_dt = latest_timestamp
-            if latest_dt.tzinfo is None:
-                latest_dt = latest_dt.replace(tzinfo=timezone.utc)
+                latest_timestamp_obj = latest_timestamp
+            if latest_timestamp_obj.tzinfo is None:
+                from datetime import timezone
+                latest_timestamp_obj = latest_timestamp_obj.replace(tzinfo=timezone.utc)
+            
+            # Calculate 24 hours ago from the latest timestamp (use already parsed timestamp_obj)
+            if latest_timestamp_obj is None:
+                from datetime import timezone
+                if isinstance(latest_timestamp, str):
+                    latest_dt = datetime.fromisoformat(latest_timestamp.replace('Z', '+00:00'))
+                else:
+                    latest_dt = latest_timestamp
+                if latest_dt.tzinfo is None:
+                    latest_dt = latest_dt.replace(tzinfo=timezone.utc)
+                latest_timestamp_obj = latest_dt
             
             # Get price from 24 hours ago
-            price_24h_ago_time = (latest_dt - timedelta(hours=24)).isoformat()
+            price_24h_ago_time = (latest_timestamp_obj - timedelta(hours=24)).isoformat()
             cursor.execute("""
                 SELECT rate 
                 FROM sol_prices 
@@ -1874,22 +1891,72 @@ def get_rl_agent_risk():
         if rl_agent_integration and hasattr(rl_agent_integration, 'risk_manager'):
             risk_manager = rl_agent_integration.risk_manager
         else:
-            # Fallback: create new instance (will have no history)
+            # Fallback: create new instance and load state from database
             risk_manager = RiskManager()
-            # Initialize with default values if no history
-            if risk_manager.daily_start_value is None:
-                # Try to get portfolio value from database or use default
-                try:
-                    conn = sqlite3.connect("sol_prices.db")
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT rate FROM sol_prices ORDER BY timestamp DESC LIMIT 1")
-                    result = cursor.fetchone()
-                    current_price = result[0] if result else 100.0
-                    conn.close()
-                    # Initialize with a default portfolio value
-                    risk_manager.reset_daily_tracking(current_price * 100)  # Assume 100 SOL portfolio
-                except:
-                    risk_manager.reset_daily_tracking(10000.0)  # Default $10k portfolio
+            
+            # Try to load risk state from database (rl_agent_decisions table)
+            try:
+                conn = sqlite3.connect("sol_prices.db")
+                cursor = conn.cursor()
+                
+                # Get recent trades to populate trade history
+                cursor.execute("""
+                    SELECT timestamp 
+                    FROM rl_agent_decisions 
+                    WHERE action IN ('BUY', 'SELL')
+                    ORDER BY timestamp DESC 
+                    LIMIT 100
+                """)
+                trade_rows = cursor.fetchall()
+                
+                # Populate trade history
+                for row in trade_rows:
+                    try:
+                        trade_time = datetime.fromisoformat(row[0])
+                        risk_manager.trade_times.append(trade_time)
+                    except:
+                        pass
+                
+                # Get current price for portfolio value estimation
+                cursor.execute("SELECT rate FROM sol_prices ORDER BY timestamp DESC LIMIT 1")
+                result = cursor.fetchone()
+                current_price = result[0] if result else 100.0
+                
+                # Try to get actual portfolio value from recent decisions
+                # Calculate portfolio value based on recent trades
+                cursor.execute("""
+                    SELECT action, current_price, timestamp
+                    FROM rl_agent_decisions
+                    WHERE action IN ('BUY', 'SELL')
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """)
+                last_trade = cursor.fetchone()
+                
+                conn.close()
+                
+                # Initialize with a default portfolio value if not set
+                if risk_manager.daily_start_value is None:
+                    # Use current price * assumed position size, or default
+                    portfolio_value = current_price * 100  # Assume 100 SOL portfolio
+                    risk_manager.reset_daily_tracking(portfolio_value)
+                    risk_manager.current_portfolio_value = portfolio_value
+                else:
+                    # Update current portfolio value based on current price
+                    # This makes the dashboard show changes
+                    if last_trade and last_trade[1]:
+                        # Estimate portfolio value from last trade price
+                        base_value = last_trade[1] * 100  # Assume 100 SOL
+                        # Adjust for price change since last trade
+                        price_change = (current_price - last_trade[1]) / last_trade[1] if last_trade[1] > 0 else 0
+                        risk_manager.current_portfolio_value = base_value * (1 + price_change)
+                    else:
+                        # Fallback: update based on current price
+                        risk_manager.current_portfolio_value = current_price * 100
+            except Exception as e:
+                logger.warning(f"Could not load risk state from database: {e}")
+                # Initialize with defaults
+                risk_manager.reset_daily_tracking(10000.0)  # Default $10k portfolio
         
         metrics = risk_manager.get_risk_metrics()
         
@@ -1939,29 +2006,87 @@ def get_rl_agent_rules():
         if len(rules) == 0:
             try:
                 logger.info("No rules found, attempting to extract rules from recent decisions...")
-                extracted_rules = rule_extractor.extract_rules_from_decisions(
-                    min_samples=50,
-                    max_depth=5,
-                    min_samples_split=10,
-                )
-                if extracted_rules:
-                    # Evaluate and store rules
-                    rule_extractor.store_rules(extracted_rules)
-                    # Get rules again after extraction
-                    rules = rule_extractor.get_discovered_rules(
-                        action=action,
-                        min_win_rate=min_win_rate,
-                        limit=limit,
+                # Check how many decisions with actual returns we have
+                conn = sqlite3.connect("sol_prices.db")
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT COUNT(*) 
+                    FROM rl_agent_decisions d
+                    JOIN rl_prediction_accuracy pa ON d.id = pa.decision_id
+                    WHERE pa.actual_return_1h IS NOT NULL
+                    AND pa.actual_return_24h IS NOT NULL
+                """)
+                count = cursor.fetchone()[0]
+                conn.close()
+                
+                logger.info(f"Found {count} decisions with actual returns")
+                
+                # Lower threshold if we don't have enough data
+                min_samples = 20 if count < 50 else 50
+                
+                if count >= min_samples:
+                    extracted_rules = rule_extractor.extract_rules_from_decisions(
+                        min_samples=min_samples,
+                        max_depth=5,
+                        min_samples_split=5,  # Lowered from 10
                     )
-                    logger.info(f"Extracted and stored {len(rules)} new rules")
+                    if extracted_rules:
+                        # Evaluate and store rules
+                        rule_extractor.store_rules(extracted_rules)
+                        # Get rules again after extraction
+                        rules = rule_extractor.get_discovered_rules(
+                            action=action,
+                            min_win_rate=min_win_rate,
+                            limit=limit,
+                        )
+                        logger.info(f"Extracted and stored {len(rules)} new rules")
+                    else:
+                        logger.warning(f"Rule extraction returned no rules despite {count} samples")
+                else:
+                    logger.warning(f"Not enough decisions with actual returns ({count} < {min_samples}). Need to wait for actual returns to be calculated.")
             except Exception as e:
-                logger.warning(f"Could not extract rules: {e}")
+                logger.error(f"Could not extract rules: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
         
-        return jsonify({
+        # Add diagnostic info if no rules
+        response_data = {
             'success': True,
             'rules': rules,
             'count': len(rules)
-        })
+        }
+        
+        if len(rules) == 0:
+            # Add diagnostic info
+            try:
+                conn = sqlite3.connect("sol_prices.db")
+                cursor = conn.cursor()
+                
+                # Count total decisions
+                cursor.execute("SELECT COUNT(*) FROM rl_agent_decisions")
+                total_decisions = cursor.fetchone()[0]
+                
+                # Count decisions with actual returns
+                cursor.execute("""
+                    SELECT COUNT(*) 
+                    FROM rl_agent_decisions d
+                    JOIN rl_prediction_accuracy pa ON d.id = pa.decision_id
+                    WHERE pa.actual_return_1h IS NOT NULL
+                    AND pa.actual_return_24h IS NOT NULL
+                """)
+                decisions_with_returns = cursor.fetchone()[0]
+                
+                conn.close()
+                
+                response_data['diagnostics'] = {
+                    'total_decisions': total_decisions,
+                    'decisions_with_actual_returns': decisions_with_returns,
+                    'message': f'Found {total_decisions} total decisions, {decisions_with_returns} with actual returns calculated. Need at least 20-50 with returns for rule extraction.'
+                }
+            except Exception as e:
+                logger.debug(f"Could not get rule diagnostics: {e}")
+        
+        return jsonify(response_data)
     except Exception as e:
         logger.error(f"Error fetching RL agent rules: {e}")
         import traceback

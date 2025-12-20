@@ -2222,10 +2222,27 @@
                           priceSeries.setData(finalPriceData);
                           console.log('✅ Price data set successfully:', finalPriceData.length, 'points (filtered from', priceData.length, ')');
                           
-                          // Fit content to show all data
+                          // Fit content to show all data, then scroll to show the latest price
                           try {
                               chart.timeScale().fitContent();
                               console.log('✅ Chart time scale fitted to content');
+                              
+                              // After fitting, ensure the latest point is visible by scrolling to the end
+                              if (finalPriceData.length > 0) {
+                                  const latestTime = finalPriceData[finalPriceData.length - 1].time;
+                                  const visibleRange = chart.timeScale().getVisibleRange();
+                                  if (visibleRange && latestTime > visibleRange.to) {
+                                      // Latest point is not visible, scroll to show it
+                                      setTimeout(() => {
+                                          try {
+                                              chart.timeScale().scrollToPosition(latestTime, false);
+                                              console.log('✅ Scrolled chart to show latest price point');
+                                          } catch (e) {
+                                              console.debug('Could not scroll to latest point:', e);
+                                          }
+                                      }, 100);
+                                  }
+                              }
                           } catch (fitError) {
                               console.warn('Could not fit content:', fitError);
                           }
@@ -2318,9 +2335,13 @@
                   : (finalPriceData.length > 0 ? finalPriceData[0].value : null);
               
               // Store reference to latest price for when crosshair is not active
+              // ALWAYS use currentPrice from stats (actual latest price) as the default
               const latestPriceForDisplay = (currentPrice !== null && currentPrice !== undefined && !isNaN(currentPrice)) 
                   ? currentPrice 
                   : (finalPriceData.length > 0 ? finalPriceData[finalPriceData.length - 1].value : null);
+              
+              // Get the latest time point from chart data to position crosshair
+              const latestTimePoint = finalPriceData.length > 0 ? finalPriceData[finalPriceData.length - 1].time : null;
               
               chart.subscribeCrosshairMove(param => {
                   try {
@@ -2329,6 +2350,7 @@
                       
                       // If crosshair is not active or no data, show latest price
                       if (param === null || param === undefined || param.point === undefined || !param.time || !param.seriesData || param.seriesData.size === 0) {
+                          // Default to showing latest price when crosshair is not active
                           if (latestPriceForDisplay !== null && latestPriceForDisplay !== undefined) {
                               if (priceEl) {
                                   priceEl.textContent = `$${latestPriceForDisplay.toFixed(2)}`;
@@ -2364,6 +2386,18 @@
                       // console.debug('Crosshair update error:', e);
                   }
               });
+              
+              // Set crosshair to latest point on initialization to show current price
+              if (latestTimePoint !== null && latestPriceForDisplay !== null) {
+                  setTimeout(() => {
+                      try {
+                          chart.setCrosshairPosition(latestTimePoint, { x: 0, y: 0 });
+                          console.log('✅ Set crosshair to latest price point');
+                      } catch (e) {
+                          console.debug('Could not set crosshair to latest point:', e);
+                      }
+                  }, 300);
+              }
 
               // Create RSI chart below
               const rsiChartContainer = document.getElementById('rsi-chart');
@@ -2667,52 +2701,94 @@
                   
                   // Update 1h prediction
                   const pred1hEl = document.getElementById('pred-1h-value');
-                  if (pred1hEl && pred.predicted_return_1h !== null) {
-                      const value = (pred.predicted_return_1h * 100).toFixed(2);
-                      const color = pred.predicted_return_1h >= 0 ? 'text-green-400' : 'text-red-400';
-                      pred1hEl.innerHTML = `<span class="${color}">${pred.predicted_return_1h >= 0 ? '+' : ''}${value}%</span>`;
+                  if (pred1hEl) {
+                      // Check if value exists (could be 0, which is valid)
+                      if (pred.predicted_return_1h !== null && pred.predicted_return_1h !== undefined) {
+                          const value = (pred.predicted_return_1h * 100).toFixed(2);
+                          const color = pred.predicted_return_1h >= 0 ? 'text-green-400' : 'text-red-400';
+                          pred1hEl.innerHTML = `<span class="${color}">${pred.predicted_return_1h >= 0 ? '+' : ''}${value}%</span>`;
+                      } else {
+                          pred1hEl.innerHTML = '<span class="text-gray-400">No prediction</span>';
+                      }
                   }
                   
                   const conf1hEl = document.getElementById('pred-1h-confidence');
                   if (conf1hEl) {
-                      const conf = pred.predicted_confidence_1h !== null ? (pred.predicted_confidence_1h * 100).toFixed(1) : 'N/A';
+                      const conf = (pred.predicted_confidence_1h !== null && pred.predicted_confidence_1h !== undefined) 
+                          ? (pred.predicted_confidence_1h * 100).toFixed(1) 
+                          : 'N/A';
                       conf1hEl.innerHTML = `Confidence: <span class="text-gray-300">${conf}%</span>`;
                   }
                   
                   // Update 24h prediction
                   const pred24hEl = document.getElementById('pred-24h-value');
-                  if (pred24hEl && pred.predicted_return_24h !== null) {
-                      const value = (pred.predicted_return_24h * 100).toFixed(2);
-                      const color = pred.predicted_return_24h >= 0 ? 'text-green-400' : 'text-red-400';
-                      pred24hEl.innerHTML = `<span class="${color}">${pred.predicted_return_24h >= 0 ? '+' : ''}${value}%</span>`;
+                  if (pred24hEl) {
+                      // Check if value exists (could be 0, which is valid)
+                      if (pred.predicted_return_24h !== null && pred.predicted_return_24h !== undefined) {
+                          const value = (pred.predicted_return_24h * 100).toFixed(2);
+                          const color = pred.predicted_return_24h >= 0 ? 'text-green-400' : 'text-red-400';
+                          pred24hEl.innerHTML = `<span class="${color}">${pred.predicted_return_24h >= 0 ? '+' : ''}${value}%</span>`;
+                      } else {
+                          pred24hEl.innerHTML = '<span class="text-gray-400">No prediction</span>';
+                      }
                   }
                   
                   const conf24hEl = document.getElementById('pred-24h-confidence');
                   if (conf24hEl) {
-                      const conf = pred.predicted_confidence_24h !== null ? (pred.predicted_confidence_24h * 100).toFixed(1) : 'N/A';
+                      const conf = (pred.predicted_confidence_24h !== null && pred.predicted_confidence_24h !== undefined)
+                          ? (pred.predicted_confidence_24h * 100).toFixed(1)
+                          : 'N/A';
                       conf24hEl.innerHTML = `Confidence: <span class="text-gray-300">${conf}%</span>`;
                   }
                   
                   // Update accuracy stats
                   if (data.accuracy_stats) {
                       const stats = data.accuracy_stats;
-                      document.getElementById('mae-1h').textContent = stats.mae_1h > 0 ? (stats.mae_1h * 100).toFixed(2) + '%' : '-';
-                      document.getElementById('mae-24h').textContent = stats.mae_24h > 0 ? (stats.mae_24h * 100).toFixed(2) + '%' : '-';
-                      document.getElementById('rmse-1h').textContent = stats.rmse_1h > 0 ? (stats.rmse_1h * 100).toFixed(2) + '%' : '-';
-                      document.getElementById('rmse-24h').textContent = stats.rmse_24h > 0 ? (stats.rmse_24h * 100).toFixed(2) + '%' : '-';
+                      // Show stats if we have data (count > 0), otherwise show "No data"
+                      if (stats.count > 0) {
+                          document.getElementById('mae-1h').textContent = (stats.mae_1h * 100).toFixed(2) + '%';
+                          document.getElementById('mae-24h').textContent = (stats.mae_24h * 100).toFixed(2) + '%';
+                          document.getElementById('rmse-1h').textContent = (stats.rmse_1h * 100).toFixed(2) + '%';
+                          document.getElementById('rmse-24h').textContent = (stats.rmse_24h * 100).toFixed(2) + '%';
+                      } else {
+                          // No accuracy data available yet
+                          document.getElementById('mae-1h').textContent = 'No data';
+                          document.getElementById('mae-24h').textContent = 'No data';
+                          document.getElementById('rmse-1h').textContent = 'No data';
+                          document.getElementById('rmse-24h').textContent = 'No data';
+                      }
+                  } else {
+                      // No accuracy_stats in response
+                      document.getElementById('mae-1h').textContent = 'N/A';
+                      document.getElementById('mae-24h').textContent = 'N/A';
+                      document.getElementById('rmse-1h').textContent = 'N/A';
+                      document.getElementById('rmse-24h').textContent = 'N/A';
                   }
               } else {
                   // No predictions available yet
-                  document.getElementById('pred-1h-value').innerHTML = '<span class="text-gray-400">No prediction yet</span>';
-                  document.getElementById('pred-24h-value').innerHTML = '<span class="text-gray-400">No prediction yet</span>';
+                  const pred1hEl = document.getElementById('pred-1h-value');
+                  const pred24hEl = document.getElementById('pred-24h-value');
+                  if (pred1hEl) pred1hEl.innerHTML = '<span class="text-gray-400">No prediction yet</span>';
+                  if (pred24hEl) pred24hEl.innerHTML = '<span class="text-gray-400">No prediction yet</span>';
+                  
+                  // Show "No data" for accuracy stats
+                  document.getElementById('mae-1h').textContent = 'No data';
+                  document.getElementById('mae-24h').textContent = 'No data';
+                  document.getElementById('rmse-1h').textContent = 'No data';
+                  document.getElementById('rmse-24h').textContent = 'No data';
               }
           } catch (error) {
               console.error('Error fetching RL predictions:', error);
-              // Hide section if RL agent not available
-              const section = document.getElementById('rl-predictions-section');
-              if (section) {
-                  section.style.display = 'none';
-              }
+              // Show error message instead of hiding
+              const pred1hEl = document.getElementById('pred-1h-value');
+              const pred24hEl = document.getElementById('pred-24h-value');
+              if (pred1hEl) pred1hEl.innerHTML = '<span class="text-red-400">Error loading</span>';
+              if (pred24hEl) pred24hEl.innerHTML = '<span class="text-red-400">Error loading</span>';
+              
+              document.getElementById('mae-1h').textContent = 'Error';
+              document.getElementById('mae-24h').textContent = 'Error';
+              document.getElementById('rmse-1h').textContent = 'Error';
+              document.getElementById('rmse-24h').textContent = 'Error';
           }
       }
       
@@ -2893,14 +2969,42 @@
                   if (uncEl) {
                       uncEl.textContent = 'N/A'; // Would be populated from model
                   }
+                  
+                  // Update position limit display
+                  const posLimitEl = document.getElementById('position-limit');
+                  if (posLimitEl) {
+                      posLimitEl.textContent = `Limit: ${(metrics.max_position_size * 100).toFixed(1)}%`;
+                  }
+                  
+                  // Update uncertainty status
+                  const uncStatusEl = document.getElementById('uncertainty-status');
+                  if (uncStatusEl) {
+                      uncStatusEl.textContent = 'Status: Not tracked';
+                  }
+              } else if (!data.success) {
+                  // API returned error
+                  console.error('RL risk API error:', data.error);
+                  // Show error in UI
+                  const posEl = document.getElementById('position-size');
+                  const freqEl = document.getElementById('trade-frequency');
+                  const pnlEl = document.getElementById('daily-pnl');
+                  const uncEl = document.getElementById('uncertainty-metric');
+                  if (posEl) posEl.textContent = 'Error';
+                  if (freqEl) freqEl.textContent = 'Error';
+                  if (pnlEl) pnlEl.textContent = 'Error';
+                  if (uncEl) uncEl.textContent = 'Error';
               }
           } catch (error) {
               console.error('Error fetching RL risk metrics:', error);
-              // Hide section on error
-              const section = document.getElementById('rl-risk-section');
-              if (section) {
-                  section.style.display = 'none';
-              }
+              // Show error in UI instead of hiding
+              const posEl = document.getElementById('position-size');
+              const freqEl = document.getElementById('trade-frequency');
+              const pnlEl = document.getElementById('daily-pnl');
+              const uncEl = document.getElementById('uncertainty-metric');
+              if (posEl) posEl.textContent = 'Error';
+              if (freqEl) freqEl.textContent = 'Error';
+              if (pnlEl) pnlEl.textContent = 'Error';
+              if (uncEl) uncEl.textContent = 'Error';
           }
       }
       
@@ -2921,7 +3025,17 @@
                   if (!tbody) return;
                   
                   if (data.rules.length === 0) {
-                      tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-400">No rules discovered yet</td></tr>';
+                      // Show diagnostic info if available
+                      let diagnosticMsg = 'No rules discovered yet.<br><br>Rules require:<br>1. Training decisions in database<br>2. Actual returns calculated (1h and 24h later)<br>3. At least 20-50 samples per action type';
+                      
+                      if (data.diagnostics) {
+                          diagnosticMsg += `<br><br><strong>Current Status:</strong><br>Total decisions: ${data.diagnostics.total_decisions}<br>Decisions with actual returns: ${data.diagnostics.decisions_with_actual_returns}`;
+                          if (data.diagnostics.decisions_with_actual_returns < 20) {
+                              diagnosticMsg += '<br><br><span class="text-yellow-400">⚠️ Need more decisions with actual returns. The background process calculates actual returns every 15 minutes.</span>';
+                          }
+                      }
+                      
+                      tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-gray-400">${diagnosticMsg}</td></tr>`;
                       return;
                   }
                   
@@ -2949,9 +3063,20 @@
                   });
                   
                   tbody.innerHTML = html;
+              } else if (!data.success) {
+                  // API returned error
+                  console.error('RL rules API error:', data.error);
+                  const tbody = document.getElementById('rules-tbody');
+                  if (tbody) {
+                      tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-red-400">Error: ${data.error || 'Unknown error'}</td></tr>`;
+                  }
               }
           } catch (error) {
               console.error('Error fetching discovered rules:', error);
+              const tbody = document.getElementById('rules-tbody');
+              if (tbody) {
+                  tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-red-400">Error loading rules. Check console for details.</td></tr>';
+              }
           }
       }
       

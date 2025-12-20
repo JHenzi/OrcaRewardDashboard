@@ -2195,6 +2195,8 @@ class SOLPriceFetcher:
         Args:
             time_threshold: ISO format timestamp string - only fetch records >= this time
             limit: Maximum number of records to return (for pagination/performance)
+                  NOTE: When used with time_threshold, limit gets the OLDEST N records,
+                  not the newest. Use with caution for time-based queries.
         """
         # Ensure the connection and cursor are available
         if not hasattr(self, 'conn') or not hasattr(self, 'cursor'):
@@ -2209,8 +2211,17 @@ class SOLPriceFetcher:
         params = []
         
         if time_threshold:
+            # CRITICAL FIX: Timestamps in DB are stored as naive ISO strings (no timezone)
+            # The time_threshold might be timezone-aware. For proper comparison, we need to
+            # handle both formats. SQLite string comparison works for ISO format, but we
+            # should ensure consistent format.
+            # Remove timezone info from threshold if present for comparison
+            threshold_str = time_threshold
+            if '+' in threshold_str or threshold_str.endswith('Z'):
+                # Remove timezone info for comparison with naive timestamps
+                threshold_str = threshold_str.split('+')[0].split('Z')[0]
             conditions.append("timestamp >= ?")
-            params.append(time_threshold)
+            params.append(threshold_str)
         
         if conditions:
             base_query += " WHERE " + " AND ".join(conditions)
@@ -2219,6 +2230,7 @@ class SOLPriceFetcher:
         base_query += " ORDER BY timestamp ASC"
         
         # Add limit if specified (useful for large datasets)
+        # WARNING: With ORDER BY ASC, limit returns the OLDEST N records, not newest!
         if limit:
             base_query += f" LIMIT {limit}"
         
