@@ -3060,31 +3060,42 @@ def update_prediction_actuals_loop():
             one_hour_ago = (now - timedelta(hours=1)).isoformat()
             twenty_four_hours_ago = (now - timedelta(hours=24)).isoformat()
             
-            # Find predictions needing 1h updates
+            # CRITICAL FIX: Use datetime comparison instead of string comparison
+            # SQLite datetime comparison works better with ISO format strings
+            # Also check for predictions that might have been missed
+            
+            # Find predictions needing 1h updates (older than 1 hour)
             cursor.execute("""
                 SELECT id, timestamp, price_at_prediction
                 FROM rl_prediction_accuracy
-                WHERE timestamp <= ? 
+                WHERE datetime(timestamp) <= datetime(?)
                 AND actual_return_1h IS NULL
                 AND price_at_prediction IS NOT NULL
+                AND price_at_prediction > 0
                 ORDER BY timestamp DESC
-                LIMIT 50
+                LIMIT 100
             """, (one_hour_ago,))
             
             predictions_1h = cursor.fetchall()
             
-            # Find predictions needing 24h updates
+            # Find predictions needing 24h updates (older than 24 hours)
             cursor.execute("""
                 SELECT id, timestamp, price_at_prediction
                 FROM rl_prediction_accuracy
-                WHERE timestamp <= ? 
+                WHERE datetime(timestamp) <= datetime(?)
                 AND actual_return_24h IS NULL
                 AND price_at_prediction IS NOT NULL
+                AND price_at_prediction > 0
                 ORDER BY timestamp DESC
-                LIMIT 50
+                LIMIT 100
             """, (twenty_four_hours_ago,))
             
             predictions_24h = cursor.fetchall()
+            
+            # Log how many predictions need updating
+            if predictions_1h or predictions_24h:
+                logger.info(f"Found {len(predictions_1h)} predictions needing 1h updates, {len(predictions_24h)} needing 24h updates")
+            
             conn.close()
             
             updated_count = 0
@@ -3092,23 +3103,32 @@ def update_prediction_actuals_loop():
             # Update 1h predictions
             for pred_id, pred_timestamp, price_at_pred in predictions_1h:
                 try:
-                    pred_dt = datetime.fromisoformat(pred_timestamp.replace('Z', '+00:00'))
+                    # Parse timestamp (handle both with and without timezone)
+                    if 'Z' in pred_timestamp:
+                        pred_dt = datetime.fromisoformat(pred_timestamp.replace('Z', '+00:00'))
+                    elif '+' in pred_timestamp or pred_timestamp.endswith('00:00'):
+                        pred_dt = datetime.fromisoformat(pred_timestamp)
+                    else:
+                        # Naive datetime (no timezone)
+                        pred_dt = datetime.fromisoformat(pred_timestamp)
+                    
                     target_dt = pred_dt + timedelta(hours=1)
                     
-                    # Get price 1 hour later (within 30 min window)
+                    # Get price 1 hour later (within 1 hour window for better matching)
                     price_conn = sqlite3.connect("sol_prices.db")
                     price_cursor = price_conn.cursor()
+                    
+                    # Use string comparison for timestamps (SQLite stores as TEXT)
+                    target_start = (target_dt - timedelta(minutes=30)).isoformat()
+                    target_end = (target_dt + timedelta(minutes=30)).isoformat()
+                    
                     price_cursor.execute("""
                         SELECT rate, timestamp
                         FROM sol_prices
                         WHERE timestamp >= ? AND timestamp <= ?
-                        ORDER BY ABS(julianday(timestamp) - julianday(?))
+                        ORDER BY timestamp ASC
                         LIMIT 1
-                    """, (
-                        (target_dt - timedelta(minutes=30)).isoformat(),
-                        (target_dt + timedelta(minutes=30)).isoformat(),
-                        target_dt.isoformat()
-                    ))
+                    """, (target_start, target_end))
                     
                     price_row = price_cursor.fetchone()
                     price_conn.close()
@@ -3132,23 +3152,32 @@ def update_prediction_actuals_loop():
             # Update 24h predictions
             for pred_id, pred_timestamp, price_at_pred in predictions_24h:
                 try:
-                    pred_dt = datetime.fromisoformat(pred_timestamp.replace('Z', '+00:00'))
+                    # Parse timestamp (handle both with and without timezone)
+                    if 'Z' in pred_timestamp:
+                        pred_dt = datetime.fromisoformat(pred_timestamp.replace('Z', '+00:00'))
+                    elif '+' in pred_timestamp or pred_timestamp.endswith('00:00'):
+                        pred_dt = datetime.fromisoformat(pred_timestamp)
+                    else:
+                        # Naive datetime (no timezone)
+                        pred_dt = datetime.fromisoformat(pred_timestamp)
+                    
                     target_dt = pred_dt + timedelta(hours=24)
                     
-                    # Get price 24 hours later (within 1 hour window)
+                    # Get price 24 hours later (within 2 hour window for better matching)
                     price_conn = sqlite3.connect("sol_prices.db")
                     price_cursor = price_conn.cursor()
+                    
+                    # Use string comparison for timestamps (SQLite stores as TEXT)
+                    target_start = (target_dt - timedelta(hours=1)).isoformat()
+                    target_end = (target_dt + timedelta(hours=1)).isoformat()
+                    
                     price_cursor.execute("""
                         SELECT rate, timestamp
                         FROM sol_prices
                         WHERE timestamp >= ? AND timestamp <= ?
-                        ORDER BY ABS(julianday(timestamp) - julianday(?))
+                        ORDER BY timestamp ASC
                         LIMIT 1
-                    """, (
-                        (target_dt - timedelta(hours=1)).isoformat(),
-                        (target_dt + timedelta(hours=1)).isoformat(),
-                        target_dt.isoformat()
-                    ))
+                    """, (target_start, target_end))
                     
                     price_row = price_cursor.fetchone()
                     price_conn.close()

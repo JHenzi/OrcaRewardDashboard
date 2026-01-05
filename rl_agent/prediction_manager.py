@@ -298,57 +298,62 @@ class PredictionManager:
         
         time_threshold = (datetime.now() - timedelta(hours=hours)).isoformat()
         
-        # Get predictions with actual returns
+        # CRITICAL FIX: Get predictions with actual returns separately for 1h and 24h
+        # This allows showing 1h stats even if 24h isn't ready yet
+        
+        # Get 1h predictions (need actual_return_1h)
         cursor.execute("""
             SELECT 
-                predicted_return_1h, actual_return_1h, error_1h,
-                predicted_return_24h, actual_return_24h, error_24h
+                predicted_return_1h, actual_return_1h, error_1h
             FROM rl_prediction_accuracy
             WHERE timestamp >= ?
             AND actual_return_1h IS NOT NULL
+        """, (time_threshold,))
+        
+        rows_1h = cursor.fetchall()
+        
+        # Get 24h predictions (need actual_return_24h)
+        cursor.execute("""
+            SELECT 
+                predicted_return_24h, actual_return_24h, error_24h
+            FROM rl_prediction_accuracy
+            WHERE timestamp >= ?
             AND actual_return_24h IS NOT NULL
         """, (time_threshold,))
         
-        rows = cursor.fetchall()
+        rows_24h = cursor.fetchall()
         conn.close()
         
-        if not rows:
-            return {
-                "count": 0,
-                "mae_1h": 0.0,
-                "mae_24h": 0.0,
-                "rmse_1h": 0.0,
-                "rmse_24h": 0.0,
-                "mean_error_1h": 0.0,
-                "mean_error_24h": 0.0,
-            }
+        # Calculate 1h metrics
+        errors_1h = [row[2] for row in rows_1h if row[2] is not None]
+        pred_1h = [row[0] for row in rows_1h if row[0] is not None]
+        actual_1h = [row[1] for row in rows_1h if row[1] is not None]
         
-        errors_1h = [row[2] for row in rows if row[2] is not None]
-        errors_24h = [row[5] for row in rows if row[5] is not None]
-        
-        pred_1h = [row[0] for row in rows]
-        actual_1h = [row[1] for row in rows]
-        pred_24h = [row[3] for row in rows]
-        actual_24h = [row[4] for row in rows]
+        # Calculate 24h metrics
+        errors_24h = [row[2] for row in rows_24h if row[2] is not None]
+        pred_24h = [row[0] for row in rows_24h if row[0] is not None]
+        actual_24h = [row[1] for row in rows_24h if row[1] is not None]
         
         # Calculate metrics
-        mae_1h = np.mean(errors_1h) if errors_1h else 0.0
-        mae_24h = np.mean(errors_24h) if errors_24h else 0.0
+        mae_1h = np.mean(errors_1h) if errors_1h else None
+        mae_24h = np.mean(errors_24h) if errors_24h else None
         
-        rmse_1h = np.sqrt(np.mean([e**2 for e in errors_1h])) if errors_1h else 0.0
-        rmse_24h = np.sqrt(np.mean([e**2 for e in errors_24h])) if errors_24h else 0.0
+        rmse_1h = np.sqrt(np.mean([e**2 for e in errors_1h])) if errors_1h else None
+        rmse_24h = np.sqrt(np.mean([e**2 for e in errors_24h])) if errors_24h else None
         
-        mean_error_1h = np.mean([a - p for a, p in zip(actual_1h, pred_1h)]) if actual_1h else 0.0
-        mean_error_24h = np.mean([a - p for a, p in zip(actual_24h, pred_24h)]) if actual_24h else 0.0
+        mean_error_1h = np.mean([a - p for a, p in zip(actual_1h, pred_1h)]) if actual_1h and pred_1h else None
+        mean_error_24h = np.mean([a - p for a, p in zip(actual_24h, pred_24h)]) if actual_24h and pred_24h else None
         
         return {
-            "count": len(rows),
-            "mae_1h": float(mae_1h),
-            "mae_24h": float(mae_24h),
-            "rmse_1h": float(rmse_1h),
-            "rmse_24h": float(rmse_24h),
-            "mean_error_1h": float(mean_error_1h),
-            "mean_error_24h": float(mean_error_24h),
+            "count": max(len(rows_1h), len(rows_24h)),  # Max of both counts
+            "count_1h": len(rows_1h),
+            "count_24h": len(rows_24h),
+            "mae_1h": float(mae_1h) if mae_1h is not None else None,
+            "mae_24h": float(mae_24h) if mae_24h is not None else None,
+            "rmse_1h": float(rmse_1h) if rmse_1h is not None else None,
+            "rmse_24h": float(rmse_24h) if rmse_24h is not None else None,
+            "mean_error_1h": float(mean_error_1h) if mean_error_1h is not None else None,
+            "mean_error_24h": float(mean_error_24h) if mean_error_24h is not None else None,
         }
     
     def get_predictions_for_chart(

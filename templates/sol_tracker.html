@@ -2853,18 +2853,39 @@
                   // Update accuracy stats
                   if (data.accuracy_stats) {
                       const stats = data.accuracy_stats;
-                      // Show stats if we have data (count > 0), otherwise show "No data"
-                      if (stats.count > 0) {
+                      // Show stats if we have data for each metric separately
+                      // 1h stats can show even if 24h isn't ready yet
+                      if (stats.mae_1h !== null && stats.mae_1h !== undefined) {
                           document.getElementById('mae-1h').textContent = (stats.mae_1h * 100).toFixed(2) + '%';
+                      } else {
+                          document.getElementById('mae-1h').textContent = 'No data';
+                      }
+                      
+                      if (stats.mae_24h !== null && stats.mae_24h !== undefined) {
                           document.getElementById('mae-24h').textContent = (stats.mae_24h * 100).toFixed(2) + '%';
+                      } else {
+                          document.getElementById('mae-24h').textContent = 'No data';
+                      }
+                      
+                      if (stats.rmse_1h !== null && stats.rmse_1h !== undefined) {
                           document.getElementById('rmse-1h').textContent = (stats.rmse_1h * 100).toFixed(2) + '%';
+                      } else {
+                          document.getElementById('rmse-1h').textContent = 'No data';
+                      }
+                      
+                      if (stats.rmse_24h !== null && stats.rmse_24h !== undefined) {
                           document.getElementById('rmse-24h').textContent = (stats.rmse_24h * 100).toFixed(2) + '%';
                       } else {
-                          // No accuracy data available yet
-                          document.getElementById('mae-1h').textContent = 'No data';
-                          document.getElementById('mae-24h').textContent = 'No data';
-                          document.getElementById('rmse-1h').textContent = 'No data';
                           document.getElementById('rmse-24h').textContent = 'No data';
+                      }
+                      
+                      // Log diagnostic info if no data
+                      if ((stats.count_1h || 0) === 0 && (stats.count_24h || 0) === 0) {
+                          console.log('No prediction accuracy data:', {
+                              total_predictions: stats.count || 0,
+                              count_1h: stats.count_1h || 0,
+                              count_24h: stats.count_24h || 0
+                          });
                       }
                   } else {
                       // No accuracy_stats in response
