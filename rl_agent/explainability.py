@@ -37,7 +37,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Get database path from environment or use default
-DB_PATH = os.getenv("DATABASE_PATH", "sol_prices.db")
+# Use rewards.db as default (same as app.py) since RL agent tables are there
+DB_PATH = os.getenv("DATABASE_PATH", "rewards.db")
 
 
 class RuleExtractor:
@@ -82,7 +83,9 @@ class RuleExtractor:
         
         conn = sqlite3.connect(self.db_path)
         
-        # Get decisions with outcomes
+        # CRITICAL FIX: Allow rules extraction with just 1h returns if 24h isn't ready yet
+        # This allows rules to be extracted sooner (after 1 hour instead of 24 hours)
+        # Get decisions with outcomes (at least 1h actual return)
         query = """
             SELECT 
                 d.id, d.timestamp, d.action, d.state_features,
@@ -92,7 +95,6 @@ class RuleExtractor:
             FROM rl_agent_decisions d
             LEFT JOIN rl_prediction_accuracy pa ON d.id = pa.decision_id
             WHERE pa.actual_return_1h IS NOT NULL
-            AND pa.actual_return_24h IS NOT NULL
             ORDER BY d.timestamp DESC
             LIMIT 1000
         """
@@ -138,12 +140,17 @@ class RuleExtractor:
             
             action_features = features_df[action_mask]
             action_outcomes_1h = np.array(outcomes_1h)[action_mask]
-            action_outcomes_24h = np.array(outcomes_24h)[action_mask]
+            # Filter out None values for 24h (may not be available yet)
+            action_outcomes_24h = np.array([o if o is not None else np.nan for o in outcomes_24h])[action_mask]
             
             # Create binary target: successful if return > threshold
             threshold = 0.0  # Positive return = success
             target_1h = (action_outcomes_1h > threshold).astype(int)
-            target_24h = (action_outcomes_24h > threshold).astype(int)
+            # Only create 24h target if we have valid 24h returns
+            valid_24h_mask = ~np.isnan(action_outcomes_24h)
+            target_24h = None
+            if valid_24h_mask.sum() >= min_samples:
+                target_24h = (action_outcomes_24h[valid_24h_mask] > threshold).astype(int)
             
             # Train decision tree for 1h outcomes
             if target_1h.sum() > 0 and (1 - target_1h).sum() > 0:
@@ -167,7 +174,13 @@ class RuleExtractor:
                         rule['win_rate'] = (rule_outcomes > threshold).mean()
                         rule['avg_return_1h'] = rule_outcomes.mean()
                         rule['sample_size'] = rule_mask.sum()
-                        rule['avg_return_24h'] = action_outcomes_24h[rule_mask].mean()
+                        # Only include 24h return if available
+                        rule_24h_outcomes = action_outcomes_24h[rule_mask]
+                        valid_24h = rule_24h_outcomes[~np.isnan(rule_24h_outcomes)]
+                        if len(valid_24h) > 0:
+                            rule['avg_return_24h'] = valid_24h.mean()
+                        else:
+                            rule['avg_return_24h'] = None
                 
                 all_rules.extend(rules_1h)
         
@@ -313,6 +326,34 @@ class RuleExtractor:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        # Ensure discovered_rules table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS discovered_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_text TEXT NOT NULL,
+                rule_conditions TEXT,
+                action TEXT NOT NULL,
+                win_rate REAL,
+                avg_return_1h REAL,
+                avg_return_24h REAL,
+                sample_size INTEGER,
+                confidence_interval_lower REAL,
+                confidence_interval_upper REAL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_validated_at DATETIME
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rules_action 
+            ON discovered_rules(action)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rules_win_rate 
+            ON discovered_rules(win_rate DESC)
+        """)
+        
         for rule in rules:
             cursor.execute("""
                 INSERT INTO discovered_rules (
@@ -354,6 +395,24 @@ class RuleExtractor:
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        
+        # Ensure discovered_rules table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS discovered_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_text TEXT NOT NULL,
+                rule_conditions TEXT,
+                action TEXT NOT NULL,
+                win_rate REAL,
+                avg_return_1h REAL,
+                avg_return_24h REAL,
+                sample_size INTEGER,
+                confidence_interval_lower REAL,
+                confidence_interval_upper REAL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_validated_at DATETIME
+            )
+        """)
         
         query = """
             SELECT 

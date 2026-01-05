@@ -1841,7 +1841,9 @@ def get_rl_agent_predictions():
         hours = int(request.args.get('hours', 24))
         chart_format = request.args.get('chart', 'false').lower() == 'true'
         
-        prediction_manager = PredictionManager()
+        # Use same database path as rest of app (rewards.db by default)
+        db_path = os.getenv("DATABASE_PATH", "rewards.db")
+        prediction_manager = PredictionManager(db_path=db_path)
         
         if chart_format:
             # Return data formatted for chart
@@ -2068,7 +2070,9 @@ def get_rl_agent_rules():
         min_win_rate = float(request.args.get('min_win_rate', 0.0))
         limit = int(request.args.get('limit', 20))
         
-        rule_extractor = RuleExtractor()
+        # Use same database path as rest of app (rewards.db by default)
+        db_path = os.getenv("DATABASE_PATH", "rewards.db")
+        rule_extractor = RuleExtractor(db_path=db_path)
         rules = rule_extractor.get_discovered_rules(
             action=action,
             min_win_rate=min_win_rate,
@@ -2080,8 +2084,21 @@ def get_rl_agent_rules():
             try:
                 logger.info("No rules found, attempting to extract rules from recent decisions...")
                 # Check how many decisions with actual returns we have
-                conn = sqlite3.connect("sol_prices.db")
+                # CRITICAL FIX: Allow rules with just 1h returns (24h takes 24 hours!)
+                # Use same database path as rest of app
+                conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
+                
+                # Count decisions with at least 1h returns (for immediate rule extraction)
+                cursor.execute("""
+                    SELECT COUNT(*) 
+                    FROM rl_agent_decisions d
+                    JOIN rl_prediction_accuracy pa ON d.id = pa.decision_id
+                    WHERE pa.actual_return_1h IS NOT NULL
+                """)
+                count_1h = cursor.fetchone()[0]
+                
+                # Count decisions with both 1h and 24h returns (for complete rules)
                 cursor.execute("""
                     SELECT COUNT(*) 
                     FROM rl_agent_decisions d
@@ -2089,15 +2106,25 @@ def get_rl_agent_rules():
                     WHERE pa.actual_return_1h IS NOT NULL
                     AND pa.actual_return_24h IS NOT NULL
                 """)
-                count = cursor.fetchone()[0]
+                count_both = cursor.fetchone()[0]
+                
+                # Count total decisions
+                cursor.execute("SELECT COUNT(*) FROM rl_agent_decisions")
+                total_decisions = cursor.fetchone()[0]
+                
+                # Count total predictions
+                cursor.execute("SELECT COUNT(*) FROM rl_prediction_accuracy")
+                total_predictions = cursor.fetchone()[0]
+                
                 conn.close()
                 
-                logger.info(f"Found {count} decisions with actual returns")
+                logger.info(f"Rule extraction diagnostics: {total_decisions} total decisions, {total_predictions} total predictions, {count_1h} with 1h returns, {count_both} with both 1h and 24h returns")
                 
+                # Use 1h returns for rule extraction (much faster - only need 1 hour wait)
                 # Lower threshold if we don't have enough data
-                min_samples = 20 if count < 50 else 50
+                min_samples = 10 if count_1h < 30 else 20  # Lowered significantly
                 
-                if count >= min_samples:
+                if count_1h >= min_samples:
                     extracted_rules = rule_extractor.extract_rules_from_decisions(
                         min_samples=min_samples,
                         max_depth=5,
@@ -2114,9 +2141,9 @@ def get_rl_agent_rules():
                         )
                         logger.info(f"Extracted and stored {len(rules)} new rules")
                     else:
-                        logger.warning(f"Rule extraction returned no rules despite {count} samples")
+                        logger.warning(f"Rule extraction returned no rules despite {count_1h} samples with 1h returns")
                 else:
-                    logger.warning(f"Not enough decisions with actual returns ({count} < {min_samples}). Need to wait for actual returns to be calculated.")
+                    logger.warning(f"Not enough decisions with 1h returns ({count_1h} < {min_samples}). Need at least {min_samples} decisions with 1h actual returns. Total: {total_decisions} decisions, {total_predictions} predictions.")
             except Exception as e:
                 logger.error(f"Could not extract rules: {e}")
                 import traceback
@@ -2132,14 +2159,25 @@ def get_rl_agent_rules():
         if len(rules) == 0:
             # Add diagnostic info
             try:
-                conn = sqlite3.connect("sol_prices.db")
+                # Use same database path as rest of app
+                db_path = os.getenv("DATABASE_PATH", "rewards.db")
+                conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
                 
                 # Count total decisions
                 cursor.execute("SELECT COUNT(*) FROM rl_agent_decisions")
                 total_decisions = cursor.fetchone()[0]
                 
-                # Count decisions with actual returns
+                # Count decisions with 1h returns (for rule extraction)
+                cursor.execute("""
+                    SELECT COUNT(*) 
+                    FROM rl_agent_decisions d
+                    JOIN rl_prediction_accuracy pa ON d.id = pa.decision_id
+                    WHERE pa.actual_return_1h IS NOT NULL
+                """)
+                decisions_with_1h_returns = cursor.fetchone()[0]
+                
+                # Count decisions with both 1h and 24h returns
                 cursor.execute("""
                     SELECT COUNT(*) 
                     FROM rl_agent_decisions d
@@ -2147,14 +2185,32 @@ def get_rl_agent_rules():
                     WHERE pa.actual_return_1h IS NOT NULL
                     AND pa.actual_return_24h IS NOT NULL
                 """)
-                decisions_with_returns = cursor.fetchone()[0]
+                decisions_with_both_returns = cursor.fetchone()[0]
+                
+                # Count total predictions
+                cursor.execute("SELECT COUNT(*) FROM rl_prediction_accuracy")
+                total_predictions = cursor.fetchone()[0]
+                
+                # Count predictions needing updates
+                now = datetime.now()
+                one_hour_ago = (now - timedelta(hours=1)).isoformat()
+                cursor.execute("""
+                    SELECT COUNT(*) 
+                    FROM rl_prediction_accuracy
+                    WHERE datetime(timestamp) <= datetime(?)
+                    AND actual_return_1h IS NULL
+                """, (one_hour_ago,))
+                predictions_needing_1h_update = cursor.fetchone()[0]
                 
                 conn.close()
                 
                 response_data['diagnostics'] = {
                     'total_decisions': total_decisions,
-                    'decisions_with_actual_returns': decisions_with_returns,
-                    'message': f'Found {total_decisions} total decisions, {decisions_with_returns} with actual returns calculated. Need at least 20-50 with returns for rule extraction.'
+                    'total_predictions': total_predictions,
+                    'decisions_with_1h_returns': decisions_with_1h_returns,
+                    'decisions_with_both_returns': decisions_with_both_returns,
+                    'predictions_needing_1h_update': predictions_needing_1h_update,
+                    'message': f'Found {total_decisions} decisions, {total_predictions} predictions. {decisions_with_1h_returns} have 1h returns (need {min_samples} for rules). {predictions_needing_1h_update} predictions need 1h updates.'
                 }
             except Exception as e:
                 logger.debug(f"Could not get rule diagnostics: {e}")
@@ -2197,7 +2253,9 @@ def get_rl_agent_diagnostics():
             })
         
         # Check for recent predictions
-        prediction_manager = PredictionManager()
+        # Use same database path as rest of app (rewards.db by default)
+        db_path = os.getenv("DATABASE_PATH", "rewards.db")
+        prediction_manager = PredictionManager(db_path=db_path)
         latest_pred = prediction_manager.get_current_prediction()
         
         if latest_pred:
@@ -2276,6 +2334,107 @@ def get_rl_agent_status():
         })
     except Exception as e:
         logger.error(f"Error getting RL agent status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/predictions/diagnostics', methods=['GET'])
+def get_predictions_diagnostics():
+    """Get detailed diagnostics about prediction storage and updates."""
+    try:
+        import sqlite3
+        from datetime import datetime, timedelta
+        
+        pred_db_path = os.getenv("DATABASE_PATH", "rewards.db")
+        conn = sqlite3.connect(pred_db_path)
+        cursor = conn.cursor()
+        
+        # Count total predictions
+        cursor.execute("SELECT COUNT(*) FROM rl_prediction_accuracy")
+        total_predictions = cursor.fetchone()[0]
+        
+        # Count predictions with actual returns
+        cursor.execute("SELECT COUNT(*) FROM rl_prediction_accuracy WHERE actual_return_1h IS NOT NULL")
+        with_1h = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM rl_prediction_accuracy WHERE actual_return_24h IS NOT NULL")
+        with_24h = cursor.fetchone()[0]
+        
+        # Count predictions needing updates
+        now = datetime.now()
+        one_hour_ago = (now - timedelta(hours=1)).isoformat()
+        twenty_four_hours_ago = (now - timedelta(hours=24)).isoformat()
+        
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM rl_prediction_accuracy
+            WHERE datetime(timestamp) <= datetime(?)
+            AND actual_return_1h IS NULL
+            AND price_at_prediction IS NOT NULL
+        """, (one_hour_ago,))
+        needing_1h = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM rl_prediction_accuracy
+            WHERE datetime(timestamp) <= datetime(?)
+            AND actual_return_24h IS NULL
+            AND price_at_prediction IS NOT NULL
+        """, (twenty_four_hours_ago,))
+        needing_24h = cursor.fetchone()[0]
+        
+        # Get oldest prediction without 1h return
+        cursor.execute("""
+            SELECT timestamp, price_at_prediction
+            FROM rl_prediction_accuracy
+            WHERE actual_return_1h IS NULL
+            AND price_at_prediction IS NOT NULL
+            ORDER BY timestamp ASC
+            LIMIT 1
+        """)
+        oldest_missing_1h = cursor.fetchone()
+        
+        # Get most recent prediction
+        cursor.execute("""
+            SELECT timestamp, price_at_prediction, actual_return_1h, actual_return_24h
+            FROM rl_prediction_accuracy
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """)
+        most_recent = cursor.fetchone()
+        
+        conn.close()
+        
+        # Check if update loop is running
+        global prediction_update_active
+        loop_running = prediction_update_active
+        
+        return jsonify({
+            'success': True,
+            'diagnostics': {
+                'total_predictions': total_predictions,
+                'with_1h_returns': with_1h,
+                'with_24h_returns': with_24h,
+                'needing_1h_update': needing_1h,
+                'needing_24h_update': needing_24h,
+                'update_loop_running': loop_running,
+                'oldest_missing_1h': {
+                    'timestamp': oldest_missing_1h[0] if oldest_missing_1h else None,
+                    'price': oldest_missing_1h[1] if oldest_missing_1h else None,
+                    'age_hours': ((datetime.now() - datetime.fromisoformat(oldest_missing_1h[0])) / timedelta(hours=1)) if oldest_missing_1h else None
+                } if oldest_missing_1h else None,
+                'most_recent_prediction': {
+                    'timestamp': most_recent[0] if most_recent else None,
+                    'price': most_recent[1] if most_recent else None,
+                    'has_1h': most_recent[2] is not None if most_recent else None,
+                    'has_24h': most_recent[3] is not None if most_recent else None,
+                } if most_recent else None,
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error getting prediction diagnostics: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
             'error': str(e)
@@ -3046,13 +3205,15 @@ def update_prediction_actuals_loop():
     while prediction_update_active:
         try:
             from rl_agent.prediction_manager import PredictionManager
-            prediction_manager = PredictionManager()
+            # Use same database path as rest of app
+            db_path = os.getenv("DATABASE_PATH", "sol_prices.db")
+            prediction_manager = PredictionManager(db_path=db_path)
             
             # Get predictions that need updating
             # 1h predictions: older than 1h but no actual_return_1h
             # 24h predictions: older than 24h but no actual_return_24h
-            # PredictionManager uses sol_prices.db by default
-            pred_db_path = os.getenv("DATABASE_PATH", "sol_prices.db")
+            # Use same database path as rest of app (rewards.db by default)
+            pred_db_path = os.getenv("DATABASE_PATH", "rewards.db")
             conn = sqlite3.connect(pred_db_path)
             cursor = conn.cursor()
             
@@ -3092,9 +3253,15 @@ def update_prediction_actuals_loop():
             
             predictions_24h = cursor.fetchall()
             
-            # Log how many predictions need updating
+            # Log how many predictions need updating (always log, not just when there are some)
             if predictions_1h or predictions_24h:
-                logger.info(f"Found {len(predictions_1h)} predictions needing 1h updates, {len(predictions_24h)} needing 24h updates")
+                logger.info(f"🔄 Found {len(predictions_1h)} predictions needing 1h updates, {len(predictions_24h)} needing 24h updates")
+            else:
+                # Check if there are any predictions at all
+                cursor.execute("SELECT COUNT(*) FROM rl_prediction_accuracy")
+                total_preds = cursor.fetchone()[0]
+                if total_preds > 0:
+                    logger.debug(f"Prediction update loop: No predictions need updating (total: {total_preds})")
             
             conn.close()
             
@@ -3119,16 +3286,18 @@ def update_prediction_actuals_loop():
                     price_cursor = price_conn.cursor()
                     
                     # Use string comparison for timestamps (SQLite stores as TEXT)
+                    # Wider window for better matching: 30 min before to 1 hour after
                     target_start = (target_dt - timedelta(minutes=30)).isoformat()
-                    target_end = (target_dt + timedelta(minutes=30)).isoformat()
+                    target_end = (target_dt + timedelta(hours=1)).isoformat()
                     
+                    # Use julianday for better time matching (handles timezone issues)
                     price_cursor.execute("""
                         SELECT rate, timestamp
                         FROM sol_prices
                         WHERE timestamp >= ? AND timestamp <= ?
-                        ORDER BY timestamp ASC
+                        ORDER BY ABS(julianday(timestamp) - julianday(?))
                         LIMIT 1
-                    """, (target_start, target_end))
+                    """, (target_start, target_end, target_dt.isoformat()))
                     
                     price_row = price_cursor.fetchone()
                     price_conn.close()
@@ -3145,6 +3314,8 @@ def update_prediction_actuals_loop():
                             price_1h_later=price_1h_later,
                         )
                         updated_count += 1
+                        if updated_count % 10 == 0:
+                            logger.info(f"✅ Updated {updated_count} predictions so far...")
                         logger.debug(f"Updated prediction {pred_id} with 1h actual return: {actual_return_1h:.4f}")
                 except Exception as e:
                     logger.warning(f"Error updating 1h actual for prediction {pred_id}: {e}")
@@ -3168,16 +3339,18 @@ def update_prediction_actuals_loop():
                     price_cursor = price_conn.cursor()
                     
                     # Use string comparison for timestamps (SQLite stores as TEXT)
+                    # Wider window for better matching: 1 hour before to 2 hours after
                     target_start = (target_dt - timedelta(hours=1)).isoformat()
-                    target_end = (target_dt + timedelta(hours=1)).isoformat()
+                    target_end = (target_dt + timedelta(hours=2)).isoformat()
                     
+                    # Use julianday for better time matching (handles timezone issues)
                     price_cursor.execute("""
                         SELECT rate, timestamp
                         FROM sol_prices
                         WHERE timestamp >= ? AND timestamp <= ?
-                        ORDER BY timestamp ASC
+                        ORDER BY ABS(julianday(timestamp) - julianday(?))
                         LIMIT 1
-                    """, (target_start, target_end))
+                    """, (target_start, target_end, target_dt.isoformat()))
                     
                     price_row = price_cursor.fetchone()
                     price_conn.close()
@@ -3194,15 +3367,34 @@ def update_prediction_actuals_loop():
                             price_24h_later=price_24h_later,
                         )
                         updated_count += 1
+                        if updated_count % 10 == 0:
+                            logger.info(f"✅ Updated {updated_count} predictions so far...")
                         logger.debug(f"Updated prediction {pred_id} with 24h actual return: {actual_return_24h:.4f}")
                 except Exception as e:
                     logger.warning(f"Error updating 24h actual for prediction {pred_id}: {e}")
             
             if updated_count > 0:
                 logger.info(f"✅ Updated {updated_count} predictions with actual returns")
+            else:
+                # Log diagnostic info if no updates (helps debug why it's not working)
+                if predictions_1h or predictions_24h:
+                    logger.debug(f"Found {len(predictions_1h)} predictions needing 1h updates, {len(predictions_24h)} needing 24h updates, but updated 0. Check price matching logic.")
+                else:
+                    # Check if there are any predictions at all
+                    conn = sqlite3.connect(pred_db_path)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM rl_prediction_accuracy")
+                    total_preds = cursor.fetchone()[0]
+                    cursor.execute("SELECT COUNT(*) FROM rl_prediction_accuracy WHERE actual_return_1h IS NOT NULL")
+                    with_1h = cursor.fetchone()[0]
+                    cursor.execute("SELECT COUNT(*) FROM rl_prediction_accuracy WHERE actual_return_24h IS NOT NULL")
+                    with_24h = cursor.fetchone()[0]
+                    conn.close()
+                    logger.debug(f"Prediction update loop: {total_preds} total predictions, {with_1h} with 1h returns, {with_24h} with 24h returns")
             
         except Exception as e:
             logger.error(f"Error in prediction actuals update loop: {e}")
+            import traceback
             logger.error(traceback.format_exc())
         
         # Sleep for update interval, checking every minute if we should stop

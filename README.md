@@ -579,6 +579,60 @@ Set up automated retraining with cron or systemd (see [Documentation/reference/R
 - [Documentation/reference/TRAINING_GUIDE.md](Documentation/reference/TRAINING_GUIDE.md) - Complete guide to training on historical data
 - [Documentation/reference/RETRAINING_STRATEGY.md](Documentation/reference/RETRAINING_STRATEGY.md) - Automated retraining strategies and setup
 
+## 🔧 Troubleshooting
+
+### Prediction Accuracy Stats Showing "No Data"
+
+If prediction accuracy statistics (MAE, RMSE) are showing "No data" after the system has been running:
+
+1. **Check if predictions exist:**
+   ```bash
+   python scripts/check_prediction_data.py
+   ```
+   This will show you:
+   - Total predictions in database
+   - How many have actual returns calculated
+   - Sample of recent predictions
+   - Whether data needs updating
+
+2. **Backfill missing actual returns:**
+   If predictions exist but don't have actual returns calculated:
+   ```bash
+   python scripts/backfill_prediction_actuals.py
+   ```
+   This script will:
+   - Find all predictions missing 1h/24h actual returns
+   - Look up actual prices from `sol_prices.db`
+   - Calculate and update all missing actual returns
+   - Show progress and final statistics
+
+3. **Verify update loop is running:**
+   - Check app logs for "Prediction actuals update loop started"
+   - The loop runs every 15 minutes automatically
+   - Check `/api/predictions/diagnostics` endpoint for status
+
+4. **Common issues:**
+   - **No predictions stored**: Make sure RL agent is making decisions (check `/api/rl-agent/decision`)
+   - **Predictions exist but no actuals**: Run backfill script or wait for update loop
+   - **Stats query looks at last 24h only**: Older predictions won't show in stats unless you increase the `hours` parameter
+
+### Rules Not Being Discovered
+
+If the rules section shows "No rules discovered yet":
+
+1. **Check if you have enough data:**
+   - Rules require at least 10-20 decisions with 1h actual returns
+   - Check `/api/rl-agent/rules` endpoint for diagnostic info
+
+2. **Run backfill if needed:**
+   ```bash
+   python scripts/backfill_prediction_actuals.py
+   ```
+
+3. **Rules extraction works with 1h returns:**
+   - You don't need to wait 24 hours - rules can be extracted after 1 hour
+   - The system will automatically extract rules when enough data is available
+
 ### API Endpoints
 
 The application provides API endpoints for programmatic access to data. Some endpoints may be deprecated - see [DEPRECATED.md](DEPRECATED.md) for details on deprecated endpoints.
