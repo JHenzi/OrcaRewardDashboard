@@ -38,6 +38,7 @@ class RetrainingScheduler:
         data_prep_script: str = "rl_agent/training_data_prep.py",
         interval_days: int = 7,
         enabled: bool = True,
+        training_epochs: int = 10,  # Number of epochs for retraining
     ):
         """
         Initialize retraining scheduler.
@@ -51,6 +52,7 @@ class RetrainingScheduler:
             enabled: Whether scheduler is enabled
         """
         self.model_manager = model_manager
+        self.training_epochs = training_epochs
         
         # Resolve paths relative to project root (where app.py is located)
         # Get project root by going up from this file's directory
@@ -172,7 +174,7 @@ class RetrainingScheduler:
                     sys.executable,
                     str(self.retrain_script),
                     "--mode", "incremental",  # Use incremental for weekly
-                    "--epochs", "5",  # Fewer epochs for weekly retraining
+                    "--epochs", str(self.training_epochs),  # Configurable epochs for retraining
                     "--checkpoint-dir", str(checkpoint_dir),
                 ],
                 capture_output=True,

@@ -7,8 +7,10 @@ to calculate reliability metrics like win rate, average return, etc.
 """
 
 import sqlite3
+import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
+from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,51 +19,92 @@ logger = logging.getLogger(__name__)
 class SignalPerformanceTracker:
     """Track and analyze the performance of trading signals"""
     
-    def __init__(self, db_path="sol_prices.db"):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        # Resolve database path - signal_performance table is stored in sol_prices.db
+        if db_path is None:
+            # Check if DATABASE_PATH env var is set
+            env_db_path = os.getenv("DATABASE_PATH")
+            if env_db_path:
+                # If DATABASE_PATH points to rewards.db, use sol_prices.db instead
+                # (signals are stored in sol_prices.db, not rewards.db)
+                if env_db_path == "rewards.db" or env_db_path.endswith("rewards.db"):
+                    db_path = "sol_prices.db"
+                else:
+                    db_path = env_db_path
+            else:
+                db_path = "sol_prices.db"
+        
+        # Convert to absolute path to avoid issues with working directory
+        if not os.path.isabs(db_path):
+            # Try to resolve relative to project root (where app.py is)
+            # Get the directory containing this file
+            script_dir = Path(__file__).parent.absolute()
+            # Try to find sol_prices.db in the project root
+            project_root = script_dir
+            db_file = project_root / db_path
+            if db_file.exists():
+                self.db_path = str(db_file)
+            else:
+                # If not found, use relative path (will be relative to current working directory)
+                self.db_path = db_path
+        else:
+            self.db_path = db_path
+        
         self.init_database()
     
     def init_database(self):
         """Create signal_performance table if it doesn't exist"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS signal_performance (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                signal_type TEXT NOT NULL,  -- 'rsi_buy', 'rsi_sell', 'rsi_hold', 'bandit_buy', 'bandit_sell', 'bandit_hold'
-                signal_timestamp TEXT NOT NULL,  -- ISO format
-                price_at_signal REAL NOT NULL,
-                price_1h_later REAL,
-                price_4h_later REAL,
-                price_24h_later REAL,
-                price_7d_later REAL,
-                return_1h REAL,
-                return_4h REAL,
-                return_24h REAL,
-                return_7d REAL,
-                was_profitable BOOLEAN,
-                signal_metadata TEXT,  -- JSON string for additional context (RSI value, bandit reward, etc.)
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Create indexes for performance
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_signal_performance_type 
-            ON signal_performance(signal_type)
-        ''')
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_signal_performance_timestamp 
-            ON signal_performance(signal_timestamp)
-        ''')
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_signal_performance_type_timestamp 
-            ON signal_performance(signal_type, signal_timestamp)
-        ''')
-        
-        conn.commit()
-        conn.close()
-        logger.info("Signal performance database initialized")
+        try:
+            # Ensure database directory exists
+            db_dir = os.path.dirname(self.db_path)
+            if db_dir and not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+            
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS signal_performance (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    signal_type TEXT NOT NULL,  -- 'rsi_buy', 'rsi_sell', 'rsi_hold', 'bandit_buy', 'bandit_sell', 'bandit_hold'
+                    signal_timestamp TEXT NOT NULL,  -- ISO format
+                    price_at_signal REAL NOT NULL,
+                    price_1h_later REAL,
+                    price_4h_later REAL,
+                    price_24h_later REAL,
+                    price_7d_later REAL,
+                    return_1h REAL,
+                    return_4h REAL,
+                    return_24h REAL,
+                    return_7d REAL,
+                    was_profitable BOOLEAN,
+                    signal_metadata TEXT,  -- JSON string for additional context (RSI value, bandit reward, etc.)
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Create indexes for performance
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_signal_performance_type 
+                ON signal_performance(signal_type)
+            ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_signal_performance_timestamp 
+                ON signal_performance(signal_timestamp)
+            ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_signal_performance_type_timestamp 
+                ON signal_performance(signal_type, signal_timestamp)
+            ''')
+            
+            conn.commit()
+            conn.close()
+            logger.info(f"Signal performance database initialized: {self.db_path}")
+        except sqlite3.OperationalError as e:
+            logger.error(f"Failed to initialize signal performance database: {e}")
+            logger.error(f"Database path: {self.db_path}")
+            logger.error(f"Absolute path: {os.path.abspath(self.db_path)}")
+            logger.error(f"Current working directory: {os.getcwd()}")
+            raise
     
     def log_signal(self, signal_type: str, price: float, metadata: Optional[Dict] = None):
         """
@@ -72,25 +115,37 @@ class SignalPerformanceTracker:
             price: Price at the time of signal
             metadata: Optional dictionary with additional context (RSI value, bandit reward, etc.)
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        import json
-        metadata_json = json.dumps(metadata) if metadata else None
-        
-        cursor.execute('''
-            INSERT INTO signal_performance 
-            (signal_type, signal_timestamp, price_at_signal, signal_metadata)
-            VALUES (?, ?, ?, ?)
-        ''', (
-            signal_type,
-            datetime.utcnow().isoformat(),
-            price,
-            metadata_json
-        ))
-        conn.commit()
-        conn.close()
-        logger.debug(f"Logged signal: {signal_type} at price ${price:.2f}")
+        try:
+            # Ensure database directory exists
+            db_dir = os.path.dirname(self.db_path)
+            if db_dir and not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+            
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            import json
+            metadata_json = json.dumps(metadata) if metadata else None
+            
+            cursor.execute('''
+                INSERT INTO signal_performance 
+                (signal_type, signal_timestamp, price_at_signal, signal_metadata)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                signal_type,
+                datetime.utcnow().isoformat(),
+                price,
+                metadata_json
+            ))
+            conn.commit()
+            conn.close()
+            logger.debug(f"Logged signal: {signal_type} at price ${price:.2f}")
+        except sqlite3.OperationalError as e:
+            logger.error(f"Failed to log signal to database: {e}")
+            logger.error(f"Database path: {self.db_path}")
+            logger.error(f"Absolute path: {os.path.abspath(self.db_path)}")
+            logger.error(f"Current working directory: {os.getcwd()}")
+            raise
     
     def update_performance_metrics(self):
         """

@@ -1391,13 +1391,122 @@
                 </div>
               {% endif %}
 
-            </div>
+              <!-- Consensus BUY Signal Performance (All 7 Indicators Agree) -->
+              {% if consensus_stats and consensus_stats.buy and consensus_stats.buy.total > 0 %}
+                {% set consensus_buy = consensus_stats.buy %}
+                <div class="bg-gradient-to-br from-green-900/30 to-emerald-900/30 rounded-lg p-4 border-2 {% if consensus_buy.win_rate_24h >= 60 %}border-green-500{% elif consensus_buy.win_rate_24h >= 50 %}border-yellow-500{% else %}border-red-500{% endif %}">
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center space-x-2">
+                      <span class="text-sm font-semibold text-gray-300">🎯 Consensus BUY</span>
+                      <span class="text-xs text-gray-400">(All 7 agree)</span>
+                    </div>
+                    <span class="text-xs px-2 py-1 rounded {% if consensus_buy.win_rate_24h >= 60 %}bg-green-500/20 text-green-400{% elif consensus_buy.win_rate_24h >= 50 %}bg-yellow-500/20 text-yellow-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                      {{ "%.0f"|format(consensus_buy.win_rate_24h) }}% Win Rate
+                    </span>
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Total Signals:</span>
+                      <span class="text-white font-medium">{{ consensus_buy.total }}</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Avg Return (1h):</span>
+                      <span class="{% if consensus_buy.avg_return_1h and consensus_buy.avg_return_1h > 0 %}text-green-400{% elif consensus_buy.avg_return_1h %}text-red-400{% else %}text-gray-500{% endif %} font-bold">
+                        {% if consensus_buy.avg_return_1h is not none %}{{ "%+.2f"|format(consensus_buy.avg_return_1h) }}%{% else %}N/A{% endif %}
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Avg Return (24h):</span>
+                      <span class="{% if consensus_buy.avg_return_24h and consensus_buy.avg_return_24h > 0 %}text-green-400{% else %}text-red-400{% endif %} font-bold">
+                        {% if consensus_buy.avg_return_24h is not none %}{{ "%+.2f"|format(consensus_buy.avg_return_24h) }}%{% else %}N/A{% endif %}
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Win Rate (1h):</span>
+                      <span class="text-white font-medium">{{ "%.1f"|format(consensus_buy.win_rate_1h) }}%</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Best (24h):</span>
+                      <span class="text-green-400 font-medium">{% if consensus_buy.max_return_24h is not none %}{{ "%+.2f"|format(consensus_buy.max_return_24h) }}%{% else %}N/A{% endif %}</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Worst (24h):</span>
+                      <span class="text-red-400 font-medium">{% if consensus_buy.min_return_24h is not none %}{{ "%+.2f"|format(consensus_buy.min_return_24h) }}%{% else %}N/A{% endif %}</span>
+                    </div>
+                  </div>
+                </div>
+              {% else %}
+                <div class="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
+                  <div class="flex items-center space-x-2 mb-2">
+                    <span class="text-sm font-semibold text-gray-400">🎯 Consensus BUY</span>
+                    <span class="text-xs text-gray-500">(All 7 agree)</span>
+                  </div>
+                  <div class="text-xs text-gray-500">No consensus signals yet</div>
+                </div>
+              {% endif %}
 
+              <!-- Consensus SELL Signal Performance (All 7 Indicators Agree) -->
+              {% if consensus_stats and consensus_stats.sell and consensus_stats.sell.total > 0 %}
+                {% set consensus_sell = consensus_stats.sell %}
+                <div class="bg-gradient-to-br from-red-900/30 to-rose-900/30 rounded-lg p-4 border-2 {% if consensus_sell.win_rate_24h >= 60 %}border-green-500{% elif consensus_sell.win_rate_24h >= 50 %}border-yellow-500{% else %}border-red-500{% endif %}">
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center space-x-2">
+                      <span class="text-sm font-semibold text-gray-300">🎯 Consensus SELL</span>
+                      <span class="text-xs text-gray-400">(All 7 agree)</span>
+                    </div>
+                    <span class="text-xs px-2 py-1 rounded {% if consensus_sell.win_rate_24h >= 60 %}bg-green-500/20 text-green-400{% elif consensus_sell.win_rate_24h >= 50 %}bg-yellow-500/20 text-yellow-400{% else %}bg-red-500/20 text-red-400{% endif %}">
+                      {{ "%.0f"|format(consensus_sell.win_rate_24h) }}% Win Rate
+                    </span>
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Total Signals:</span>
+                      <span class="text-white font-medium">{{ consensus_sell.total }}</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Avg Return (1h):</span>
+                      <span class="{% if consensus_sell.avg_return_1h is not none and consensus_sell.avg_return_1h < 0 %}text-green-400{% elif consensus_sell.avg_return_1h is not none %}text-red-400{% else %}text-gray-500{% endif %} font-bold">
+                        {% if consensus_sell.avg_return_1h is not none %}{{ "%+.2f"|format(consensus_sell.avg_return_1h) }}%{% else %}N/A{% endif %}
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Avg Return (24h):</span>
+                      <span class="{% if consensus_sell.avg_return_24h is not none and consensus_sell.avg_return_24h < 0 %}text-green-400{% elif consensus_sell.avg_return_24h is not none %}text-red-400{% else %}text-gray-500{% endif %} font-bold">
+                        {% if consensus_sell.avg_return_24h is not none %}{{ "%+.2f"|format(consensus_sell.avg_return_24h) }}%{% else %}N/A{% endif %}
+                      </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Win Rate (1h):</span>
+                      <span class="text-white font-medium">{{ "%.1f"|format(consensus_sell.win_rate_1h) }}%</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Best (24h):</span>
+                      <span class="text-green-400 font-medium">{% if consensus_sell.max_return_24h is not none %}{{ "%+.2f"|format(consensus_sell.max_return_24h) }}%{% else %}N/A{% endif %}</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-400">Worst (24h):</span>
+                      <span class="text-red-400 font-medium">{% if consensus_sell.min_return_24h is not none %}{{ "%+.2f"|format(consensus_sell.min_return_24h) }}%{% else %}N/A{% endif %}</span>
+                    </div>
+                  </div>
+                </div>
+              {% else %}
+                <div class="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
+                  <div class="flex items-center space-x-2 mb-2">
+                    <span class="text-sm font-semibold text-gray-400">🎯 Consensus SELL</span>
+                    <span class="text-xs text-gray-500">(All 7 agree)</span>
+                  </div>
+                  <div class="text-xs text-gray-500">No consensus signals yet</div>
+                </div>
+              {% endif %}
+
+            </div>
+            
             <!-- Summary Note -->
             <div class="mt-6 pt-4 border-t border-gray-700">
               <p class="text-xs text-gray-400 italic">
-                Performance metrics are calculated based on price movement 24 hours after each signal. 
+                Performance metrics are calculated based on price movement 1 hour and 24 hours after each signal. 
                 Win rate indicates the percentage of signals that resulted in profitable outcomes. 
+                <strong>Consensus signals</strong> occur when all 7 technical indicators agree (BUY or SELL) - these are rare but potentially high-confidence signals.
                 Data accumulates over time as signals age and outcomes are measured.
               </p>
             </div>

@@ -20,6 +20,7 @@ import pytz
 from river.tree import HoeffdingAdaptiveTreeRegressor
 import pickle
 from signal_performance_tracker import SignalPerformanceTracker
+from consensus_tracker import ConsensusTracker
 
 # RL Agent (optional)
 try:
@@ -1573,6 +1574,72 @@ def sol_tracker():
     # Update performance metrics (for signals that are old enough)
     signal_tracker.update_performance_metrics()
     
+    # Check for consensus signals (all 7 indicators agree)
+    consensus_tracker = ConsensusTracker()
+    consensus_signal, indicator_signals = consensus_tracker.check_consensus(
+        rsi=rsi_value,
+        price_vs_sma_1h=price_vs_sma_1h,
+        price_vs_sma_4h=price_vs_sma_4h,
+        price_vs_sma_24h=price_vs_sma_24h,
+        macd_line=macd_line,
+        macd_signal=macd_signal,
+        bb_position=bb_position,
+        momentum_10=momentum_10,
+        current_price=actual_current_price if actual_current_price else (prices[-1] if prices else 0),
+        indicator_values={
+            'rsi': rsi_value,
+            'price_vs_sma_1h': price_vs_sma_1h,
+            'price_vs_sma_4h': price_vs_sma_4h,
+            'price_vs_sma_24h': price_vs_sma_24h,
+            'macd_line': macd_line,
+            'macd_signal': macd_signal,
+            'bb_position': bb_position,
+            'momentum_10': momentum_10,
+        }
+    )
+    
+    # Log consensus signal if detected (only if different from last one)
+    if consensus_signal and actual_current_price is not None:
+        try:
+            recent_consensus = consensus_tracker.get_recent_consensus_signals(limit=1)
+            should_log = True
+            if recent_consensus:
+                last_signal_time = datetime.fromisoformat(recent_consensus[0]['timestamp'])
+                time_diff = (datetime.utcnow() - last_signal_time).total_seconds()
+                if time_diff < 300:  # 5 minutes - avoid duplicate logs
+                    should_log = False
+            
+            if should_log:
+                consensus_tracker.log_consensus_signal(
+                    signal_type=consensus_signal,
+                    price=actual_current_price,
+                    indicator_values={
+                        'rsi': rsi_value,
+                        'price_vs_sma_1h': price_vs_sma_1h,
+                        'price_vs_sma_4h': price_vs_sma_4h,
+                        'price_vs_sma_24h': price_vs_sma_24h,
+                        'macd_line': macd_line,
+                        'macd_signal': macd_signal,
+                        'bb_position': bb_position,
+                        'momentum_10': momentum_10,
+                    },
+                    indicator_signals=indicator_signals
+                )
+                logger.info(f"🎯 CONSENSUS {consensus_signal} SIGNAL DETECTED! All 7 indicators agree.")
+        except Exception as e:
+            logger.warning(f"Error logging consensus signal: {e}")
+    
+    # Update consensus returns (for signals old enough)
+    try:
+        consensus_tracker.update_returns()
+    except Exception as e:
+        logger.warning(f"Error updating consensus returns: {e}")
+    
+    # Get consensus statistics
+    consensus_stats = consensus_tracker.get_consensus_stats()
+    consensus_buy_stats = consensus_tracker.get_consensus_stats('BUY')
+    consensus_sell_stats = consensus_tracker.get_consensus_stats('SELL')
+    
     # Get performance statistics for display
     performance_stats = signal_tracker.get_performance_stats()
     
@@ -1669,6 +1736,12 @@ def sol_tracker():
             'bandit_sell': bandit_sell_stats,
             'bandit_hold': bandit_hold_stats
         },
+        consensus_stats={
+            'all': consensus_stats,
+            'buy': consensus_buy_stats,
+            'sell': consensus_sell_stats
+        },
+        consensus_signal=consensus_signal,
         news_features=news_features
     )
 
@@ -2203,6 +2276,32 @@ def get_rl_agent_status():
         })
     except Exception as e:
         logger.error(f"Error getting RL agent status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/consensus/stats', methods=['GET'])
+def get_consensus_stats():
+    """Get statistics on consensus signals (when all 7 indicators agree)."""
+    try:
+        consensus_tracker = ConsensusTracker()
+        
+        signal_type = request.args.get('type', None)  # 'BUY', 'SELL', or None for all
+        
+        stats = consensus_tracker.get_consensus_stats(signal_type)
+        recent_signals = consensus_tracker.get_recent_consensus_signals(limit=20)
+        
+        return jsonify({
+            'success': True,
+            'stats': stats,
+            'recent_signals': recent_signals,
+            'signal_type': signal_type or 'all'
+        })
+    except Exception as e:
+        logger.error(f"Error getting consensus stats: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
             'error': str(e)
@@ -3167,6 +3266,7 @@ def initialize_rl_agent():
             model_manager=rl_model_manager,
             interval_days=7,  # Weekly retraining
             enabled=True,
+            training_epochs=10,  # Train for 10 epochs (was 5)
         )
         
         # Log scheduler status
