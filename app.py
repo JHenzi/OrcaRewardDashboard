@@ -402,37 +402,48 @@ def fetch_msol_transactions(wallet, since_timestamp=None, limit=1000, retries=3)
 
 def parse_msol_conversion(transaction):
     """
-    Parse a transaction to extract mSOL conversion details.
-    Returns dict with conversion info or None if not a conversion.
+    Parse a transaction to extract mSOL transfer details.
+    Returns dict with transfer info or None if no significant mSOL movement.
+    Only tracks transfers > 0.01 mSOL to filter out staking reward dust.
     """
     if 'tokenTransfers' not in transaction:
         return None
+
+    # Minimum mSOL amount to consider a "real" transfer (filters out staking rewards dust)
+    # Lower threshold to capture more transfers while still filtering out micro-dust
+    MIN_MSOL_AMOUNT = 0.0001  # 0.0001 mSOL minimum (captures down to ~$0.02 transfers)
     
     msol_transfers = []
     sol_transfers = []
-    
+
     for transfer in transaction['tokenTransfers']:
         mint = transfer.get('mint')
-        amount = transfer.get('tokenAmount', 0)
-        decimals = transfer.get('decimals', 9)
-        actual_amount = amount / (10 ** decimals)
-        
+        # Helius returns tokenAmount already in decimal form (e.g., 0.004 mSOL, not 4000000)
+        # So we don't need to divide by decimals
+        actual_amount = transfer.get('tokenAmount', 0)
+
         from_account = transfer.get('fromUserAccount')
         to_account = transfer.get('toUserAccount')
         wallet = WALLET
-        
+
         if mint == MSOL_MINT:
+            # Only track significant mSOL transfers (> MIN_MSOL_AMOUNT)
+            if actual_amount < MIN_MSOL_AMOUNT:
+                continue  # Skip dust amounts
+                
             # Check if mSOL is coming TO our wallet
             if to_account == wallet:
                 msol_transfers.append({
                     'amount': actual_amount,
+                    'direction': 'in',
                     'from': from_account,
                     'to': to_account
                 })
             # Check if mSOL is going FROM our wallet
             elif from_account == wallet:
                 msol_transfers.append({
-                    'amount': -actual_amount,  # Negative for outbound
+                    'amount': actual_amount,
+                    'direction': 'out',
                     'from': from_account,
                     'to': to_account
                 })
@@ -444,35 +455,38 @@ def parse_msol_conversion(transaction):
                     'from': from_account,
                     'to': to_account
                 })
-    
-    # Determine if this is a conversion (SOL -> mSOL)
-    if sol_transfers and msol_transfers:
-        sol_amount = sum(t['amount'] for t in sol_transfers if t['amount'] > 0)
-        msol_amount = sum(t['amount'] for t in msol_transfers if t['amount'] > 0)
-        
-        if sol_amount > 0 and msol_amount > 0:
-            conversion_rate = msol_amount / sol_amount if sol_amount > 0 else 0
-            return {
-                'signature': transaction.get('signature'),
-                'timestamp': transaction.get('timestamp'),
-                'amount_sol': sol_amount,
-                'amount_msol': msol_amount,
-                'conversion_rate': conversion_rate,
-                'transaction_type': 'swap'  # Could be 'stake' or 'swap'
-            }
-    
-    # Also check for pure mSOL additions (could be from other sources)
+
+    # Only track if there are significant mSOL transfers
     if msol_transfers:
-        net_msol = sum(t['amount'] for t in msol_transfers)
-        if net_msol > 0:
-            return {
-                'signature': transaction.get('signature'),
-                'timestamp': transaction.get('timestamp'),
-                'amount_sol': 0,
-                'amount_msol': net_msol,
-                'conversion_rate': 0,
-                'transaction_type': 'transfer'  # mSOL received from elsewhere
-            }
+        # Calculate net mSOL change
+        msol_in = sum(t['amount'] for t in msol_transfers if t['direction'] == 'in')
+        msol_out = sum(t['amount'] for t in msol_transfers if t['direction'] == 'out')
+        net_msol = msol_in - msol_out
+        
+        # Determine transaction type
+        sol_amount = sum(t['amount'] for t in sol_transfers) if sol_transfers else 0
+        
+        if sol_amount > 0 and msol_in > 0:
+            tx_type = 'swap'  # SOL -> mSOL conversion
+        elif msol_in > 0:
+            tx_type = 'transfer_in'  # Received mSOL
+        elif msol_out > 0:
+            tx_type = 'transfer_out'  # Sent mSOL
+        else:
+            tx_type = 'unknown'
+        
+        logger.info(f"mSOL transfer: {tx_type} {net_msol:.4f} mSOL (in: {msol_in:.4f}, out: {msol_out:.4f})")
+        
+        return {
+            'signature': transaction.get('signature'),
+            'timestamp': transaction.get('timestamp'),
+            'amount_sol': sol_amount,
+            'amount_msol': net_msol,  # Net change (positive = gain, negative = loss)
+            'msol_in': msol_in,
+            'msol_out': msol_out,
+            'conversion_rate': msol_in / sol_amount if sol_amount > 0 else 0,
+            'transaction_type': tx_type
+        }
     
     return None
 
@@ -615,6 +629,34 @@ def get_sol_price_data():
     response.raise_for_status()
     return response.json()
 
+def get_msol_price_data():
+    """
+    Fetch current mSOL price from LiveCoinWatch API.
+    Returns price data similar to get_sol_price_data().
+    """
+    url = 'https://api.livecoinwatch.com/coins/single'
+    headers = {
+        'content-type': 'application/json',
+        'x-api-key': LIVECOINWATCH_API
+    }
+    payload = {
+        "currency": "USD",
+        "code": "MSOL",  # mSOL ticker on LiveCoinWatch
+        "meta": True
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.warning(f"Could not fetch mSOL price from LiveCoinWatch: {e}")
+        # Fallback: Use SOL price (mSOL typically trades very close to SOL)
+        try:
+            sol_data = get_sol_price_data()
+            return sol_data  # Return SOL price as fallback
+        except:
+            return {'rate': 0}
+
 def update_msol_balance_snapshot(wallet, snapshot_type='periodic', transaction_signature=None):
     """
     Fetch current mSOL balance and create a snapshot in the database.
@@ -624,15 +666,15 @@ def update_msol_balance_snapshot(wallet, snapshot_type='periodic', transaction_s
         if balance is None:
             balance = 0.0
         
-        # Get current SOL price for USD conversion
+        # Get current mSOL price for USD conversion
         try:
-            sol_price_data = get_sol_price_data()
-            sol_price = sol_price_data.get('rate', 0) if sol_price_data else 0
+            msol_price_data = get_msol_price_data()
+            msol_price = msol_price_data.get('rate', 0) if msol_price_data else 0
         except Exception as e:
-            logger.warning(f"Could not fetch SOL price for mSOL snapshot: {e}")
-            sol_price = 0
+            logger.warning(f"Could not fetch mSOL price for snapshot: {e}")
+            msol_price = 0
         
-        balance_usd = balance * sol_price
+        balance_usd = balance * msol_price
         
         # Get current timestamp
         current_timestamp = int(datetime.now().timestamp())
@@ -774,12 +816,32 @@ def catchup_msol_history(wallet, start_date=None):
             current_balance = existing[0]
             logger.info(f"Found existing balance at start date: {current_balance} mSOL")
         
+        # Get mSOL price ONCE at start (not per transaction!)
+        try:
+            msol_price_data = get_msol_price_data()
+            msol_price = msol_price_data.get('rate', 0) if msol_price_data else 0
+            logger.info(f"Using mSOL price: ${msol_price:.2f}")
+        except:
+            msol_price = 0
+            logger.warning("Could not fetch mSOL price, USD values will be 0")
+        
+        significant_transfers = []
+        
         for transaction in all_transactions:
             conversion = parse_msol_conversion(transaction)
             if conversion:
-                # Update balance based on conversion
-                if conversion['amount_msol'] > 0:
-                    current_balance += conversion['amount_msol']
+                significant_transfers.append(conversion)
+                
+                # Update balance based on net mSOL change (can be positive or negative)
+                old_balance = current_balance
+                current_balance += conversion['amount_msol']
+                
+                logger.info(f"Transfer: {conversion['transaction_type']} {conversion['amount_msol']:.4f} mSOL | Balance: {old_balance:.4f} -> {current_balance:.4f}")
+                
+                # Ensure balance doesn't go negative
+                if current_balance < 0:
+                    logger.warning(f"Balance went negative ({current_balance}), resetting to 0")
+                    current_balance = 0
                 
                 # Insert conversion
                 try:
@@ -797,19 +859,10 @@ def catchup_msol_history(wallet, start_date=None):
                     ))
                     conversion_count += 1
                 except Exception as e:
-                    logger.debug(f"Conversion {conversion['signature']} already exists or error: {e}")
+                    logger.debug(f"Conversion already exists or error: {e}")
                 
-                # Create snapshot at conversion time
+                # Create snapshot (USD calculated with single price fetch)
                 try:
-                    # Get SOL price at conversion time (use current price as approximation)
-                    try:
-                        sol_price_data = get_sol_price_data()
-                        sol_price = sol_price_data.get('rate', 0) if sol_price_data else 0
-                    except:
-                        sol_price = 0
-                    
-                    balance_usd = current_balance * sol_price
-                    
                     cursor.execute('''
                         INSERT OR REPLACE INTO msol_balance_snapshots (
                             timestamp, balance, balance_usd, transaction_signature, snapshot_type
@@ -817,17 +870,29 @@ def catchup_msol_history(wallet, start_date=None):
                     ''', (
                         conversion['timestamp'],
                         current_balance,
-                        balance_usd,
+                        current_balance * msol_price,
                         conversion['signature'],
                         'catchup'
                     ))
                 except Exception as e:
-                    logger.debug(f"Error creating snapshot for {conversion['signature']}: {e}")
+                    logger.debug(f"Error creating snapshot: {e}")
                 
                 processed_count += 1
         
         conn.commit()
         conn.close()
+        
+        # Get actual current balance from Helius for comparison
+        actual_balance = fetch_wallet_token_balance(wallet, MSOL_MINT)
+        logger.info(f"=== mSOL Catchup Summary ===")
+        logger.info(f"Calculated balance from transfers: {current_balance:.4f} mSOL")
+        logger.info(f"Actual balance from Helius: {actual_balance:.4f} mSOL")
+        logger.info(f"Significant transfers found: {len(significant_transfers)}")
+        
+        # If there's a big discrepancy, use the actual balance
+        if abs(actual_balance - current_balance) > 0.1:
+            logger.warning(f"Discrepancy detected! Using actual balance from Helius.")
+            current_balance = actual_balance
         
         # Create final snapshot with current balance
         update_msol_balance_snapshot(wallet, snapshot_type='catchup')
@@ -837,7 +902,9 @@ def catchup_msol_history(wallet, start_date=None):
             "status": "success",
             "transactions_processed": processed_count,
             "conversions_recorded": conversion_count,
-            "final_balance": current_balance
+            "calculated_balance": current_balance,
+            "actual_balance": actual_balance,
+            "significant_transfers": len(significant_transfers)
         }
     except Exception as e:
         logger.error(f"Error in mSOL catch-up: {e}")
@@ -1421,31 +1488,54 @@ def index():
         ORDER BY timestamp ASC
     ''')
     msol_rows = msol_cursor.fetchall()
+    logger.info(f"Found {len(msol_rows)} mSOL balance snapshots in database")
     msol_conn.close()
     
     # Format data for TradingView charts: { time: timestamp_in_seconds, value: balance }
-    # Calculate cumulative growth (first balance = 0, show growth from there)
+    # Just pass the raw balance - no transformations
     msol_growth_data = []
-    initial_balance = None
+    
+    # Get current mSOL price for USD values
+    try:
+        msol_price_data = get_msol_price_data()
+        current_msol_price = msol_price_data.get('rate', 0) if msol_price_data else 0
+    except:
+        current_msol_price = 0
+    
+    logger.info(f"Processing {len(msol_rows)} mSOL balance snapshots for chart")
     
     for timestamp, balance, balance_usd in msol_rows:
-        if initial_balance is None and balance > 0:
-            initial_balance = balance
+        # Just use the raw balance value - no transformations
+        balance_float = float(balance) if balance is not None else 0.0
+        balance_usd_float = float(balance_usd) if balance_usd is not None else (balance_float * current_msol_price if current_msol_price > 0 else 0.0)
         
-        # Calculate growth from initial balance
-        growth = balance - (initial_balance if initial_balance else 0)
-        
-        # TradingView expects Unix timestamp in seconds
         msol_growth_data.append({
-            'time': timestamp,  # Already in Unix seconds
-            'value': growth,  # Cumulative growth
-            'balance': balance,  # Actual balance for tooltip
-            'balance_usd': balance_usd or 0
+            'time': int(timestamp),
+            'value': balance_float,  # Raw balance value
+            'balance': balance_float,
+            'balance_usd': balance_usd_float
         })
+    
+    logger.info(f"Prepared {len(msol_growth_data)} data points for mSOL chart")
+    
+    # Sort by timestamp to ensure chronological order
+    msol_growth_data.sort(key=lambda x: x['time'])
+    
+    # If we have data, log a sample for debugging
+    if msol_growth_data:
+        logger.info(f"Sample mSOL data point: time={msol_growth_data[0]['time']}, balance={msol_growth_data[0]['balance']}, value={msol_growth_data[0]['value']}")
+        logger.info(f"Last mSOL data point: time={msol_growth_data[-1]['time']}, balance={msol_growth_data[-1]['balance']}, value={msol_growth_data[-1]['value']}")
     
     # Get current mSOL balance for display
     current_msol_balance = fetch_wallet_token_balance(WALLET, MSOL_MINT)
-    current_msol_usd = current_msol_balance * sol_price if current_msol_balance else 0
+    # Get mSOL price (not SOL price) for accurate USD conversion
+    try:
+        msol_price_data = get_msol_price_data()
+        msol_price = msol_price_data.get('rate', 0) if msol_price_data else 0
+    except Exception as e:
+        logger.warning(f"Could not fetch mSOL price for display: {e}")
+        msol_price = sol_price  # Fallback to SOL price
+    current_msol_usd = current_msol_balance * msol_price if current_msol_balance else 0
 
     # # --- Prepare chart data for Chart.js ---
     # chart_data = {}
@@ -1467,9 +1557,11 @@ def index():
         analytics=analytics,  # Pass analytics data to template
         daily_summary=daily_summary_list,  # Pass daily summary to template
         monthly_summary=monthly_summary_list,
-        msol_growth_data=json.dumps(msol_growth_data),  # Pass mSOL growth data for chart
+        msol_growth_data=msol_growth_data,  # Pass mSOL growth data for chart (will be converted to JSON in template)
         current_msol_balance=current_msol_balance or 0,
-        current_msol_usd=current_msol_usd
+        current_msol_usd=current_msol_usd,
+        msol_price=current_msol_price,  # mSOL price for crosshair USD calculation
+        msol_data_count=len(msol_growth_data)  # Debug: pass count to template
         # chart_data=json.dumps(chart_data)  # Pass chart data to template
     )
 
@@ -1591,6 +1683,115 @@ def msol_catchup():
         logger.error(f"Error in mSOL catch-up endpoint: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/orca/msol/reset')
+def msol_reset():
+    """
+    Clear mSOL tracking data and re-run catchup.
+    Use this if the data seems incorrect.
+    
+    Query params:
+        start_date: Optional start date in YYYY-MM-DD format (e.g., ?start_date=2025-06-27)
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Clear existing mSOL data
+        cursor.execute('DELETE FROM msol_balance_snapshots')
+        cursor.execute('DELETE FROM msol_conversions')
+        conn.commit()
+        
+        deleted_snapshots = cursor.rowcount
+        logger.info(f"Cleared mSOL tracking data")
+        conn.close()
+        
+        # Get start date from query param or env var
+        start_date = None
+        start_date_str = request.args.get('start_date')
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+                logger.info(f"Using start date from query param: {start_date_str}")
+            except ValueError:
+                return jsonify({"status": "error", "message": f"Invalid date format: {start_date_str}. Use YYYY-MM-DD"}), 400
+        
+        # Re-run catchup
+        result = catchup_msol_history(WALLET, start_date=start_date)
+        result['cleared_records'] = True
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in mSOL reset endpoint: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/orca/msol/debug')
+def msol_debug():
+    """
+    Debug endpoint to see what's in the mSOL tables and raw transaction data.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Count records
+        cursor.execute('SELECT COUNT(*) FROM msol_balance_snapshots')
+        snapshot_count = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM msol_conversions')
+        conversion_count = cursor.fetchone()[0]
+        
+        # Get sample snapshots
+        cursor.execute('''
+            SELECT timestamp, balance, balance_usd, snapshot_type 
+            FROM msol_balance_snapshots 
+            ORDER BY timestamp DESC 
+            LIMIT 10
+        ''')
+        recent_snapshots = [{'timestamp': r[0], 'balance': r[1], 'balance_usd': r[2], 'type': r[3]} for r in cursor.fetchall()]
+        
+        # Get sample conversions
+        cursor.execute('''
+            SELECT timestamp, amount_msol, transaction_type 
+            FROM msol_conversions 
+            ORDER BY timestamp DESC 
+            LIMIT 10
+        ''')
+        recent_conversions = [{'timestamp': r[0], 'amount_msol': r[1], 'type': r[2]} for r in cursor.fetchall()]
+        
+        # Get balance range in snapshots
+        cursor.execute('SELECT MIN(balance), MAX(balance) FROM msol_balance_snapshots')
+        balance_range = cursor.fetchone()
+        
+        conn.close()
+        
+        # Also fetch a few raw transactions from Helius to see what we're getting
+        raw_transactions = []
+        try:
+            transactions = fetch_msol_transactions(WALLET, limit=5)
+            for txn in transactions[:5]:
+                raw_transactions.append({
+                    'signature': txn.get('signature', '')[:20] + '...',
+                    'timestamp': txn.get('timestamp'),
+                    'type': txn.get('type'),
+                    'tokenTransfers': txn.get('tokenTransfers', []),
+                    'nativeTransfers': txn.get('nativeTransfers', []),
+                })
+        except Exception as e:
+            raw_transactions = [{'error': str(e)}]
+        
+        return jsonify({
+            "snapshot_count": snapshot_count,
+            "conversion_count": conversion_count,
+            "balance_range": {"min": balance_range[0], "max": balance_range[1]},
+            "recent_snapshots": recent_snapshots,
+            "recent_conversions": recent_conversions,
+            "raw_transactions_sample": raw_transactions,
+            "wallet": WALLET,
+            "msol_mint": MSOL_MINT
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/orca/msol/balance')
 def msol_balance():
     """
@@ -1599,20 +1800,20 @@ def msol_balance():
     try:
         balance = fetch_wallet_token_balance(WALLET, MSOL_MINT)
         
-        # Get SOL price for USD conversion
+        # Get mSOL price for USD conversion (not SOL price)
         try:
-            sol_price_data = get_sol_price_data()
-            sol_price = sol_price_data.get('rate', 0) if sol_price_data else 0
+            msol_price_data = get_msol_price_data()
+            msol_price = msol_price_data.get('rate', 0) if msol_price_data else 0
         except Exception as e:
-            logger.warning(f"Could not fetch SOL price: {e}")
-            sol_price = 0
+            logger.warning(f"Could not fetch mSOL price: {e}")
+            msol_price = 0
         
-        balance_usd = balance * sol_price
+        balance_usd = balance * msol_price
         
         return jsonify({
             "balance": balance,
             "balance_usd": balance_usd,
-            "sol_price": sol_price,
+            "msol_price": msol_price,
             "timestamp": int(datetime.now().timestamp())
         })
     except Exception as e:

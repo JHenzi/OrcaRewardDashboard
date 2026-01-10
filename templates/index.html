@@ -591,7 +591,7 @@
         </h2>
         <div class="flex items-center space-x-4">
           <div class="text-right">
-            <p class="text-xs text-gray-400">Current Balance</p>
+            <p class="text-xs text-gray-400" id="msol-balance-label">Current Balance</p>
             <p class="text-lg font-bold text-purple-400" id="msol-balance-display">
               {{ '%.4f'|format(current_msol_balance) if current_msol_balance else '0.0000' }} mSOL
             </p>
@@ -755,13 +755,13 @@
     function initMSOLChart() {
       let msolData = [];
       try {
-        msolData = {{ msol_growth_data | safe if msol_growth_data else '[]' }};
-        // If it's a string, parse it
-        if (typeof msolData === 'string') {
-          msolData = JSON.parse(msolData);
-        }
+        // Use tojson filter to properly serialize Python data to JSON
+        const msolDataJson = {{ msol_growth_data | tojson if msol_growth_data else '[]' }};
+        msolData = Array.isArray(msolDataJson) ? msolDataJson : [];
+        console.log('mSOL data parsed from template:', msolData);
       } catch (e) {
         console.error('Error parsing mSOL growth data:', e);
+        console.error('Error details:', e.message, e.stack);
         msolData = [];
       }
       const chartContainer = document.getElementById('msol-growth-chart');
@@ -777,11 +777,23 @@
       }
 
       if (!msolData || msolData.length === 0) {
-        chartContainer.innerHTML = '<div class="text-white p-4 text-center">No mSOL data available. Run catch-up to fetch historical data.</div>';
+        const dataCount = {{ msol_data_count | default(0) }};
+        chartContainer.innerHTML = `<div class="text-white p-4 text-center">
+          <p>No mSOL data available for chart.</p>
+          <p class="text-sm text-gray-400 mt-2">Data points in database: ${dataCount}</p>
+          <p class="text-sm text-gray-400">Run catch-up to fetch historical data: <a href="/orca/msol/catchup" class="text-blue-400 hover:underline">/orca/msol/catchup</a></p>
+        </div>`;
         return;
       }
 
       try {
+        console.log('mSOL data received:', msolData);
+        console.log('Data length:', msolData ? msolData.length : 0);
+        if (msolData && msolData.length > 0) {
+          console.log('First data point:', msolData[0]);
+          console.log('Last data point:', msolData[msolData.length - 1]);
+        }
+        
         const chartOptions = {
           layout: {
             background: { color: '#1a1a1a' },
@@ -792,17 +804,7 @@
             horzLines: { color: '#2a2a2a', style: 1 },
           },
           crosshair: {
-            mode: 1,
-            vertLine: {
-              color: '#6b7280',
-              width: 1,
-              style: 3,
-            },
-            horzLine: {
-              color: '#6b7280',
-              width: 1,
-              style: 3,
-            },
+            mode: 1, // Normal crosshair
           },
           rightPriceScale: {
             borderColor: '#2a2a2a',
@@ -810,11 +812,17 @@
               top: 0.1,
               bottom: 0.1,
             },
+            autoScale: true,
+            entireTextOnly: false,
           },
           timeScale: {
             borderColor: '#2a2a2a',
             timeVisible: true,
             secondsVisible: false,
+            rightOffset: 10,
+            barSpacing: 0,
+            fixLeftEdge: false,
+            fixRightEdge: false,
           },
         };
 
@@ -824,54 +832,103 @@
           height: 500,
         });
 
-        // Format data for TradingView (time in Unix seconds)
-        const chartData = msolData.map(point => ({
-          time: point.time,
-          value: point.value
-        }));
+        // Format data for TradingView - show all data points
+        let chartData = msolData
+          .map(point => {
+            if (!point) return null;
+            
+            const time = Number(point.time);
+            const value = Number(point.value);
+            
+            // Basic validation only
+            if (!time || isNaN(time) || !isFinite(value) || isNaN(value)) {
+              return null;
+            }
+            
+            return { time, value };
+          })
+          .filter(p => p !== null)
+          .sort((a, b) => a.time - b.time);
+        
+        // Remove duplicate timestamps (keep last value for each timestamp)
+        const timeMap = new Map();
+        chartData.forEach(p => timeMap.set(p.time, p));
+        chartData = Array.from(timeMap.values()).sort((a, b) => a.time - b.time);
+        
+        console.log(`mSOL chart: ${chartData.length} data points`);
+        if (chartData.length > 0) {
+          const values = chartData.map(p => p.value);
+          console.log(`Balance range: ${Math.min(...values).toFixed(4)} to ${Math.max(...values).toFixed(4)} mSOL`);
+          console.log('First point:', chartData[0]);
+          console.log('Last point:', chartData[chartData.length - 1]);
+        }
 
+        if (chartData.length === 0) {
+          chartContainer.innerHTML = '<div class="text-white p-4 text-center">No mSOL data points found.</div>';
+          return;
+        }
+
+        // Create line series
         const lineSeries = chart.addLineSeries({
-          color: '#a855f7', // Purple to match Orca theme
+          color: '#a855f7',
           lineWidth: 2,
           priceFormat: {
             type: 'price',
             precision: 4,
             minMove: 0.0001,
           },
+          lastValueVisible: true,
+          priceLineVisible: false,
         });
 
-        lineSeries.setData(chartData);
+        // Just set the data directly
+        try {
+          lineSeries.setData(chartData);
+          console.log('Data set successfully:', chartData.length, 'points');
+          
+          // Log value range for debugging
+          const values = chartData.map(p => p.value);
+          console.log('Value range:', Math.min(...values), 'to', Math.max(...values));
+          
+          chart.timeScale().fitContent();
+        } catch (error) {
+          console.error('Error setting chart data:', error);
+          chartContainer.innerHTML = '<div class="text-white p-4 text-center">Error: ' + error.message + '</div>';
+          return;
+        }
 
-        // Fit content to show all data
-        chart.timeScale().fitContent();
-
-        // Update balance display on crosshair move
+        // Simple crosshair handler - updates display when hovering
         chart.subscribeCrosshairMove(param => {
+          const labelEl = document.getElementById('msol-balance-label');
           const balanceEl = document.getElementById('msol-balance-display');
           const usdEl = document.getElementById('msol-usd-display');
+          if (!balanceEl || !usdEl) return;
           
-          if (param.time && param.seriesData) {
-            const seriesData = param.seriesData.get(lineSeries);
-            if (seriesData) {
-              // Find the corresponding data point
-              const dataPoint = msolData.find(p => p.time === param.time);
-              if (dataPoint) {
-                if (balanceEl) {
-                  balanceEl.textContent = `${dataPoint.balance.toFixed(4)} mSOL`;
-                }
-                if (usdEl) {
-                  usdEl.textContent = `$${dataPoint.balance_usd.toFixed(2)} USD`;
-                }
+          if (param && param.time && param.seriesData) {
+            try {
+              const seriesData = param.seriesData.get(lineSeries);
+              if (seriesData && seriesData.value !== null && seriesData.value !== undefined) {
+                // Find original data for USD value
+                const originalPoint = msolData.find(p => p && p.time === param.time);
+                const balance = seriesData.value;
+                const usd = originalPoint && originalPoint.balance_usd ? originalPoint.balance_usd : balance * {{ msol_price | default(183) }};
+                
+                // Show date in label when hovering
+                const date = new Date(param.time * 1000);
+                const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+                if (labelEl) labelEl.textContent = `Balance on ${dateStr}`;
+                
+                balanceEl.textContent = `${balance.toFixed(4)} mSOL`;
+                usdEl.textContent = `$${usd.toFixed(2)} USD`;
               }
+            } catch (e) {
+              // Ignore crosshair errors
             }
           } else {
-            // Reset to current balance when crosshair is not over chart
-            if (balanceEl) {
-              balanceEl.textContent = `{{ '%.4f'|format(current_msol_balance) if current_msol_balance else '0.0000' }} mSOL`;
-            }
-            if (usdEl) {
-              usdEl.textContent = `${{ '%.2f'|format(current_msol_usd) if current_msol_usd else '0.00' }} USD`;
-            }
+            // Reset to current balance
+            if (labelEl) labelEl.textContent = 'Current Balance';
+            balanceEl.textContent = `{{ '%.4f'|format(current_msol_balance) if current_msol_balance else '0.0000' }} mSOL`;
+            usdEl.textContent = `${{ '%.2f'|format(current_msol_usd) if current_msol_usd else '0.00' }} USD`;
           }
         });
 

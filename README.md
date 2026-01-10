@@ -495,6 +495,8 @@ Visit `http://localhost:5030/orca` to view the **Detailed Rewards Dashboard** wi
 
 Track your mSOL (Marinade SOL) balance growth over time with automatic historical catch-up and beautiful visualizations.
 
+![mSOL Growth Chart](images/mSOL_Growth_Chart.png)
+
 **Features:**
 - 📊 **Cumulative Growth Chart** - Professional TradingView Lightweight Charts visualization showing mSOL balance growth
 - 🔄 **Historical Catch-Up** - Automatically fetch and reconstruct mSOL balance history from a specified start date
