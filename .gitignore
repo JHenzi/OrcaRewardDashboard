@@ -5,6 +5,12 @@
 *.db
 *.sqlite
 *.sqlite3
+*.db-journal
+*.db-lock
+*.db-trace
+*.db-wal
+*.db-shm
+*.db-wal
 
 # Python
 __pycache__/
