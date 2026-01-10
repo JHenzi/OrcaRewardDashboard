@@ -598,6 +598,13 @@
             <p class="text-sm text-gray-500" id="msol-usd-display">
               ${{ '%.2f'|format(current_msol_usd) if current_msol_usd else '0.00' }} USD
             </p>
+            {% if msol_monthly_growth_rate is defined and msol_monthly_growth_rate is not none %}
+            <p class="text-sm font-semibold {% if msol_monthly_growth_rate >= 0 %}text-green-400{% else %}text-red-400{% endif %}" id="msol-growth-rate">
+              {{ '%.2f'|format(msol_monthly_growth_rate) }}% per month
+            </p>
+            {% else %}
+            <p class="text-xs text-gray-500 italic">Growth rate calculation unavailable</p>
+            {% endif %}
           </div>
         </div>
       </div>

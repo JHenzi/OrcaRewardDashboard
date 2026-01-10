@@ -1531,11 +1531,92 @@ def index():
     # Get mSOL price (not SOL price) for accurate USD conversion
     try:
         msol_price_data = get_msol_price_data()
-        msol_price = msol_price_data.get('rate', 0) if msol_price_data else 0
+        current_msol_price = msol_price_data.get('rate', 0) if msol_price_data else 0
     except Exception as e:
         logger.warning(f"Could not fetch mSOL price for display: {e}")
-        msol_price = sol_price  # Fallback to SOL price
-    current_msol_usd = current_msol_balance * msol_price if current_msol_balance else 0
+        current_msol_price = sol_price  # Fallback to SOL price
+    current_msol_usd = current_msol_balance * current_msol_price if current_msol_balance else 0
+    
+    # Calculate monthly growth rate (initialize to None)
+    msol_monthly_growth_rate = None
+    if msol_growth_data and len(msol_growth_data) > 0:
+        # Find first meaningful balance (> 0.01 mSOL) to avoid dust amounts skewing the calculation
+        first_balance = None
+        first_timestamp = None
+        MIN_MEANINGFUL_BALANCE = 0.01  # 0.01 mSOL minimum
+        
+        for data_point in msol_growth_data:
+            if data_point['balance'] >= MIN_MEANINGFUL_BALANCE:
+                first_balance = data_point['balance']
+                first_timestamp = data_point['time']
+                break
+        
+        # Fallback to first data point if no meaningful balance found
+        if first_balance is None:
+            first_balance = msol_growth_data[0]['balance']
+            first_timestamp = msol_growth_data[0]['time']
+            logger.warning(f"No meaningful starting balance found, using first data point: {first_balance:.6f}")
+        
+        # Use current balance (from API, more accurate than last data point)
+        final_balance = current_msol_balance if current_msol_balance else msol_growth_data[-1]['balance']
+        current_timestamp = int(datetime.now().timestamp())
+        
+        logger.info(f"Calculating growth rate: first_balance={first_balance:.4f}, final_balance={final_balance:.4f}, first_timestamp={first_timestamp}, current_timestamp={current_timestamp}")
+        
+        # Calculate time difference in months
+        time_diff_seconds = current_timestamp - first_timestamp
+        months_elapsed = time_diff_seconds / (30.44 * 24 * 3600)  # Average days per month
+        
+        logger.info(f"Time difference: {time_diff_seconds} seconds = {months_elapsed:.2f} months")
+        
+        if months_elapsed > 0:
+            if first_balance > 0 and final_balance > 0:
+                # For very short periods (< 0.1 months = ~3 days), use simple linear projection
+                # For longer periods, use compound growth formula
+                if months_elapsed < 0.1:
+                    # Simple linear: (change / initial) / months * 100
+                    change = final_balance - first_balance
+                    monthly_growth_rate = (change / first_balance) / months_elapsed * 100
+                    logger.info(f"Using linear growth rate (short period): {monthly_growth_rate:.2f}%")
+                else:
+                    # Compound growth rate: ((final/initial)^(1/months) - 1) * 100
+                    growth_factor = final_balance / first_balance
+                    # Cap growth factor to prevent astronomical rates from tiny starting balances
+                    if growth_factor > 1000:
+                        logger.warning(f"Very large growth factor ({growth_factor:.2f}), capping calculation")
+                        # Use a more conservative calculation for extreme cases
+                        monthly_growth_rate = min((growth_factor ** (1 / months_elapsed) - 1) * 100, 1000.0)
+                    else:
+                        monthly_growth_rate = (growth_factor ** (1 / months_elapsed) - 1) * 100
+                    logger.info(f"Using compound growth rate: {monthly_growth_rate:.2f}%")
+                
+                # Sanity check: cap at 200% per month (anything higher is likely a calculation error)
+                if monthly_growth_rate > 200:
+                    logger.warning(f"Growth rate {monthly_growth_rate:.2f}% seems unrealistic, capping at 200%")
+                    monthly_growth_rate = 200.0
+                
+                msol_monthly_growth_rate = monthly_growth_rate
+                logger.info(f"mSOL monthly growth rate: {monthly_growth_rate:.2f}% (from {first_balance:.4f} to {final_balance:.4f} over {months_elapsed:.2f} months)")
+            elif first_balance == 0 and final_balance > 0:
+                # Started at zero, calculate as if starting from a tiny amount to avoid division issues
+                # Use a very small starting balance (0.0001 mSOL) for calculation
+                tiny_start = 0.0001
+                growth_factor = final_balance / tiny_start
+                monthly_growth_rate = (growth_factor ** (1 / months_elapsed) - 1) * 100
+                msol_monthly_growth_rate = monthly_growth_rate
+                logger.info(f"mSOL monthly growth rate (started from ~0): {monthly_growth_rate:.2f}%")
+            elif final_balance <= 0:
+                # Balance went to zero or negative
+                msol_monthly_growth_rate = -100.0
+                logger.warning(f"mSOL balance went to zero or negative: {final_balance}")
+            else:
+                logger.warning(f"Could not calculate growth rate: first_balance={first_balance}, final_balance={final_balance}")
+        else:
+            logger.warning(f"Invalid time difference for growth rate calculation: {months_elapsed} months")
+    else:
+        logger.warning("No mSOL growth data available for growth rate calculation")
+    
+    logger.info(f"Final msol_monthly_growth_rate value: {msol_monthly_growth_rate}")
 
     # # --- Prepare chart data for Chart.js ---
     # chart_data = {}
@@ -1561,6 +1642,7 @@ def index():
         current_msol_balance=current_msol_balance or 0,
         current_msol_usd=current_msol_usd,
         msol_price=current_msol_price,  # mSOL price for crosshair USD calculation
+        msol_monthly_growth_rate=msol_monthly_growth_rate,  # Monthly growth rate percentage
         msol_data_count=len(msol_growth_data)  # Debug: pass count to template
         # chart_data=json.dumps(chart_data)  # Pass chart data to template
     )

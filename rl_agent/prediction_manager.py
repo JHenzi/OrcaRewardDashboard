@@ -186,17 +186,17 @@ class PredictionManager:
             error_24h = abs(actual_return_24h - pred_24h)
             mae_24h = error_24h
         
-        # Update
+        # Update - use COALESCE to preserve existing values when new values aren't provided
         cursor.execute("""
             UPDATE rl_prediction_accuracy
-            SET actual_return_1h = ?,
-                actual_return_24h = ?,
-                price_1h_later = ?,
-                price_24h_later = ?,
-                error_1h = ?,
-                error_24h = ?,
-                mae_1h = ?,
-                mae_24h = ?,
+            SET actual_return_1h = COALESCE(?, actual_return_1h),
+                actual_return_24h = COALESCE(?, actual_return_24h),
+                price_1h_later = COALESCE(?, price_1h_later),
+                price_24h_later = COALESCE(?, price_24h_later),
+                error_1h = COALESCE(?, error_1h),
+                error_24h = COALESCE(?, error_24h),
+                mae_1h = COALESCE(?, mae_1h),
+                mae_24h = COALESCE(?, mae_24h),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, (

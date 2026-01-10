@@ -26,9 +26,21 @@ from rl_agent.prediction_manager import PredictionManager
 
 def backfill_actual_returns():
     """Backfill all missing actual returns."""
-    db_path = os.getenv("DATABASE_PATH", "rewards.db")
+    # Get database paths - use environment or find relative to project root
+    project_root = Path(__file__).parent.parent
+    db_path = os.getenv("DATABASE_PATH", str(project_root / "rewards.db"))
+    sol_prices_path = os.getenv("SOL_PRICES_PATH", str(project_root / "sol_prices.db"))
     
-    print(f"🔍 Connecting to database: {db_path}")
+    # Fallback to main project directory if not found in worktree
+    if not Path(db_path).exists():
+        main_project = Path("/Users/joe/Local Development/OrcaRedemptionTracker")
+        if (main_project / "rewards.db").exists():
+            db_path = str(main_project / "rewards.db")
+            sol_prices_path = str(main_project / "sol_prices.db")
+            print(f"📁 Using databases from main project: {main_project}")
+    
+    print(f"🔍 Connecting to predictions database: {db_path}")
+    print(f"🔍 Using price database: {sol_prices_path}")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
@@ -59,7 +71,7 @@ def backfill_actual_returns():
     
     conn.close()
     
-    prediction_manager = PredictionManager()
+    prediction_manager = PredictionManager(db_path=db_path)
     updated_1h = 0
     updated_24h = 0
     failed_1h = 0
@@ -85,7 +97,7 @@ def backfill_actual_returns():
             
             # Get price 1 hour later (wider window for better matching)
             # Use sol_prices.db for price data (separate from predictions database)
-            price_conn = sqlite3.connect("sol_prices.db")
+            price_conn = sqlite3.connect(sol_prices_path)
             price_cursor = price_conn.cursor()
             
             # Use wider time window: 30 minutes before to 1 hour after
@@ -144,7 +156,7 @@ def backfill_actual_returns():
             
             # Get price 24 hours later (wider window for better matching)
             # Use sol_prices.db for price data (separate from predictions database)
-            price_conn = sqlite3.connect("sol_prices.db")
+            price_conn = sqlite3.connect(sol_prices_path)
             price_cursor = price_conn.cursor()
             
             # Use wider time window: 1 hour before to 2 hours after
