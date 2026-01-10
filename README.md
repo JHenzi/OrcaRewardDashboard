@@ -6,7 +6,8 @@
 
 A comprehensive Flask web application that tracks Solana rewards from [**Orca** liquidity pools](https://docs.orca.so/) using the [Helius API](https://docs.helius.dev/) and provides **AI-powered trading intelligence** with real-time predictions, technical analysis, and explainable machine learning insights.
 
-**🚀 Latest Updates (December 2025):**
+**🚀 Latest Updates (January 2026):**
+- ✅ **mSOL Growth Tracking** - Track mSOL balance growth over time with historical catch-up and cumulative growth charts
 - ✅ **AI Predictions Now Live** - Multi-horizon return predictions generating automatically every hour
 - ✅ **Training Infrastructure Corrected** - All numerical issues resolved, attention mechanism fixed, model retrained and stable
 - ✅ **Smart Data Processing** - Missing price data automatically smoothed and interpolated for consistent training
@@ -22,6 +23,7 @@ A comprehensive Flask web application that tracks Solana rewards from [**Orca** 
 - 📉 **Technical Analysis** - Moving averages (SMA), MACD, Bollinger Bands, momentum indicators, and volatility metrics
 - 📊 **Signal Performance Tracker** - Track the reliability of each trading signal over time. See win rates, average returns, and historical performance for RSI signals to make informed decisions
 - 💰 **Rewards Analytics** - Daily and monthly breakdowns, collection patterns, and performance metrics
+- 📈 **mSOL Growth Tracking** - Track cumulative mSOL balance growth over time with professional TradingView charts, historical catch-up via Helius API, and conversion event tracking
 - 🤖 **AI-Powered Trading Predictions** - **LIVE NOW!** Reinforcement learning agent generating 1h/24h return predictions with confidence scores
   - ✅ **Automatic Updates** - Predictions generated every hour via scheduled decision loop
   - ✅ **Data Quality** - Missing price data automatically smoothed and interpolated
@@ -432,6 +434,10 @@ You can customize the application behavior through environment variables in the 
 - `FETCH_INTERVAL_SECONDS`: Background fetch interval in seconds (default: 7200 = 2 hours)
 - `LAST_KNOWN_SIGNATURE`: Starting signature for backfill operations (this is the transaction ID from SolScan that you want to fetch since, i.e. the transaction you deposited your liquidity... this may eat into your API calls for the month - adjust fetch interval accordingly)
 
+**mSOL Tracking Configuration:**
+- `MSOL_TRACKING_START_DATE`: Date to start historical mSOL catch-up (format: YYYY-MM-DD, optional)
+- `MSOL_SNAPSHOT_INTERVAL_HOURS`: Hours between periodic mSOL balance snapshots (default: 1)
+
 **RL Agent Configuration:**
 - `news_feeds.json`: RSS feed configuration (add/remove feeds, set priorities)
 - Model checkpoints: Saved in `checkpoints/` directory (created during training)
@@ -446,7 +452,7 @@ A brief overview of the project structure:
 - `requirements.txt`: Lists the Python dependencies for the project.
 - `.env.example`: A template for the environment variables file (`.env`). You need to copy this to `.env` and fill in your API keys and other configurations.
 - `templates/`: Contains the HTML templates used by Flask to render the web pages (e.g., `home.html`, `index.html`, `sol_tracker.html`).
-- `rewards.db`: (Created at runtime) SQLite database for storing Solana reward transaction data.
+- `rewards.db`: (Created at runtime) SQLite database for storing Solana reward transaction data, mSOL balance snapshots, and mSOL conversion events.
 - `sol_prices.db`: (Created at runtime) SQLite database for storing SOL price history, RSI calculations, and signal performance data.
 - `signal_performance_tracker.py`: Module for tracking and analyzing the performance of trading signals over time.
 - `news_sentiment.py`: News sentiment analysis with embeddings and clustering.
@@ -483,6 +489,59 @@ Visit `http://localhost:5030/orca` to view the **Detailed Rewards Dashboard** wi
 - Current SOL price and USD value of rewards
 - Collection analytics (frequency, sessions, daily rate, patterns)
 - Daily and monthly breakdowns
+- **mSOL Cumulative Growth Chart** - Professional TradingView chart showing mSOL balance growth over time with crosshair tooltips
+
+### mSOL Growth Tracking
+
+Track your mSOL (Marinade SOL) balance growth over time with automatic historical catch-up and beautiful visualizations.
+
+**Features:**
+- 📊 **Cumulative Growth Chart** - Professional TradingView Lightweight Charts visualization showing mSOL balance growth
+- 🔄 **Historical Catch-Up** - Automatically fetch and reconstruct mSOL balance history from a specified start date
+- 📈 **Conversion Tracking** - Track individual SOL→mSOL conversions with conversion rates
+- ⏰ **Periodic Snapshots** - Automatic balance snapshots at configurable intervals (default: hourly)
+- 💰 **USD Value Tracking** - See both mSOL balance and USD value over time
+- 🎯 **Event-Based Tracking** - Tracks both conversion events and periodic balance snapshots
+
+**Getting Started:**
+
+1. **Set Start Date (Optional):**
+   Add to your `.env` file:
+   ```env
+   MSOL_TRACKING_START_DATE=2025-06-27
+   ```
+   Format: `YYYY-MM-DD`. If not set, defaults to 90 days ago.
+
+2. **Trigger Historical Catch-Up:**
+   - **Automatic**: Catch-up runs automatically on app startup if `MSOL_TRACKING_START_DATE` is set
+   - **Manual**: Visit `http://localhost:5030/orca/msol/catchup` to trigger manually
+   - **API**: `GET /orca/msol/catchup` returns JSON with status and progress
+
+3. **View Current Balance:**
+   - **API**: `GET /orca/msol/balance` returns current mSOL balance and USD value
+   - **Dashboard**: Current balance displayed on the `/orca` page above the growth chart
+
+4. **View Growth Chart:**
+   Visit `http://localhost:5030/orca` and scroll to the **mSOL Cumulative Growth** section to see:
+   - Interactive TradingView chart with smooth line series
+   - Crosshair showing balance and USD value on hover
+   - Cumulative growth from initial balance
+   - Professional dark theme matching the SOL tracker
+
+**How It Works:**
+- Uses Helius API to fetch historical transactions involving mSOL
+- Parses token transfers to identify conversions (SOL → mSOL)
+- Reconstructs balance history chronologically from transactions
+- Creates snapshots at conversion events and periodic intervals
+- Displays cumulative growth chart using TradingView Lightweight Charts
+
+**Configuration:**
+- `MSOL_TRACKING_START_DATE`: Date to start historical catch-up (format: YYYY-MM-DD)
+- `MSOL_SNAPSHOT_INTERVAL_HOURS`: Hours between periodic balance snapshots (default: 1)
+
+**API Endpoints:**
+- `GET /orca/msol/catchup` - Trigger historical catch-up (returns JSON with status)
+- `GET /orca/msol/balance` - Get current mSOL balance and USD value
 
 ### SOL Price & Trading Signals
 
@@ -644,6 +703,10 @@ The application provides API endpoints for programmatic access to data. Some end
 - `GET /api/rl-agent/rules` - Get discovered trading rules
 - `GET /api/rl-agent/feature-importance` - Get SHAP feature importance
 - `GET/POST /api/rl-agent/decision` - Get latest or make new trading decision
+
+**mSOL Tracking Endpoints:**
+- `GET /orca/msol/catchup` - Trigger historical mSOL balance catch-up (returns JSON with status and progress)
+- `GET /orca/msol/balance` - Get current mSOL balance and USD value
 
 **Note:** API documentation for deprecated endpoints (price prediction, bandit actions) has been moved to [Documentation/reference/DEPRECATED.md](Documentation/reference/DEPRECATED.md).
 

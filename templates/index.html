@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Solana Rewards Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- TradingView Lightweight Charts - Professional Trading Chart Library -->
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     @keyframes pulse-glow {
       0%, 100% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.4); }
@@ -59,6 +62,20 @@
     }
     .calendar-scrollbar::-webkit-scrollbar-thumb:hover {
       background: #6b7280;
+    }
+    /* mSOL Growth Chart Styles */
+    #msol-growth-chart {
+      width: 100%;
+      height: 500px;
+      background: #1a1a1a;
+      border-radius: 8px;
+      position: relative;
+    }
+    .chart-container {
+      background: #1a1a1a;
+      border-radius: 8px;
+      padding: 10px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }
   </style>
 </head>
@@ -515,6 +532,80 @@
         </div>
       </div>
     </div>
+
+    <!-- Redemptions Over Time Chart -->
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-8 fade-in">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white flex items-center space-x-2">
+          <span>📊</span>
+          <span>Redemptions Over Time</span>
+        </h2>
+        <div class="flex items-center space-x-4">
+          <div class="flex items-center space-x-2 text-xs">
+            <div class="w-3 h-3 rounded bg-green-500"></div>
+            <span class="text-gray-400">Good Day (>$5)</span>
+          </div>
+          <div class="flex items-center space-x-2 text-xs">
+            <div class="w-3 h-3 rounded bg-blue-500"></div>
+            <span class="text-gray-400">Medium ($2-$5)</span>
+          </div>
+          <div class="flex items-center space-x-2 text-xs">
+            <div class="w-3 h-3 rounded bg-purple-500"></div>
+            <span class="text-gray-400">Low ($1-$2)</span>
+          </div>
+          <div class="flex items-center space-x-2 text-xs">
+            <div class="w-3 h-3 rounded bg-gray-600"></div>
+            <span class="text-gray-400">Zero</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scrollable Chart Container -->
+      <div class="overflow-x-auto pb-4 calendar-scrollbar" style="scroll-behavior: smooth;">
+        <div style="min-width: 800px; height: 400px;">
+          <canvas id="redemptionsChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Chart Controls -->
+      <div class="mt-4 pt-4 border-t border-gray-700 flex items-center justify-between">
+        <div class="flex items-center space-x-4 text-sm text-gray-400">
+          <span>Total Days: <span class="text-white font-semibold">{{ daily_summary | length }}</span></span>
+          {% set days_with_redemptions = daily_summary | selectattr('usd_value', 'gt', 0) | list | length %}
+          <span>Active Days: <span class="text-green-400 font-semibold">{{ days_with_redemptions }}</span></span>
+          {% set zero_days = daily_summary | length - days_with_redemptions %}
+          <span>Zero Days: <span class="text-gray-500 font-semibold">{{ zero_days }}</span></span>
+        </div>
+        <div class="text-xs text-gray-500">
+          ← Scroll to see full timeline →
+        </div>
+      </div>
+    </div>
+
+    <!-- mSOL Growth Chart -->
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-8 fade-in">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white flex items-center space-x-2">
+          <span>📈</span>
+          <span>mSOL Cumulative Growth</span>
+        </h2>
+        <div class="flex items-center space-x-4">
+          <div class="text-right">
+            <p class="text-xs text-gray-400">Current Balance</p>
+            <p class="text-lg font-bold text-purple-400" id="msol-balance-display">
+              {{ '%.4f'|format(current_msol_balance) if current_msol_balance else '0.0000' }} mSOL
+            </p>
+            <p class="text-sm text-gray-500" id="msol-usd-display">
+              ${{ '%.2f'|format(current_msol_usd) if current_msol_usd else '0.00' }} USD
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-container">
+        <div id="msol-growth-chart"></div>
+      </div>
+    </div>
   </div>
   </div>
 
@@ -527,5 +618,293 @@
       </div>
     </div>
   </footer>
+
+  <script>
+    // Redemptions Chart
+    const dailyData = {{ daily_summary | tojson }};
+    
+    // Prepare data for chart - fill in zero days for gaps
+    const chartData = {
+      labels: [],
+      values: [],
+      colors: [],
+      dates: []
+    };
+
+    // Sort by date
+    const sortedData = dailyData.sort((a, b) => new Date(a.day) - new Date(b.day));
+    
+    // Calculate average for color thresholds
+    const values = sortedData.map(d => d.usd_value);
+    const avgValue = values.reduce((a, b) => a + b, 0) / values.length;
+    const maxValue = Math.max(...values);
+    
+    sortedData.forEach(day => {
+      chartData.labels.push(new Date(day.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      chartData.values.push(day.usd_value);
+      chartData.dates.push(day.day);
+      
+      // Color coding: good/bad/zero days
+      if (day.usd_value === 0) {
+        chartData.colors.push('rgba(107, 114, 128, 0.6)'); // gray for zero
+      } else if (day.usd_value > 5.00) {
+        chartData.colors.push('rgba(34, 197, 94, 0.8)'); // green for good days
+      } else if (day.usd_value > 2.00) {
+        chartData.colors.push('rgba(59, 130, 246, 0.8)'); // blue for medium
+      } else if (day.usd_value > 1.00) {
+        chartData.colors.push('rgba(168, 85, 247, 0.8)'); // purple for low
+      } else {
+        chartData.colors.push('rgba(107, 114, 128, 0.6)'); // gray for very low
+      }
+    });
+
+    const ctx = document.getElementById('redemptionsChart');
+    if (ctx) {
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: chartData.labels,
+          datasets: [{
+            label: 'Daily Redemptions (USD)',
+            data: chartData.values,
+            backgroundColor: chartData.colors,
+            borderColor: chartData.colors.map(c => c.replace('0.8', '1').replace('0.6', '0.8')),
+            borderWidth: 1,
+            borderRadius: 4,
+            borderSkipped: false,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              backgroundColor: 'rgba(17, 24, 39, 0.95)',
+              titleColor: '#fff',
+              bodyColor: '#fff',
+              borderColor: 'rgba(75, 85, 99, 0.5)',
+              borderWidth: 1,
+              padding: 12,
+              callbacks: {
+                title: function(context) {
+                  return chartData.dates[context[0].dataIndex];
+                },
+                label: function(context) {
+                  const value = context.parsed.y;
+                  if (value === 0) {
+                    return 'No redemptions';
+                  }
+                  return `$${value.toFixed(2)} USD`;
+                },
+                afterLabel: function(context) {
+                  const value = context.parsed.y;
+                  if (value === 0) {
+                    return 'Zero day';
+                  } else if (value > 5.00) {
+                    return 'Good day';
+                  } else if (value > 2.00) {
+                    return 'Medium day';
+                  } else {
+                    return 'Low day';
+                  }
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                color: '#9ca3af',
+                maxRotation: 45,
+                minRotation: 45,
+                font: {
+                  size: 10
+                }
+              },
+              grid: {
+                color: 'rgba(75, 85, 99, 0.3)',
+                drawBorder: false
+              }
+            },
+            y: {
+              beginAtZero: true,
+              ticks: {
+                color: '#9ca3af',
+                callback: function(value) {
+                  return '$' + value.toFixed(0);
+                }
+              },
+              grid: {
+                color: 'rgba(75, 85, 99, 0.3)',
+                drawBorder: false
+              }
+            }
+          },
+          interaction: {
+            intersect: false,
+            mode: 'index'
+          }
+        }
+      });
+    }
+
+    // mSOL Growth Chart
+    function initMSOLChart() {
+      let msolData = [];
+      try {
+        msolData = {{ msol_growth_data | safe if msol_growth_data else '[]' }};
+        // If it's a string, parse it
+        if (typeof msolData === 'string') {
+          msolData = JSON.parse(msolData);
+        }
+      } catch (e) {
+        console.error('Error parsing mSOL growth data:', e);
+        msolData = [];
+      }
+      const chartContainer = document.getElementById('msol-growth-chart');
+      
+      if (!chartContainer) {
+        console.error('mSOL chart container not found');
+        return;
+      }
+
+      if (typeof LightweightCharts === 'undefined') {
+        chartContainer.innerHTML = '<div class="text-white p-4 text-center">Chart library failed to load. Please refresh the page.</div>';
+        return;
+      }
+
+      if (!msolData || msolData.length === 0) {
+        chartContainer.innerHTML = '<div class="text-white p-4 text-center">No mSOL data available. Run catch-up to fetch historical data.</div>';
+        return;
+      }
+
+      try {
+        const chartOptions = {
+          layout: {
+            background: { color: '#1a1a1a' },
+            textColor: '#d1d5db',
+          },
+          grid: {
+            vertLines: { color: '#2a2a2a', style: 1 },
+            horzLines: { color: '#2a2a2a', style: 1 },
+          },
+          crosshair: {
+            mode: 1,
+            vertLine: {
+              color: '#6b7280',
+              width: 1,
+              style: 3,
+            },
+            horzLine: {
+              color: '#6b7280',
+              width: 1,
+              style: 3,
+            },
+          },
+          rightPriceScale: {
+            borderColor: '#2a2a2a',
+            scaleMargins: {
+              top: 0.1,
+              bottom: 0.1,
+            },
+          },
+          timeScale: {
+            borderColor: '#2a2a2a',
+            timeVisible: true,
+            secondsVisible: false,
+          },
+        };
+
+        const chart = LightweightCharts.createChart(chartContainer, {
+          ...chartOptions,
+          width: chartContainer.clientWidth,
+          height: 500,
+        });
+
+        // Format data for TradingView (time in Unix seconds)
+        const chartData = msolData.map(point => ({
+          time: point.time,
+          value: point.value
+        }));
+
+        const lineSeries = chart.addLineSeries({
+          color: '#a855f7', // Purple to match Orca theme
+          lineWidth: 2,
+          priceFormat: {
+            type: 'price',
+            precision: 4,
+            minMove: 0.0001,
+          },
+        });
+
+        lineSeries.setData(chartData);
+
+        // Fit content to show all data
+        chart.timeScale().fitContent();
+
+        // Update balance display on crosshair move
+        chart.subscribeCrosshairMove(param => {
+          const balanceEl = document.getElementById('msol-balance-display');
+          const usdEl = document.getElementById('msol-usd-display');
+          
+          if (param.time && param.seriesData) {
+            const seriesData = param.seriesData.get(lineSeries);
+            if (seriesData) {
+              // Find the corresponding data point
+              const dataPoint = msolData.find(p => p.time === param.time);
+              if (dataPoint) {
+                if (balanceEl) {
+                  balanceEl.textContent = `${dataPoint.balance.toFixed(4)} mSOL`;
+                }
+                if (usdEl) {
+                  usdEl.textContent = `$${dataPoint.balance_usd.toFixed(2)} USD`;
+                }
+              }
+            }
+          } else {
+            // Reset to current balance when crosshair is not over chart
+            if (balanceEl) {
+              balanceEl.textContent = `{{ '%.4f'|format(current_msol_balance) if current_msol_balance else '0.0000' }} mSOL`;
+            }
+            if (usdEl) {
+              usdEl.textContent = `${{ '%.2f'|format(current_msol_usd) if current_msol_usd else '0.00' }} USD`;
+            }
+          }
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+          if (chart) {
+            chart.applyOptions({ width: chartContainer.clientWidth });
+          }
+        });
+
+        console.log('✅ mSOL growth chart initialized with', chartData.length, 'data points');
+      } catch (error) {
+        console.error('Error creating mSOL chart:', error);
+        chartContainer.innerHTML = '<div class="text-white p-4 text-center">Error creating chart: ' + error.message + '</div>';
+      }
+    }
+
+    // Initialize mSOL chart when page loads
+    if (typeof LightweightCharts !== 'undefined') {
+      initMSOLChart();
+    } else {
+      window.addEventListener('load', () => {
+        if (typeof LightweightCharts !== 'undefined') {
+          initMSOLChart();
+        } else {
+          console.error('TradingView Lightweight Charts failed to load');
+          const chartContainer = document.getElementById('msol-growth-chart');
+          if (chartContainer) {
+            chartContainer.innerHTML = '<div class="text-white p-4 text-center">Chart library failed to load. Please refresh the page.</div>';
+          }
+        }
+      });
+    }
+  </script>
 </body>
 </html>
