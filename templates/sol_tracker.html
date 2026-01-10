@@ -1678,15 +1678,17 @@
                   <tr class="border-b border-gray-700">
                     <th class="text-left py-3 px-4 text-gray-300">Rule</th>
                     <th class="text-left py-3 px-4 text-gray-300">Action</th>
-                    <th class="text-right py-3 px-4 text-gray-300">Win Rate</th>
+                    <th class="text-right py-3 px-4 text-gray-300" title="Win rate at BOTH 1h AND 24h (must profit at both horizons)">Win Rate<br><span class="text-xs text-gray-500">(Combined)</span></th>
+                    <th class="text-right py-3 px-4 text-gray-300">Win @1h</th>
+                    <th class="text-right py-3 px-4 text-gray-300">Win @24h</th>
                     <th class="text-right py-3 px-4 text-gray-300">Avg Return (1h)</th>
                     <th class="text-right py-3 px-4 text-gray-300">Avg Return (24h)</th>
-                    <th class="text-right py-3 px-4 text-gray-300">Sample Size</th>
+                    <th class="text-right py-3 px-4 text-gray-300">Samples</th>
                   </tr>
                 </thead>
                 <tbody id="rules-tbody">
                   <tr>
-                    <td colspan="6" class="text-center py-8 text-gray-400">Loading rules...</td>
+                    <td colspan="8" class="text-center py-8 text-gray-400">Loading rules...</td>
                   </tr>
                 </tbody>
               </table>
@@ -3168,14 +3170,24 @@
                           }
                       }
                       
-                      tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-gray-400">${diagnosticMsg}</td></tr>`;
+                      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-gray-400">${diagnosticMsg}</td></tr>`;
                       return;
                   }
                   
                   let html = '';
                   data.rules.forEach(rule => {
+                      // Combined win rate color (must profit at BOTH 1h AND 24h)
                       const winRateColor = rule.win_rate >= 0.6 ? 'text-green-400' : 
                                           rule.win_rate >= 0.5 ? 'text-yellow-400' : 'text-red-400';
+                      // 1h win rate color
+                      const winRate1hColor = rule.win_rate_1h >= 0.6 ? 'text-green-400' : 
+                                            rule.win_rate_1h >= 0.5 ? 'text-yellow-400' : 'text-red-400';
+                      // 24h win rate color
+                      const winRate24hColor = rule.win_rate_24h >= 0.6 ? 'text-green-400' : 
+                                             rule.win_rate_24h >= 0.5 ? 'text-yellow-400' : 'text-red-400';
+                      // Return colors (green if positive, red if negative)
+                      const return1hColor = rule.avg_return_1h > 0 ? 'text-green-400' : rule.avg_return_1h < 0 ? 'text-red-400' : 'text-gray-300';
+                      const return24hColor = rule.avg_return_24h > 0 ? 'text-green-400' : rule.avg_return_24h < 0 ? 'text-red-400' : 'text-gray-300';
                       
                       html += `
                         <tr class="border-b border-gray-700 hover:bg-gray-700/30">
@@ -3187,9 +3199,11 @@
                               'bg-yellow-500/20 text-yellow-400'
                             }">${rule.action}</span>
                           </td>
-                          <td class="py-3 px-4 text-right ${winRateColor} font-bold">${(rule.win_rate * 100).toFixed(1)}%</td>
-                          <td class="py-3 px-4 text-right text-gray-300">${rule.avg_return_1h !== null ? (rule.avg_return_1h * 100).toFixed(2) + '%' : 'N/A'}</td>
-                          <td class="py-3 px-4 text-right text-gray-300">${rule.avg_return_24h !== null ? (rule.avg_return_24h * 100).toFixed(2) + '%' : 'N/A'}</td>
+                          <td class="py-3 px-4 text-right ${winRateColor} font-bold" title="Profitable at BOTH 1h AND 24h">${(rule.win_rate * 100).toFixed(1)}%</td>
+                          <td class="py-3 px-4 text-right ${winRate1hColor} text-sm">${rule.win_rate_1h !== null ? (rule.win_rate_1h * 100).toFixed(0) + '%' : 'N/A'}</td>
+                          <td class="py-3 px-4 text-right ${winRate24hColor} text-sm">${rule.win_rate_24h !== null ? (rule.win_rate_24h * 100).toFixed(0) + '%' : 'N/A'}</td>
+                          <td class="py-3 px-4 text-right ${return1hColor}">${rule.avg_return_1h !== null ? (rule.avg_return_1h * 100).toFixed(2) + '%' : 'N/A'}</td>
+                          <td class="py-3 px-4 text-right ${return24hColor}">${rule.avg_return_24h !== null ? (rule.avg_return_24h * 100).toFixed(2) + '%' : 'N/A'}</td>
                           <td class="py-3 px-4 text-right text-gray-400">${rule.sample_size || 0}</td>
                         </tr>
                       `;
@@ -3201,14 +3215,14 @@
                   console.error('RL rules API error:', data.error);
                   const tbody = document.getElementById('rules-tbody');
                   if (tbody) {
-                      tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-red-400">Error: ${data.error || 'Unknown error'}</td></tr>`;
+                      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-red-400">Error: ${data.error || 'Unknown error'}</td></tr>`;
                   }
               }
           } catch (error) {
               console.error('Error fetching discovered rules:', error);
               const tbody = document.getElementById('rules-tbody');
               if (tbody) {
-                  tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-red-400">Error loading rules. Check console for details.</td></tr>';
+                  tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-red-400">Error loading rules. Check console for details.</td></tr>';
               }
           }
       }

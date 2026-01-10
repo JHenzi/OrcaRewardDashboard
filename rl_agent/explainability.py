@@ -202,16 +202,35 @@ class RuleExtractor:
                     rule_mask = self._evaluate_rule(rule, action_features)
                     if rule_mask.sum() > 0:
                         rule_outcomes = action_outcomes_1h[rule_mask]
-                        # Convert numpy types to native Python types for SQLite
-                        rule['win_rate'] = float((rule_outcomes > threshold).mean())
-                        rule['avg_return_1h'] = float(rule_outcomes.mean())
-                        rule['sample_size'] = int(rule_mask.sum())
-                        # Only include 24h return if available
                         rule_24h_outcomes = action_outcomes_24h[rule_mask]
                         valid_24h = rule_24h_outcomes[~np.isnan(rule_24h_outcomes)]
+                        
+                        # Convert numpy types to native Python types for SQLite
+                        win_rate_1h = float((rule_outcomes > threshold).mean())
+                        rule['avg_return_1h'] = float(rule_outcomes.mean())
+                        rule['sample_size'] = int(rule_mask.sum())
+                        
+                        # Calculate 24h win rate and return
                         if len(valid_24h) > 0:
+                            win_rate_24h = float((valid_24h > threshold).mean())
                             rule['avg_return_24h'] = float(valid_24h.mean())
+                            # Combined win rate: positive return at BOTH 1h AND 24h
+                            # This is the TRUE win rate - only a "win" if profitable at both horizons
+                            both_positive = (rule_outcomes > threshold) & (~np.isnan(rule_24h_outcomes)) & (rule_24h_outcomes > threshold)
+                            valid_for_combined = (~np.isnan(rule_24h_outcomes)).sum()
+                            if valid_for_combined > 0:
+                                combined_win_rate = float(both_positive.sum() / valid_for_combined)
+                            else:
+                                combined_win_rate = win_rate_1h  # Fallback to 1h only
+                            # Use combined win rate as the primary "win_rate" - this is honest
+                            rule['win_rate'] = combined_win_rate
+                            rule['win_rate_1h'] = win_rate_1h
+                            rule['win_rate_24h'] = win_rate_24h
                         else:
+                            # No 24h data - use 1h win rate but mark it
+                            rule['win_rate'] = win_rate_1h
+                            rule['win_rate_1h'] = win_rate_1h
+                            rule['win_rate_24h'] = None
                             rule['avg_return_24h'] = None
                 
                 all_rules.extend(rules_1h)
@@ -358,7 +377,7 @@ class RuleExtractor:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Ensure discovered_rules table exists
+        # Ensure discovered_rules table exists with win_rate_1h and win_rate_24h columns
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS discovered_rules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -366,6 +385,8 @@ class RuleExtractor:
                 rule_conditions TEXT,
                 action TEXT NOT NULL,
                 win_rate REAL,
+                win_rate_1h REAL,
+                win_rate_24h REAL,
                 avg_return_1h REAL,
                 avg_return_24h REAL,
                 sample_size INTEGER,
@@ -375,6 +396,16 @@ class RuleExtractor:
                 last_validated_at DATETIME
             )
         """)
+        
+        # Add new columns if they don't exist (for existing tables)
+        try:
+            cursor.execute("ALTER TABLE discovered_rules ADD COLUMN win_rate_1h REAL")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE discovered_rules ADD COLUMN win_rate_24h REAL")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_rules_action 
@@ -390,14 +421,17 @@ class RuleExtractor:
             cursor.execute("""
                 INSERT INTO discovered_rules (
                     rule_text, rule_conditions, action,
-                    win_rate, avg_return_1h, avg_return_24h, sample_size,
+                    win_rate, win_rate_1h, win_rate_24h,
+                    avg_return_1h, avg_return_24h, sample_size,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 rule.get('rule_text', ''),
                 json.dumps(rule.get('rule_conditions', [])),
                 rule.get('action', ''),
-                rule.get('win_rate'),
+                rule.get('win_rate'),  # Combined win rate (positive at both 1h AND 24h)
+                rule.get('win_rate_1h'),  # Win rate at 1h only
+                rule.get('win_rate_24h'),  # Win rate at 24h only
                 rule.get('avg_return_1h'),
                 rule.get('avg_return_24h'),
                 rule.get('sample_size'),
@@ -449,7 +483,8 @@ class RuleExtractor:
         query = """
             SELECT 
                 id, rule_text, rule_conditions, action,
-                win_rate, avg_return_1h, avg_return_24h, sample_size,
+                win_rate, win_rate_1h, win_rate_24h,
+                avg_return_1h, avg_return_24h, sample_size,
                 confidence_interval_lower, confidence_interval_upper,
                 created_at, last_validated_at
             FROM discovered_rules
@@ -484,14 +519,16 @@ class RuleExtractor:
                 'rule_text': row[1],
                 'rule_conditions': rule_conditions,
                 'action': row[3],
-                'win_rate': row[4],
-                'avg_return_1h': row[5],
-                'avg_return_24h': row[6],
-                'sample_size': row[7],
-                'confidence_interval_lower': row[8],
-                'confidence_interval_upper': row[9],
-                'created_at': row[10],
-                'last_validated_at': row[11],
+                'win_rate': row[4],  # Combined win rate (positive at both 1h AND 24h)
+                'win_rate_1h': row[5],  # Win rate at 1h horizon
+                'win_rate_24h': row[6],  # Win rate at 24h horizon
+                'avg_return_1h': row[7],
+                'avg_return_24h': row[8],
+                'sample_size': row[9],
+                'confidence_interval_lower': row[10],
+                'confidence_interval_upper': row[11],
+                'created_at': row[12],
+                'last_validated_at': row[13],
             })
         
         return rules
