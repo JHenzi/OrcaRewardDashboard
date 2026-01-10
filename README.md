@@ -30,6 +30,11 @@ A comprehensive Flask web application that tracks Solana rewards from [**Orca** 
   - ✅ **Data Quality** - Missing price data automatically smoothed and interpolated
   - ✅ **Explainable AI** - See which news headlines influence decisions, extracted trading rules, feature importance
   - ✅ **Production Ready** - Training infrastructure corrected, model stable, predictions live
+- 🔥 **Discovered Trading Rules** - **THE KILLER FEATURE** - The AI doesn't just make predictions—it tells you WHY
+  - ✅ **Human-Readable Rules** - "If Price Volatility <= 0.001 AND Hour Cos > 0.643 → BUY" with 100% win rate
+  - ✅ **Win Rate Tracking** - See which rules actually work with historical performance data
+  - ✅ **Sample Sizes** - Know how statistically significant each rule is
+  - ✅ **1h + 24h Returns** - See average returns for both short and long horizons
 
 > **Note:** Some features have been deprecated. See [Documentation/reference/DEPRECATED.md](Documentation/reference/DEPRECATED.md) for historical information about price prediction, contextual bandit algorithms, and automated trading bots.
 
@@ -545,6 +550,56 @@ Track your mSOL (Marinade SOL) balance growth over time with automatic historica
 **API Endpoints:**
 - `GET /orca/msol/catchup` - Trigger historical catch-up (returns JSON with status)
 - `GET /orca/msol/balance` - Get current mSOL balance and USD value
+
+### 🔥 Discovered Trading Rules - THE KILLER FEATURE
+
+**This is what makes this project different from every other trading bot.**
+
+Most AI trading systems are black boxes. They tell you "BUY" or "SELL" but you have no idea why. You're trusting a machine with your money without understanding its reasoning.
+
+**Our system is different.** It uses Decision Tree analysis on the AI's historical decisions to extract human-readable trading rules that you can actually understand, verify, and trust.
+
+![Discovered Trading Rules](images/TradingRules.png)
+
+**Why This Changes Everything:**
+
+1. **🧠 Transparency** - See exactly what conditions the AI has learned lead to profitable trades
+   - "If Price Volatility <= 0.001 AND Hour Cos > 0.643 → BUY" (100% win rate, 26 samples)
+   - No more trusting a black box—verify the logic yourself
+
+2. **📊 Statistical Validation** - Every rule comes with performance metrics
+   - **Win Rate** - What percentage of trades following this rule were profitable
+   - **Sample Size** - How many times has this pattern occurred (statistical significance)
+   - **Avg Return (1h/24h)** - Expected returns for both short and long horizons
+
+3. **🎯 Actionable Intelligence** - Rules you can actually use
+   - Set alerts when rule conditions are met
+   - Combine multiple rules for higher confidence
+   - Understand market timing (Hour Sin/Cos features encode time-of-day patterns)
+
+4. **🔄 Continuous Learning** - Rules update as the AI learns
+   - New patterns are discovered automatically
+   - Poor-performing rules are filtered out
+   - The system gets smarter over time
+
+**How It Works:**
+
+The system extracts rules by:
+1. Joining AI decisions with actual price outcomes (1h and 24h later)
+2. Training Decision Trees on price features, sentiment, and time features
+3. Extracting human-readable rules from tree paths
+4. Calculating win rates and average returns for each rule
+5. Ranking rules by statistical significance (win rate × sample size)
+
+**Features Analyzed:**
+- **Price Change** - Recent price momentum
+- **Price Volatility** - Market stability/chaos
+- **Price Trend** - Overall direction
+- **Sentiment Avg/Max/Min** - News sentiment signals
+- **Hour Sin/Cos** - Time-of-day patterns (cyclical encoding)
+- **Position State** - Current portfolio exposure
+
+**This isn't just another trading signal.** This is the AI showing its work—letting you verify its reasoning and build trust in its decisions.
 
 ### SOL Price & Trading Signals
 
