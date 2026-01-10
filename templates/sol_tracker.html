@@ -3159,9 +3159,12 @@
                       let diagnosticMsg = 'No rules discovered yet.<br><br>Rules require:<br>1. Training decisions in database<br>2. Actual returns calculated (1h and 24h later)<br>3. At least 20-50 samples per action type';
                       
                       if (data.diagnostics) {
-                          diagnosticMsg += `<br><br><strong>Current Status:</strong><br>Total decisions: ${data.diagnostics.total_decisions}<br>Decisions with actual returns: ${data.diagnostics.decisions_with_actual_returns}`;
-                          if (data.diagnostics.decisions_with_actual_returns < 20) {
+                          const actualReturns = data.diagnostics.decisions_with_1h_returns || 0;
+                          diagnosticMsg += `<br><br><strong>Current Status:</strong><br>Total decisions: ${data.diagnostics.total_decisions}<br>Decisions with 1h actual returns: ${actualReturns}<br>Decisions with both 1h+24h returns: ${data.diagnostics.decisions_with_both_returns || 0}`;
+                          if (actualReturns < 20) {
                               diagnosticMsg += '<br><br><span class="text-yellow-400">⚠️ Need more decisions with actual returns. The background process calculates actual returns every 15 minutes.</span>';
+                          } else if (data.rules.length === 0) {
+                              diagnosticMsg += '<br><br><span class="text-yellow-400">⚠️ Enough data exists! Rule extraction may need to run. Check server logs.</span>';
                           }
                       }
                       

@@ -106,7 +106,7 @@ class RuleExtractor:
             logger.warning(f"Insufficient data for rule extraction: {len(df)} < {min_samples}")
             return []
         
-        # Parse state features
+        # Parse state features - extract scalar values from nested arrays
         features_list = []
         actions = []
         outcomes_1h = []
@@ -115,19 +115,50 @@ class RuleExtractor:
         for _, row in df.iterrows():
             try:
                 state_features = json.loads(row['state_features']) if row['state_features'] else {}
-                features_list.append(state_features)
-                actions.append(row['action'])
-                outcomes_1h.append(row['actual_return_1h'])
-                outcomes_24h.append(row['actual_return_24h'])
+                
+                # Flatten nested features into scalars for sklearn
+                flat_features = {}
+                for key, value in state_features.items():
+                    if isinstance(value, list):
+                        if key == 'price' and len(value) > 0:
+                            # Extract meaningful price features
+                            flat_features['price_change'] = value[0] if len(value) > 0 else 0
+                            flat_features['price_momentum'] = value[1] if len(value) > 1 else 0
+                            flat_features['price_volatility'] = np.std(value[:10]) if len(value) >= 10 else 0
+                            flat_features['price_trend'] = np.mean(value[:5]) if len(value) >= 5 else 0
+                        elif key == 'news_sentiment' and len(value) > 0:
+                            flat_features['sentiment_avg'] = np.mean(value) if value else 0
+                            flat_features['sentiment_max'] = max(value) if value else 0
+                            flat_features['sentiment_min'] = min(value) if value else 0
+                        elif key == 'position' and len(value) > 0:
+                            # Position encoding: [cash_ratio, sol_ratio, has_position, ...]
+                            flat_features['cash_ratio'] = value[0] if len(value) > 0 else 0
+                            flat_features['sol_ratio'] = value[1] if len(value) > 1 else 0
+                            flat_features['has_position'] = value[2] if len(value) > 2 else 0
+                        elif key == 'time' and len(value) > 0:
+                            flat_features['hour_sin'] = value[0] if len(value) > 0 else 0
+                            flat_features['hour_cos'] = value[1] if len(value) > 1 else 0
+                        # Skip news_embeddings and news_clusters (too complex)
+                    elif isinstance(value, (int, float)):
+                        flat_features[key] = value
+                
+                if flat_features:
+                    features_list.append(flat_features)
+                    actions.append(row['action'])
+                    outcomes_1h.append(row['actual_return_1h'])
+                    outcomes_24h.append(row['actual_return_24h'])
             except (json.JSONDecodeError, TypeError) as e:
                 logger.debug(f"Skipping row due to parse error: {e}")
                 continue
         
         if len(features_list) < min_samples:
+            logger.warning(f"Insufficient flattened features: {len(features_list)} < {min_samples}")
             return []
         
         # Convert to DataFrame
         features_df = pd.DataFrame(features_list)
+        # Fill NaN with 0 for sklearn
+        features_df = features_df.fillna(0)
         
         # Extract rules for each action
         all_rules = []
@@ -171,14 +202,15 @@ class RuleExtractor:
                     rule_mask = self._evaluate_rule(rule, action_features)
                     if rule_mask.sum() > 0:
                         rule_outcomes = action_outcomes_1h[rule_mask]
-                        rule['win_rate'] = (rule_outcomes > threshold).mean()
-                        rule['avg_return_1h'] = rule_outcomes.mean()
-                        rule['sample_size'] = rule_mask.sum()
+                        # Convert numpy types to native Python types for SQLite
+                        rule['win_rate'] = float((rule_outcomes > threshold).mean())
+                        rule['avg_return_1h'] = float(rule_outcomes.mean())
+                        rule['sample_size'] = int(rule_mask.sum())
                         # Only include 24h return if available
                         rule_24h_outcomes = action_outcomes_24h[rule_mask]
                         valid_24h = rule_24h_outcomes[~np.isnan(rule_24h_outcomes)]
                         if len(valid_24h) > 0:
-                            rule['avg_return_24h'] = valid_24h.mean()
+                            rule['avg_return_24h'] = float(valid_24h.mean())
                         else:
                             rule['avg_return_24h'] = None
                 

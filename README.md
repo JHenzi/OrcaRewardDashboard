@@ -7,6 +7,7 @@
 A comprehensive Flask web application that tracks Solana rewards from [**Orca** liquidity pools](https://docs.orca.so/) using the [Helius API](https://docs.helius.dev/) and provides **AI-powered trading intelligence** with real-time predictions, technical analysis, and explainable machine learning insights.
 
 **🚀 Latest Updates (January 2026):**
+- 🔥 **NEW: Discovered Trading Rules** - **THE KILLER FEATURE** - AI automatically extracts human-readable trading rules from its learned behavior. See exactly what conditions lead to profitable trades!
 - ✅ **mSOL Growth Tracking** - Track mSOL balance growth over time with historical catch-up and cumulative growth charts
 - ✅ **AI Predictions Now Live** - Multi-horizon return predictions generating automatically every hour
 - ✅ **Training Infrastructure Corrected** - All numerical issues resolved, attention mechanism fixed, model retrained and stable

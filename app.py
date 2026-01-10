@@ -3871,15 +3871,31 @@ def start_background_fetch():
     seed_tokens()
     
     # Optionally trigger mSOL catch-up on startup if MSOL_TRACKING_START_DATE is set
+    # Skip if we already have recent snapshot data (within last 24 hours)
     if os.getenv("MSOL_TRACKING_START_DATE"):
-        logger.info("MSOL_TRACKING_START_DATE detected, triggering catch-up in background...")
-        def msol_catchup_thread():
-            try:
-                catchup_msol_history(WALLET)
-            except Exception as e:
-                logger.error(f"Error in startup mSOL catch-up: {e}")
-        catchup_thread = threading.Thread(target=msol_catchup_thread, daemon=True)
-        catchup_thread.start()
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*), MAX(timestamp) FROM msol_balance_snapshots 
+                WHERE timestamp > datetime('now', '-24 hours')
+            """)
+            recent_count, last_snapshot = cursor.fetchone()
+            conn.close()
+            
+            if recent_count and recent_count > 0:
+                logger.info(f"mSOL catchup skipped - {recent_count} recent snapshots exist (last: {last_snapshot})")
+            else:
+                logger.info("MSOL_TRACKING_START_DATE detected, triggering catch-up in background...")
+                def msol_catchup_thread():
+                    try:
+                        catchup_msol_history(WALLET)
+                    except Exception as e:
+                        logger.error(f"Error in startup mSOL catch-up: {e}")
+                catchup_thread = threading.Thread(target=msol_catchup_thread, daemon=True)
+                catchup_thread.start()
+        except Exception as e:
+            logger.error(f"Error checking mSOL snapshot status: {e}")
     
     fetch_thread = threading.Thread(target=background_fetch_loop, daemon=True)
     fetch_thread.start()
