@@ -88,7 +88,7 @@ class RuleExtractor:
         # Get decisions with outcomes (at least 1h actual return)
         query = """
             SELECT 
-                d.id, d.timestamp, d.action, d.state_features,
+                d.id, d.timestamp, d.action, d.state_features, d.price_features,
                 d.predicted_return_1h, d.predicted_return_24h,
                 pa.actual_return_1h, pa.actual_return_24h,
                 pa.price_at_prediction, pa.price_1h_later, pa.price_24h_later
@@ -115,6 +115,8 @@ class RuleExtractor:
         for _, row in df.iterrows():
             try:
                 state_features = json.loads(row['state_features']) if row['state_features'] else {}
+                # Parse price_features to get actual std_dev (volatility)
+                price_features = json.loads(row['price_features']) if row.get('price_features') else {}
                 
                 # Flatten nested features into scalars for sklearn
                 flat_features = {}
@@ -124,7 +126,10 @@ class RuleExtractor:
                             # Extract meaningful price features
                             flat_features['price_change'] = value[0] if len(value) > 0 else 0
                             flat_features['price_momentum'] = value[1] if len(value) > 1 else 0
-                            flat_features['price_volatility'] = np.std(value[:10]) if len(value) >= 10 else 0
+                            # Use actual std_dev from price_features (divided by 100 to match model normalization)
+                            # The model sees: price_features.get("std_dev", 0.0) / 100.0
+                            std_dev = price_features.get('std_dev', 0.0) / 100.0
+                            flat_features['price_volatility'] = std_dev
                             flat_features['price_trend'] = np.mean(value[:5]) if len(value) >= 5 else 0
                         elif key == 'news_sentiment' and len(value) > 0:
                             flat_features['sentiment_avg'] = np.mean(value) if value else 0

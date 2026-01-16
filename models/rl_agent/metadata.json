@@ -1,14 +1,6 @@
 {
   "models": [
     {
-      "version": "20251206_101811",
-      "deployed_at": "2025-12-06T10:18:11.493713",
-      "source_path": "models/rl_agent/checkpoint_epoch_5.pt",
-      "active_path": "models/rl_agent/checkpoint_20251206_101811.pt",
-      "training_epochs": null,
-      "training_loss": null
-    },
-    {
       "version": "20251213_113754",
       "deployed_at": "2025-12-13T11:37:54.846864",
       "source_path": "models/rl_agent/checkpoint_epoch_5.pt",
@@ -75,9 +67,17 @@
       "source_path": "models/rl_agent/checkpoint_epoch_5.pt",
       "active_path": "models/rl_agent/checkpoint_20260110_105048.pt",
       "auto_deployed": true
+    },
+    {
+      "version": "20260110_175621",
+      "deployed_at": "2026-01-10T17:56:21.182720",
+      "source_path": "models/rl_agent/checkpoint_epoch_10.pt",
+      "active_path": "models/rl_agent/checkpoint_20260110_175621.pt",
+      "training_epochs": null,
+      "training_loss": null
     }
   ],
-  "current_version": "20260110_105048",
-  "last_retrain_time": "2026-01-03T15:39:54.021808",
-  "next_retrain_time": "2026-01-10T15:39:54.021808"
+  "current_version": "20260110_175621",
+  "last_retrain_time": "2026-01-10T17:56:21.186655",
+  "next_retrain_time": "2026-01-17T17:56:21.186655"
 }
