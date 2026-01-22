@@ -606,6 +606,186 @@ class TrainingDataPrep:
             pickle.dump(episodes, f)
         
         logger.info(f"Saved {len(episodes)} episodes to {output_path}")
+    
+    def create_episodes_from_predictions(
+        self,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        min_predictions: int = 10,
+        decisions_db_path: Optional[str] = None,
+    ) -> List[Dict]:
+        """
+        Create training episodes from actual prediction outcomes.
+        
+        This method loads predictions from rl_prediction_accuracy table and
+        creates training episodes where the model can learn from its own mistakes.
+        
+        Args:
+            start_time: Start time for predictions (None = from beginning)
+            end_time: End time for predictions (None = to now)
+            min_predictions: Minimum number of predictions required
+            decisions_db_path: Path to decisions database (default: from env or rewards.db)
+            
+        Returns:
+            List of episode dicts with actual prediction outcomes
+        """
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        
+        # Get database path - predictions are in rewards.db (or DATABASE_PATH)
+        if decisions_db_path is None:
+            decisions_db_path = os.getenv("DATABASE_PATH", "rewards.db")
+        
+        conn = sqlite3.connect(decisions_db_path)
+        cursor = conn.cursor()
+        
+        # Build query to get predictions with actual returns
+        query = """
+            SELECT 
+                pa.id,
+                pa.timestamp,
+                pa.predicted_return_1h,
+                pa.predicted_return_24h,
+                pa.actual_return_1h,
+                pa.actual_return_24h,
+                pa.price_at_prediction,
+                pa.price_1h_later,
+                pa.price_24h_later,
+                d.state_features,
+                d.price_features,
+                d.action,
+                d.confidence
+            FROM rl_prediction_accuracy pa
+            LEFT JOIN rl_agent_decisions d ON pa.decision_id = d.id
+            WHERE 1=1
+        """
+        params = []
+        
+        if start_time:
+            query += " AND datetime(pa.timestamp) >= datetime(?)"
+            params.append(start_time.isoformat())
+        
+        if end_time:
+            query += " AND datetime(pa.timestamp) <= datetime(?)"
+            params.append(end_time.isoformat())
+        
+        # Only get predictions that have actual returns (outcomes are known)
+        query += " AND (pa.actual_return_1h IS NOT NULL OR pa.actual_return_24h IS NOT NULL)"
+        query += " ORDER BY pa.timestamp ASC"
+        
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if len(rows) < min_predictions:
+            logger.warning(
+                f"Only {len(rows)} predictions with outcomes available "
+                f"(minimum {min_predictions} required)"
+            )
+            return []
+        
+        logger.info(f"Loading {len(rows)} predictions with outcomes for training")
+        
+        episodes = []
+        import json
+        
+        # Group predictions into episodes (each prediction becomes a training step)
+        for row in rows:
+            (
+                pred_id, timestamp_str, pred_1h, pred_24h,
+                actual_1h, actual_24h, price_at_pred,
+                price_1h_later, price_24h_later,
+                state_features_json, price_features_json,
+                action, confidence
+            ) = row
+            
+            try:
+                # Parse timestamp
+                if isinstance(timestamp_str, str):
+                    if 'Z' in timestamp_str:
+                        timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    else:
+                        timestamp = datetime.fromisoformat(timestamp_str)
+                else:
+                    timestamp = timestamp_str
+                
+                # Parse state and price features from JSON
+                state_features = {}
+                price_features = {}
+                
+                if state_features_json:
+                    try:
+                        state_features = json.loads(state_features_json)
+                    except (json.JSONDecodeError, TypeError):
+                        logger.warning(f"Could not parse state_features for prediction {pred_id}")
+                
+                if price_features_json:
+                    try:
+                        price_features = json.loads(price_features_json)
+                    except (json.JSONDecodeError, TypeError):
+                        logger.warning(f"Could not parse price_features for prediction {pred_id}")
+                
+                # Get news data for this timestamp
+                news_data = self.get_news_at_time(timestamp, hours_back=24)
+                
+                # Get price history around this time
+                price_start = timestamp - timedelta(hours=24)
+                price_end = timestamp + timedelta(hours=1)
+                price_history = self.get_price_history(
+                    start_time=price_start,
+                    end_time=price_end,
+                    fill_gaps=True,
+                )
+                
+                if not price_history:
+                    logger.warning(f"No price history for prediction {pred_id} at {timestamp}")
+                    continue
+                
+                # Find price at prediction time
+                current_price = price_at_pred if price_at_pred else price_history[-1][1]
+                
+                # Create episode with single step (this prediction)
+                episode = {
+                    "states": [{
+                        "price": [p[1] for p in price_history[-60:]] if len(price_history) >= 60 else [p[1] for p in price_history],
+                        "price_features": price_features,
+                        "news_embeddings": [item.get("embedding", np.zeros(self.embedding_dim)) for item in news_data[:self.max_news_headlines]],
+                        "news_sentiment": [item.get("sentiment_score", 0.0) for item in news_data[:self.max_news_headlines]],
+                        "position": [0.0, 10000.0, 0.0, 0.0],  # Default position state
+                        "time": self._encode_time_features(timestamp),
+                    }],
+                    "prices": [current_price],
+                    "timestamps": [timestamp],
+                    "predicted_returns_1h": [pred_1h if pred_1h is not None else 0.0],
+                    "predicted_returns_24h": [pred_24h if pred_24h is not None else 0.0],
+                    "actual_returns_1h": [actual_1h if actual_1h is not None else None],
+                    "actual_returns_24h": [actual_24h if actual_24h is not None else None],
+                    "future_prices_1h": [price_1h_later if price_1h_later else None],
+                    "future_prices_24h": [price_24h_later if price_24h_later else None],
+                    "actions": [action if action else "HOLD"],
+                    "news_data": [news_data],
+                    "price_features": [price_features],
+                    "prediction_ids": [pred_id],  # Track which prediction this came from
+                }
+                
+                episodes.append(episode)
+                
+            except Exception as e:
+                logger.warning(f"Error processing prediction {pred_id}: {e}")
+                continue
+        
+        logger.info(f"Created {len(episodes)} training episodes from prediction outcomes")
+        return episodes
+    
+    def _encode_time_features(self, timestamp: datetime) -> List[float]:
+        """Encode time features (hour, day of week, etc.)"""
+        return [
+            float(timestamp.hour) / 24.0,  # Hour of day (normalized)
+            float(timestamp.weekday()) / 7.0,  # Day of week (normalized)
+            float(timestamp.day) / 31.0,  # Day of month (normalized)
+            float(timestamp.month) / 12.0,  # Month (normalized)
+        ]
 
 
 if __name__ == "__main__":

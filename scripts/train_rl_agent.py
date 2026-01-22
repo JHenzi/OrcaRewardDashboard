@@ -44,6 +44,8 @@ def train_on_historical_data(
     enable_auxiliary: bool = True,
     aux_1h_coef: float = 1.0,  # Increased significantly - auxiliary heads need very strong signal to prevent collapse
     aux_24h_coef: float = 1.0,  # Increased significantly - auxiliary heads need very strong signal to prevent collapse
+    use_prediction_outcomes: bool = False,  # NEW: Train from actual prediction outcomes
+    combine_with_historical: bool = True,  # NEW: Combine prediction outcomes with historical data
 ):
     # Set default paths relative to project root
     if episodes_path is None:
@@ -66,33 +68,71 @@ def train_on_historical_data(
         resume_from: Path to checkpoint to resume from
     """
     logger.info("=" * 60)
-    logger.info("RL Agent Training on Historical Data")
+    logger.info("RL Agent Training")
     logger.info("=" * 60)
     
-    # Note: Ensure news data gaps are filled before training
-    # Run: python3 scripts/fill_news_gaps.py
-    # See: NEWS_GAP_FILLING_PLAN.md for details
-    
     # Load training episodes
-    logger.info(f"Loading training episodes from {episodes_path}")
-    if not Path(episodes_path).exists():
-        logger.error(f"Episodes file not found: {episodes_path}")
-        logger.info("Run training_data_prep.py first to create episodes")
+    episodes = []
+    
+    if use_prediction_outcomes:
+        # NEW: Load training data from actual prediction outcomes
+        logger.info("🔄 Loading training data from prediction outcomes...")
+        logger.info("   This allows the model to learn from its own prediction mistakes!")
+        
+        from datetime import datetime, timedelta
+        from rl_agent.training_data_prep import TrainingDataPrep
+        
+        prep = TrainingDataPrep()
+        
+        # Get predictions from last 30 days (or all if available)
+        end_time = datetime.now()
+        start_time = end_time - timedelta(days=30)
+        
+        prediction_episodes = prep.create_episodes_from_predictions(
+            start_time=start_time,
+            end_time=end_time,
+            min_predictions=5,  # Lower threshold for prediction-based training
+        )
+        
+        if prediction_episodes:
+            logger.info(f"✅ Loaded {len(prediction_episodes)} episodes from prediction outcomes")
+            episodes.extend(prediction_episodes)
+        else:
+            logger.warning("⚠️ No prediction outcomes available - falling back to historical data")
+            use_prediction_outcomes = False  # Fallback to historical
+    
+    if not use_prediction_outcomes or combine_with_historical:
+        # Load historical episodes
+        logger.info(f"📊 Loading historical training episodes from {episodes_path}")
+        if not Path(episodes_path).exists():
+            if use_prediction_outcomes and len(episodes) > 0:
+                logger.warning(f"Historical episodes file not found: {episodes_path}")
+                logger.info("Continuing with prediction outcomes only...")
+            else:
+                logger.error(f"Episodes file not found: {episodes_path}")
+                logger.info("Run training_data_prep.py first to create episodes")
+                if len(episodes) == 0:
+                    return
+        else:
+            # Try to load episodes with error handling for corrupted files
+            try:
+                with open(episodes_path, 'rb') as f:
+                    historical_episodes = pickle.load(f)
+                logger.info(f"✅ Loaded {len(historical_episodes)} historical training episodes")
+                episodes.extend(historical_episodes)
+            except (EOFError, pickle.UnpicklingError, Exception) as e:
+                logger.warning(f"Failed to load historical episodes file: {e}")
+                if len(episodes) == 0:
+                    logger.error("No training data available!")
+                    return
+    
+    if len(episodes) == 0:
+        logger.error("No training episodes available!")
         return
     
-    # Try to load episodes with error handling for corrupted files
-    try:
-        with open(episodes_path, 'rb') as f:
-            episodes = pickle.load(f)
-        logger.info(f"Loaded {len(episodes)} training episodes")
-    except (EOFError, pickle.UnpicklingError, Exception) as e:
-        logger.error(f"Failed to load episodes file: {e}")
-        logger.error("The episodes.pkl file appears to be corrupted or incomplete.")
-        logger.info("To fix this, regenerate the episodes file:")
-        logger.info("  python -m rl_agent.training_data_prep")
-        logger.info("Or use the script:")
-        logger.info("  python scripts/prepare_training_data.py")
-        return
+    logger.info(f"📈 Total training episodes: {len(episodes)}")
+    if use_prediction_outcomes:
+        logger.info("   ✨ Model will learn from actual prediction outcomes!")
     
     # Initialize components
     logger.info("Initializing model and environment...")
@@ -259,18 +299,35 @@ def train_on_historical_data(
                         "action_logits": torch.zeros(1, 3),
                     }
                 
-                # Calculate reward from future prices
-                future_price_1h = episode["future_prices_1h"][step]
-                future_price_24h = episode["future_prices_24h"][step]
-                
-                if future_price_1h and future_price_24h and current_price > 0:
-                    # Calculate returns - clamp to prevent extreme values
-                    return_1h_raw = (future_price_1h - current_price) / current_price
-                    return_24h_raw = (future_price_24h - current_price) / current_price
+                # Calculate reward from future prices OR actual returns from predictions
+                # If this episode came from prediction outcomes, use actual returns directly
+                if "actual_returns_1h" in episode and episode["actual_returns_1h"][step] is not None:
+                    # Use actual returns from prediction outcomes
+                    return_1h = episode["actual_returns_1h"][step]
+                    return_24h = episode["actual_returns_24h"][step] if (
+                        "actual_returns_24h" in episode and 
+                        episode["actual_returns_24h"][step] is not None
+                    ) else 0.0
                     
                     # Clamp returns to ±100% to prevent numerical issues
-                    return_1h = max(-1.0, min(1.0, return_1h_raw))
-                    return_24h = max(-1.0, min(1.0, return_24h_raw))
+                    return_1h = max(-1.0, min(1.0, return_1h))
+                    return_24h = max(-1.0, min(1.0, return_24h))
+                else:
+                    # Use future prices from historical data (original method)
+                    future_price_1h = episode["future_prices_1h"][step]
+                    future_price_24h = episode["future_prices_24h"][step]
+                    
+                    if future_price_1h and future_price_24h and current_price > 0:
+                        # Calculate returns - clamp to prevent extreme values
+                        return_1h_raw = (future_price_1h - current_price) / current_price
+                        return_24h_raw = (future_price_24h - current_price) / current_price
+                        
+                        # Clamp returns to ±100% to prevent numerical issues
+                        return_1h = max(-1.0, min(1.0, return_1h_raw))
+                        return_24h = max(-1.0, min(1.0, return_24h_raw))
+                    else:
+                        return_1h = 0.0
+                        return_24h = 0.0
                     
                     # Calculate reward based on action
                     if action == 2:  # BUY
@@ -472,12 +529,33 @@ if __name__ == "__main__":
         default=1.0,
         help="Coefficient for 24h auxiliary loss (default: 1.0, increased significantly to prevent collapse)"
     )
+    parser.add_argument(
+        "--use-prediction-outcomes",
+        action="store_true",
+        help="Train from actual prediction outcomes (learns from model's own mistakes)"
+    )
+    parser.add_argument(
+        "--combine-with-historical",
+        action="store_true",
+        default=True,
+        help="Combine prediction outcomes with historical data (default: True)"
+    )
+    parser.add_argument(
+        "--prediction-only",
+        action="store_true",
+        help="Train ONLY on prediction outcomes (no historical data)"
+    )
     
     args = parser.parse_args()
     
     # Handle disable flag
     if args.disable_auxiliary:
         args.enable_auxiliary = False
+    
+    # Handle prediction-only flag
+    if args.prediction_only:
+        args.use_prediction_outcomes = True
+        args.combine_with_historical = False
     
     train_on_historical_data(
         episodes_path=args.episodes,
@@ -489,5 +567,7 @@ if __name__ == "__main__":
         enable_auxiliary=args.enable_auxiliary,
         aux_1h_coef=args.aux_1h_coef,
         aux_24h_coef=args.aux_24h_coef,
+        use_prediction_outcomes=args.use_prediction_outcomes,
+        combine_with_historical=args.combine_with_historical,
     )
 

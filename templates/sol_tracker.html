@@ -2855,27 +2855,42 @@
                   // Update accuracy stats
                   if (data.accuracy_stats) {
                       const stats = data.accuracy_stats;
+                      
+                      // Debug logging
+                      console.log('Accuracy stats received:', {
+                          mae_1h: stats.mae_1h,
+                          mae_24h: stats.mae_24h,
+                          rmse_1h: stats.rmse_1h,
+                          rmse_24h: stats.rmse_24h,
+                          count_1h: stats.count_1h,
+                          count_24h: stats.count_24h
+                      });
+                      
                       // Show stats if we have data for each metric separately
                       // 1h stats can show even if 24h isn't ready yet
-                      if (stats.mae_1h !== null && stats.mae_1h !== undefined) {
+                      // Use typeof check to handle null, undefined, and NaN properly
+                      if (typeof stats.mae_1h === 'number' && !isNaN(stats.mae_1h)) {
                           document.getElementById('mae-1h').textContent = (stats.mae_1h * 100).toFixed(2) + '%';
                       } else {
                           document.getElementById('mae-1h').textContent = 'No data';
                       }
                       
-                      if (stats.mae_24h !== null && stats.mae_24h !== undefined) {
+                      // FIX: Better handling for 24h MAE - check for number type and not NaN
+                      if (typeof stats.mae_24h === 'number' && !isNaN(stats.mae_24h)) {
                           document.getElementById('mae-24h').textContent = (stats.mae_24h * 100).toFixed(2) + '%';
+                          console.log('Setting mae-24h to:', (stats.mae_24h * 100).toFixed(2) + '%');
                       } else {
                           document.getElementById('mae-24h').textContent = 'No data';
+                          console.log('mae_24h not available:', stats.mae_24h, 'type:', typeof stats.mae_24h, 'count_24h:', stats.count_24h);
                       }
                       
-                      if (stats.rmse_1h !== null && stats.rmse_1h !== undefined) {
+                      if (typeof stats.rmse_1h === 'number' && !isNaN(stats.rmse_1h)) {
                           document.getElementById('rmse-1h').textContent = (stats.rmse_1h * 100).toFixed(2) + '%';
                       } else {
                           document.getElementById('rmse-1h').textContent = 'No data';
                       }
                       
-                      if (stats.rmse_24h !== null && stats.rmse_24h !== undefined) {
+                      if (typeof stats.rmse_24h === 'number' && !isNaN(stats.rmse_24h)) {
                           document.getElementById('rmse-24h').textContent = (stats.rmse_24h * 100).toFixed(2) + '%';
                       } else {
                           document.getElementById('rmse-24h').textContent = 'No data';
