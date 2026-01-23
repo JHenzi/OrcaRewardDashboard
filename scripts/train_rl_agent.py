@@ -44,6 +44,7 @@ def train_on_historical_data(
     enable_auxiliary: bool = True,
     aux_1h_coef: float = 1.0,  # Increased significantly - auxiliary heads need very strong signal to prevent collapse
     aux_24h_coef: float = 1.0,  # Increased significantly - auxiliary heads need very strong signal to prevent collapse
+    aux_15m_coef: float = 1.0,  # Auxiliary 15m loss coefficient
     use_prediction_outcomes: bool = False,  # NEW: Train from actual prediction outcomes
     combine_with_historical: bool = True,  # NEW: Combine prediction outcomes with historical data
 ):
@@ -196,11 +197,12 @@ def train_on_historical_data(
         enable_auxiliary_losses=use_auxiliary,
         aux_1h_coef=aux_1h_coef,
         aux_24h_coef=aux_24h_coef,
+        aux_15m_coef=aux_15m_coef,
     )
     
     if use_auxiliary:
-        logger.info(f"✅ Auxiliary losses ENABLED: aux_1h_coef={aux_1h_coef}, aux_24h_coef={aux_24h_coef}")
-        logger.info("   Training 1h and 24h return prediction heads alongside policy/value")
+        logger.info(f"✅ Auxiliary losses ENABLED: aux_1h_coef={aux_1h_coef}, aux_24h_coef={aux_24h_coef}, aux_15m_coef={aux_15m_coef}")
+        logger.info("   Training 1h, 24h, and 15m return prediction heads alongside policy/value")
     else:
         logger.warning("⚠️ Auxiliary losses DISABLED - training core model only (policy + value)")
         logger.warning("   Predictions will be generated but not trained.")
@@ -239,8 +241,10 @@ def train_on_historical_data(
             episode_dones = []
             episode_pred_1h = []
             episode_pred_24h = []
+            episode_pred_15m = []
             episode_returns_1h = []
             episode_returns_24h = []
+            episode_returns_15m = []
             
             for step in range(len(episode["prices"])):
                 timestamp = episode["timestamps"][step]
@@ -328,28 +332,52 @@ def train_on_historical_data(
                     else:
                         return_1h = 0.0
                         return_24h = 0.0
-                    
-                    # Calculate reward based on action
-                    if action == 2:  # BUY
-                        reward = return_24h - 0.001  # Transaction cost
-                    elif action == 0:  # SELL
-                        reward = -return_24h - 0.001
-                    else:  # HOLD
-                        reward = 0.0
-                else:
+                
+                # Calculate reward based on action (for both prediction outcomes and historical data)
+                if action == 2:  # BUY
+                    reward = return_24h - 0.001  # Transaction cost
+                elif action == 0:  # SELL
+                    reward = -return_24h - 0.001
+                else:  # HOLD
                     reward = 0.0
-                    return_1h = 0.0
-                    return_24h = 0.0
                 
                 # Store experience
                 action_probs = torch.softmax(output["action_logits"], dim=-1)
                 log_prob = torch.log(action_probs[0, action] + 1e-8)
+                
+                # Calculate 15-minute return (15 minutes = 3 price points if 5-min intervals)
+                return_15m = 0.0
+                if "actual_returns_15m" in episode and episode["actual_returns_15m"][step] is not None:
+                    # Use actual 15m return from prediction outcomes
+                    return_15m = episode["actual_returns_15m"][step]
+                    return_15m = max(-1.0, min(1.0, return_15m))
+                elif "future_prices_15m" in episode and episode["future_prices_15m"][step] is not None:
+                    # Calculate from future price (15 minutes = 3 steps if 5-min intervals)
+                    future_price_15m = episode["future_prices_15m"][step]
+                    if future_price_15m and current_price > 0:
+                        return_15m_raw = (future_price_15m - current_price) / current_price
+                        return_15m = max(-1.0, min(1.0, return_15m_raw))
+                else:
+                    # Calculate 15m return from price data (15 min = 3 steps for 5-min intervals)
+                    if step + 3 < len(episode["prices"]):
+                        future_price_15m = episode["prices"][step + 3]
+                        if current_price > 0:
+                            return_15m_raw = (future_price_15m - current_price) / current_price
+                            return_15m = max(-1.0, min(1.0, return_15m_raw))
                 
                 # Validate values before storing (replace NaN/inf)
                 value_item = output["value"].item()
                 log_prob_item = log_prob.item()
                 pred_1h_item = output["pred_1h"].item()
                 pred_24h_item = output["pred_24h"].item()
+                # Get 15m prediction if available
+                pred_15m_item = 0.0
+                if "pred_15m" in output and output["pred_15m"] is not None:
+                    pred_15m_tensor = output["pred_15m"]
+                    if pred_15m_tensor.dim() > 1:
+                        pred_15m_item = pred_15m_tensor[0].item()
+                    else:
+                        pred_15m_item = pred_15m_tensor.item()
                 
                 if not np.isfinite(value_item):
                     logger.warning(f"Invalid value detected: {value_item}, replacing with 0")
@@ -361,6 +389,8 @@ def train_on_historical_data(
                     pred_1h_item = 0.0
                 if not np.isfinite(pred_24h_item):
                     pred_24h_item = 0.0
+                if not np.isfinite(pred_15m_item):
+                    pred_15m_item = 0.0
                 if not np.isfinite(reward):
                     logger.warning(f"Invalid reward detected: {reward}, replacing with 0")
                     reward = 0.0
@@ -368,6 +398,8 @@ def train_on_historical_data(
                     return_1h = 0.0
                 if not np.isfinite(return_24h):
                     return_24h = 0.0
+                if not np.isfinite(return_15m):
+                    return_15m = 0.0
                 
                 episode_states.append(state_dict)
                 episode_actions.append(action)
@@ -377,8 +409,10 @@ def train_on_historical_data(
                 episode_dones.append(False)  # Not terminal within episode
                 episode_pred_1h.append(pred_1h_item)
                 episode_pred_24h.append(pred_24h_item)
+                episode_pred_15m.append(pred_15m_item)
                 episode_returns_1h.append(return_1h)
                 episode_returns_24h.append(return_24h)
+                episode_returns_15m.append(return_15m)
                 
                 # Update position state (simplified)
                 if action == 2:  # BUY
@@ -400,17 +434,20 @@ def train_on_historical_data(
             trainer.buffer["dones"].extend(episode_dones)
             trainer.buffer["pred_1h"].extend(episode_pred_1h)
             trainer.buffer["pred_24h"].extend(episode_pred_24h)
+            trainer.buffer["pred_15m"].extend(episode_pred_15m)
             trainer.buffer["returns_1h"].extend(episode_returns_1h)
             trainer.buffer["returns_24h"].extend(episode_returns_24h)
+            trainer.buffer["returns_15m"].extend(episode_returns_15m)
             
             # Log returns statistics periodically to verify auxiliary loss data
             if len(trainer.buffer["returns_1h"]) > 0 and len(trainer.buffer["returns_1h"]) % 1000 == 0:
                 non_zero_1h = sum(1 for r in trainer.buffer["returns_1h"] if abs(r) > 1e-6)
                 non_zero_24h = sum(1 for r in trainer.buffer["returns_24h"] if abs(r) > 1e-6)
+                non_zero_15m = sum(1 for r in trainer.buffer["returns_15m"] if abs(r) > 1e-6)
                 total_returns = len(trainer.buffer["returns_1h"])
-                logger.info(f"Returns buffer stats: {total_returns} total, {non_zero_1h} non-zero 1h ({100*non_zero_1h/total_returns:.1f}%), {non_zero_24h} non-zero 24h ({100*non_zero_24h/total_returns:.1f}%)")
-                if non_zero_1h == 0 or non_zero_24h == 0:
-                    logger.warning("⚠️ All returns are zero! Auxiliary losses will be zero. Check if future_prices are available in training data.")
+                logger.info(f"Returns buffer stats: {total_returns} total, {non_zero_15m} non-zero 15m ({100*non_zero_15m/total_returns:.1f}%), {non_zero_1h} non-zero 1h ({100*non_zero_1h/total_returns:.1f}%), {non_zero_24h} non-zero 24h ({100*non_zero_24h/total_returns:.1f}%)")
+                if non_zero_15m == 0 or non_zero_1h == 0 or non_zero_24h == 0:
+                    logger.warning("⚠️ Some returns are zero! Auxiliary losses may be zero. Check if future_prices are available in training data.")
             
             # Train when buffer is large enough
             if len(trainer.buffer["states"]) >= batch_size * 4:
@@ -440,8 +477,10 @@ def train_on_historical_data(
                     "dones": [],
                     "pred_1h": [],
                     "pred_24h": [],
+                    "pred_15m": [],
                     "returns_1h": [],
                     "returns_24h": [],
+                    "returns_15m": [],
                 }
         
         # Epoch summary
@@ -530,6 +569,12 @@ if __name__ == "__main__":
         help="Coefficient for 24h auxiliary loss (default: 1.0, increased significantly to prevent collapse)"
     )
     parser.add_argument(
+        "--aux-15m-coef",
+        type=float,
+        default=1.0,
+        help="Coefficient for 15m auxiliary loss (default: 1.0)"
+    )
+    parser.add_argument(
         "--use-prediction-outcomes",
         action="store_true",
         help="Train from actual prediction outcomes (learns from model's own mistakes)"
@@ -567,6 +612,7 @@ if __name__ == "__main__":
         enable_auxiliary=args.enable_auxiliary,
         aux_1h_coef=args.aux_1h_coef,
         aux_24h_coef=args.aux_24h_coef,
+        aux_15m_coef=args.aux_15m_coef,
         use_prediction_outcomes=args.use_prediction_outcomes,
         combine_with_historical=args.combine_with_historical,
     )

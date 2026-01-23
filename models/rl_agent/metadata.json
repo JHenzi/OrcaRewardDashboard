@@ -82,9 +82,16 @@
       "source_path": "models/rl_agent/checkpoint_epoch_10.pt",
       "active_path": "models/rl_agent/checkpoint_20260122_182057.pt",
       "auto_deployed": true
+    },
+    {
+      "version": "20260123_000733",
+      "deployed_at": "2026-01-23T00:07:33.980318",
+      "source_path": "models/rl_agent/checkpoint_epoch_10.pt",
+      "active_path": "models/rl_agent/checkpoint_20260123_000733.pt",
+      "auto_deployed": true
     }
   ],
-  "current_version": "20260122_182057",
+  "current_version": "20260123_000733",
   "last_retrain_time": "2026-01-10T17:56:21.186655",
   "next_retrain_time": "2026-01-17T17:56:21.186655"
 }

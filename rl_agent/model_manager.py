@@ -180,7 +180,9 @@ class ModelManager:
             # Try to instantiate and load model
             try:
                 model = model_class(**model_kwargs)
-                model.load_state_dict(checkpoint['model_state_dict'])
+                # Load with strict=False to handle missing keys (backward compatibility)
+                state_dict = checkpoint.get('model_state_dict', checkpoint)
+                model.load_state_dict(state_dict, strict=False)
                 model.eval()
             except Exception as e:
                 return False, f"Failed to load model state: {e}"
@@ -456,7 +458,18 @@ class ModelManager:
             # Load model
             checkpoint = torch.load(active_model_path, map_location=device)
             model = model_class(**model_kwargs)
-            model.load_state_dict(checkpoint['model_state_dict'])
+            
+            # Load state dict with strict=False to handle missing keys (e.g., new aux_15m head)
+            # This allows backward compatibility when model architecture changes
+            state_dict = checkpoint.get('model_state_dict', checkpoint)
+            missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+            
+            # Log missing keys (expected for new architecture features like aux_15m)
+            if missing_keys:
+                logger.info(f"Model has new parameters not in checkpoint (will use random initialization): {missing_keys}")
+            if unexpected_keys:
+                logger.warning(f"Checkpoint has unexpected parameters (will be ignored): {unexpected_keys}")
+            
             model.eval()
             model.to(device)
             

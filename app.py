@@ -50,6 +50,7 @@ try:
     from rl_agent.model_manager import ModelManager
     from rl_agent.retraining_scheduler import RetrainingScheduler
     from rl_agent.model import TradingActorCritic
+    from rl_agent.prediction_generator import generate_15m_price_prediction
     RL_AGENT_AVAILABLE = True
 except ImportError:
     RL_AGENT_AVAILABLE = False
@@ -2733,6 +2734,91 @@ def get_rl_agent_predictions():
             })
     except Exception as e:
         logger.error(f"Error fetching RL agent predictions: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/sol-price/predict-15m', methods=['GET'])
+def predict_sol_price_15m():
+    """
+    Predict SOL price 15 minutes into the future.
+    
+    Returns:
+        JSON with current price, predicted price, return percentage, confidence, and method used.
+    """
+    global rl_agent_integration
+    
+    if not RL_AGENT_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'RL agent module not available'
+        }), 503
+    
+    try:
+        # Check if RL agent integration is initialized
+        if rl_agent_integration is None:
+            return jsonify({
+                'success': False,
+                'error': 'RL agent model not loaded. Train model first.',
+                'note': 'Use /api/rl-agent/status to check model availability'
+            }), 503
+        
+        # Get current market state
+        prices, price_features = rl_agent_integration.get_price_data(hours=24)
+        news_data = rl_agent_integration.get_news_data(hours=24, max_headlines=20)
+        
+        if not prices:
+            return jsonify({
+                'success': False,
+                'error': 'No price data available'
+            }), 503
+        
+        current_price = price_features["current_price"]
+        
+        if current_price <= 0:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid current price'
+            }), 503
+        
+        # Calculate position state (default values for prediction)
+        position_state = {
+            "position_size": rl_agent_integration.current_position,
+            "portfolio_value": rl_agent_integration.portfolio_value,
+            "entry_price": rl_agent_integration.entry_price,
+            "time_since_last_trade": 0.0,
+            "unrealized_pnl": 0.0,
+        }
+        
+        # Generate 15-minute prediction
+        pred_15m, confidence_15m, predicted_price_15m, method = generate_15m_price_prediction(
+            model=rl_agent_integration.model,
+            state_encoder=rl_agent_integration.state_encoder,
+            price_data=prices,
+            price_features=price_features,
+            news_data=news_data,
+            position_state=position_state,
+            current_price=current_price,
+            timestamp=datetime.now(),
+            device=rl_agent_integration.device,
+        )
+        
+        return jsonify({
+            'success': True,
+            'current_price': float(current_price),
+            'predicted_price_15m': float(predicted_price_15m),
+            'predicted_return_15m': float(pred_15m),
+            'confidence_15m': float(confidence_15m),
+            'timestamp': datetime.now().isoformat(),
+            'prediction_horizon_minutes': 15,
+            'method': method
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating 15-minute price prediction: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({

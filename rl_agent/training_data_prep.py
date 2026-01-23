@@ -545,6 +545,7 @@ class TrainingDataPrep:
                 "states": [],
                 "prices": [],
                 "timestamps": [],
+                "future_prices_15m": [],
                 "future_prices_1h": [],
                 "future_prices_24h": [],
                 "news_data": [],
@@ -566,14 +567,17 @@ class TrainingDataPrep:
                 news_data = self.get_news_at_time(timestamp, hours_back=24)
                 
                 # Get future prices (for reward calculation)
+                future_idx_15m = min(len(price_data) - 1, idx + 3)  # ~15 minutes later (3 * 5min)
                 future_idx_1h = min(len(price_data) - 1, idx + 12)  # ~1 hour later (12 * 5min)
                 future_idx_24h = min(len(price_data) - 1, idx + 288)  # ~24 hours later (288 * 5min)
                 
+                future_price_15m = price_data[future_idx_15m][1] if future_idx_15m < len(price_data) else None
                 future_price_1h = price_data[future_idx_1h][1] if future_idx_1h < len(price_data) else None
                 future_price_24h = price_data[future_idx_24h][1] if future_idx_24h < len(price_data) else None
                 
                 episode["prices"].append(price)
                 episode["timestamps"].append(timestamp)
+                episode["future_prices_15m"].append(future_price_15m)
                 episode["future_prices_1h"].append(future_price_1h)
                 episode["future_prices_24h"].append(future_price_24h)
                 episode["news_data"].append(news_data)
@@ -746,6 +750,20 @@ class TrainingDataPrep:
                 current_price = price_at_pred if price_at_pred else price_history[-1][1]
                 
                 # Create episode with single step (this prediction)
+                # Calculate 15-minute future price (15 min = 3 steps for 5-min intervals)
+                # Look ahead 15 minutes from prediction timestamp
+                price_15m_later = None
+                if price_history:
+                    # Find price 15 minutes after prediction timestamp
+                    target_time_15m = timestamp + timedelta(minutes=15)
+                    for i, (ts, p) in enumerate(price_history):
+                        if ts >= target_time_15m:
+                            price_15m_later = p
+                            break
+                    # If not found, use the last price in history
+                    if price_15m_later is None and len(price_history) > 0:
+                        price_15m_later = price_history[-1][1]
+                
                 episode = {
                     "states": [{
                         "price": [p[1] for p in price_history[-60:]] if len(price_history) >= 60 else [p[1] for p in price_history],
@@ -761,6 +779,7 @@ class TrainingDataPrep:
                     "predicted_returns_24h": [pred_24h if pred_24h is not None else 0.0],
                     "actual_returns_1h": [actual_1h if actual_1h is not None else None],
                     "actual_returns_24h": [actual_24h if actual_24h is not None else None],
+                    "future_prices_15m": [price_15m_later if price_15m_later else None],
                     "future_prices_1h": [price_1h_later if price_1h_later else None],
                     "future_prices_24h": [price_24h_later if price_24h_later else None],
                     "actions": [action if action else "HOLD"],

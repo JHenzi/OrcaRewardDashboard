@@ -48,6 +48,7 @@ class PPOTrainer:
         entropy_coef: float = 0.01,  # Entropy bonus coefficient
         aux_1h_coef: float = 1.0,  # Auxiliary 1h loss coefficient (increased significantly - auxiliary heads need strong signal)
         aux_24h_coef: float = 1.0,  # Auxiliary 24h loss coefficient (increased significantly - auxiliary heads need strong signal)
+        aux_15m_coef: float = 1.0,  # Auxiliary 15m loss coefficient
         enable_auxiliary_losses: bool = True,  # Can disable if causing issues
         max_grad_norm: float = 0.5,
         device: str = "cpu",
@@ -67,6 +68,7 @@ class PPOTrainer:
             entropy_coef: Entropy bonus coefficient
             aux_1h_coef: Auxiliary 1h loss coefficient
             aux_24h_coef: Auxiliary 24h loss coefficient
+            aux_15m_coef: Auxiliary 15m loss coefficient
             max_grad_norm: Maximum gradient norm for clipping
             device: Device to use ('cpu' or 'cuda')
             checkpoint_dir: Directory for model checkpoints
@@ -82,6 +84,7 @@ class PPOTrainer:
         self.entropy_coef = entropy_coef
         self.aux_1h_coef = aux_1h_coef
         self.aux_24h_coef = aux_24h_coef
+        self.aux_15m_coef = aux_15m_coef
         self.enable_auxiliary_losses = enable_auxiliary_losses
         self.max_grad_norm = max_grad_norm
         
@@ -98,8 +101,10 @@ class PPOTrainer:
             "dones": [],
             "pred_1h": [],  # Predicted 1h returns
             "pred_24h": [],  # Predicted 24h returns
+            "pred_15m": [],  # Predicted 15m returns
             "returns_1h": [],  # Actual 1h returns (filled later)
             "returns_24h": [],  # Actual 24h returns (filled later)
+            "returns_15m": [],  # Actual 15m returns (filled later)
         }
         
         # Checkpointing
@@ -191,6 +196,12 @@ class PPOTrainer:
             self.buffer["log_probs"].append(log_prob.item())
             self.buffer["pred_1h"].append(output["pred_1h"].item())
             self.buffer["pred_24h"].append(output["pred_24h"].item())
+            # Store 15m prediction if available
+            if "pred_15m" in output and output["pred_15m"] is not None:
+                pred_15m_val = output["pred_15m"].item() if output["pred_15m"].dim() == 0 else output["pred_15m"][0].item()
+                self.buffer["pred_15m"].append(pred_15m_val)
+            else:
+                self.buffer["pred_15m"].append(0.0)  # Placeholder
             
             # Step environment
             next_price = price_data[step] if step < len(price_data) else current_price
@@ -398,6 +409,7 @@ class PPOTrainer:
         # Get actual returns for auxiliary losses (if available)
         actual_returns_1h = None
         actual_returns_24h = None
+        actual_returns_15m = None
         if len(self.buffer["returns_1h"]) > 0 and len(self.buffer["returns_1h"]) == len(actions):
             returns_1h_array = np.array(self.buffer["returns_1h"])
             returns_1h_array = np.nan_to_num(returns_1h_array, nan=0.0, posinf=0.0, neginf=0.0)
@@ -406,6 +418,10 @@ class PPOTrainer:
             returns_24h_array = np.array(self.buffer["returns_24h"])
             returns_24h_array = np.nan_to_num(returns_24h_array, nan=0.0, posinf=0.0, neginf=0.0)
             actual_returns_24h = torch.FloatTensor(returns_24h_array).to(self.device)
+        if len(self.buffer["returns_15m"]) > 0 and len(self.buffer["returns_15m"]) == len(actions):
+            returns_15m_array = np.array(self.buffer["returns_15m"])
+            returns_15m_array = np.nan_to_num(returns_15m_array, nan=0.0, posinf=0.0, neginf=0.0)
+            actual_returns_15m = torch.FloatTensor(returns_15m_array).to(self.device)
         
         states = self.buffer["states"]
         num_samples = len(states)
@@ -418,6 +434,7 @@ class PPOTrainer:
         total_entropy = 0.0
         total_aux_1h_loss = 0.0
         total_aux_24h_loss = 0.0
+        total_aux_15m_loss = 0.0
         total_clip_fraction = 0.0
         
         for epoch in range(num_epochs):
@@ -626,10 +643,17 @@ class PPOTrainer:
                 # Compute auxiliary losses (can be disabled if causing issues)
                 aux_1h_loss = 0.0
                 aux_24h_loss = 0.0
+                aux_15m_loss = 0.0
                 
                 if self.enable_auxiliary_losses:
                     pred_1h = output["pred_1h"].squeeze(1)
                     pred_24h = output["pred_24h"].squeeze(1)
+                    # Get 15m prediction if available (backward compatible)
+                    pred_15m = output.get("pred_15m")
+                    if pred_15m is not None:
+                        pred_15m = pred_15m.squeeze(1)
+                    else:
+                        pred_15m = None
                     
                     # Validate predictions before computing loss
                     pred_1h = torch.where(torch.isfinite(pred_1h), pred_1h, torch.zeros_like(pred_1h))
@@ -722,10 +746,37 @@ class PPOTrainer:
                             # Skip auxiliary loss if data is invalid
                             aux_24h_loss = torch.tensor(0.0, device=self.device)
                             logger.debug("Skipping aux_24h_loss due to invalid data")
+                    
+                    # Compute 15m auxiliary loss if head exists and we have data
+                    if pred_15m is not None and actual_returns_15m is not None:
+                        batch_returns_15m = actual_returns_15m[batch_indices]
+                        # Validate returns
+                        batch_returns_15m = torch.where(
+                            torch.isfinite(batch_returns_15m), 
+                            batch_returns_15m, 
+                            torch.zeros_like(batch_returns_15m)
+                        )
+                        # Clip extreme returns to prevent numerical issues
+                        batch_returns_15m = torch.clamp(batch_returns_15m, min=-1.0, max=1.0)
+                        
+                        # Only compute loss if we have valid data
+                        if torch.isfinite(pred_15m).all() and torch.isfinite(batch_returns_15m).all():
+                            # Clip predictions to reasonable range
+                            pred_15m_clipped = torch.clamp(pred_15m, min=-1.0, max=1.0)
+                            aux_15m_loss = nn.functional.mse_loss(pred_15m_clipped, batch_returns_15m)
+                            # Validate loss
+                            if not torch.isfinite(aux_15m_loss):
+                                aux_15m_loss = torch.tensor(0.0, device=self.device)
+                                logger.warning("aux_15m_loss was NaN/inf, setting to 0")
+                        else:
+                            # Skip auxiliary loss if data is invalid
+                            aux_15m_loss = torch.tensor(0.0, device=self.device)
+                            logger.debug("Skipping aux_15m_loss due to invalid data")
                 else:
                     # Auxiliary losses disabled
                     aux_1h_loss = torch.tensor(0.0, device=self.device)
                     aux_24h_loss = torch.tensor(0.0, device=self.device)
+                    aux_15m_loss = torch.tensor(0.0, device=self.device)
                 
                 # RESEARCH-BASED FIX: Normalize auxiliary losses relative to value_loss
                 # This prevents gradient signal vanishing (auxiliary gradients too small)
@@ -733,6 +784,7 @@ class PPOTrainer:
                 # We scale auxiliary losses to have similar magnitude to value_loss
                 normalized_aux_1h_loss = aux_1h_loss
                 normalized_aux_24h_loss = aux_24h_loss
+                normalized_aux_15m_loss = aux_15m_loss
                 
                 if isinstance(aux_1h_loss, torch.Tensor) and torch.isfinite(aux_1h_loss) and aux_1h_loss.item() > 0:
                     # Scale aux_1h_loss to be similar magnitude to value_loss
@@ -758,6 +810,14 @@ class PPOTrainer:
                         scale_factor = min(scale_factor, 1000.0)
                         normalized_aux_24h_loss = aux_24h_loss * scale_factor
                 
+                if isinstance(aux_15m_loss, torch.Tensor) and torch.isfinite(aux_15m_loss) and aux_15m_loss.item() > 0:
+                    if not hasattr(self, '_avg_value_loss'):
+                        self._avg_value_loss = value_loss.item() if torch.isfinite(value_loss) else 0.001
+                    if self._avg_value_loss > 1e-6:
+                        scale_factor = self._avg_value_loss / (aux_15m_loss.item() + 1e-8)
+                        scale_factor = min(scale_factor, 1000.0)
+                        normalized_aux_15m_loss = aux_15m_loss * scale_factor
+                
                 # Total loss with normalized auxiliary losses
                 total_loss = (
                     policy_loss
@@ -765,6 +825,7 @@ class PPOTrainer:
                     - self.entropy_coef * entropy
                     + self.aux_1h_coef * normalized_aux_1h_loss
                     + self.aux_24h_coef * normalized_aux_24h_loss
+                    + self.aux_15m_coef * normalized_aux_15m_loss
                 )
                 
                 # Validate total loss before backward
@@ -775,6 +836,7 @@ class PPOTrainer:
                     logger.error(f"  entropy: {entropy.item() if torch.isfinite(entropy) else 'NaN'}")
                     logger.error(f"  aux_1h_loss: {aux_1h_loss.item() if isinstance(aux_1h_loss, torch.Tensor) and torch.isfinite(aux_1h_loss) else aux_1h_loss}")
                     logger.error(f"  aux_24h_loss: {aux_24h_loss.item() if isinstance(aux_24h_loss, torch.Tensor) and torch.isfinite(aux_24h_loss) else aux_24h_loss}")
+                    logger.error(f"  aux_15m_loss: {aux_15m_loss.item() if isinstance(aux_15m_loss, torch.Tensor) and torch.isfinite(aux_15m_loss) else aux_15m_loss}")
                     continue
                 
                 # Log loss components for debugging (first batch only)
@@ -782,6 +844,7 @@ class PPOTrainer:
                     logger.info(f"Loss components: policy={policy_loss.item():.6f}, value={value_loss.item():.6f}, "
                               f"entropy={entropy.item():.6f}, aux_1h={aux_1h_loss.item() if isinstance(aux_1h_loss, torch.Tensor) else aux_1h_loss:.6f}, "
                               f"aux_24h={aux_24h_loss.item() if isinstance(aux_24h_loss, torch.Tensor) else aux_24h_loss:.6f}, "
+                              f"aux_15m={aux_15m_loss.item() if isinstance(aux_15m_loss, torch.Tensor) else aux_15m_loss:.6f}, "
                               f"total={total_loss.item():.6f}")
                     # Also log input statistics
                     logger.info(f"Input stats: advantages mean={batch_advantages.mean().item():.6f} std={batch_advantages.std().item():.6f}, "
@@ -918,10 +981,10 @@ class PPOTrainer:
                             logger.error(f"CRITICAL: {name} weights became NaN after optimizer step! Reinitializing...")
                             # Reinitialize this specific parameter
                             if 'weight' in name:
-                                if 'aux_1h.0' in name or 'aux_24h.0' in name:
+                                if 'aux_1h.0' in name or 'aux_24h.0' in name or 'aux_15m.0' in name:
                                     # First layer: Linear(256, 64)
                                     nn.init.xavier_uniform_(param.data, gain=0.5)
-                                elif 'aux_1h.2' in name or 'aux_24h.2' in name:
+                                elif 'aux_1h.2' in name or 'aux_24h.2' in name or 'aux_15m.2' in name:
                                     # Output layer: Linear(64, 1)
                                     nn.init.xavier_uniform_(param.data, gain=0.5)
                             elif 'bias' in name:
@@ -953,11 +1016,16 @@ class PPOTrainer:
                 if np.isnan(clip_fraction_val) or np.isinf(clip_fraction_val):
                     clip_fraction_val = 0.0
                 
+                aux_15m_loss_val = aux_15m_loss.item() if isinstance(aux_15m_loss, torch.Tensor) else aux_15m_loss
+                if np.isnan(aux_15m_loss_val) or np.isinf(aux_15m_loss_val):
+                    aux_15m_loss_val = 0.0
+                
                 total_policy_loss += policy_loss_val
                 total_value_loss += value_loss_val
                 total_entropy += entropy_val
                 total_aux_1h_loss += aux_1h_loss_val
                 total_aux_24h_loss += aux_24h_loss_val
+                total_aux_15m_loss += aux_15m_loss_val
                 total_clip_fraction += clip_fraction_val
         
         # Average metrics over all batches and epochs
@@ -970,6 +1038,7 @@ class PPOTrainer:
             "entropy": total_entropy / num_total_batches,
             "aux_1h_loss": total_aux_1h_loss / num_total_batches,
             "aux_24h_loss": total_aux_24h_loss / num_total_batches,
+            "aux_15m_loss": total_aux_15m_loss / num_total_batches,
             "clip_fraction": total_clip_fraction / num_total_batches,
             "total_loss": (
                 total_policy_loss / num_total_batches
@@ -977,6 +1046,7 @@ class PPOTrainer:
                 - self.entropy_coef * (total_entropy / num_total_batches)
                 + self.aux_1h_coef * (total_aux_1h_loss / num_total_batches)
                 + self.aux_24h_coef * (total_aux_24h_loss / num_total_batches)
+                + self.aux_15m_coef * (total_aux_15m_loss / num_total_batches)
             ),
         }
         
@@ -1022,14 +1092,16 @@ class PPOTrainer:
         decision_indices: List[int],
         returns_1h: Optional[List[float]] = None,
         returns_24h: Optional[List[float]] = None,
+        returns_15m: Optional[List[float]] = None,
     ):
         """
-        Update auxiliary return targets when 1h/24h outcomes become available.
+        Update auxiliary return targets when 1h/24h/15m outcomes become available.
         
         Args:
             decision_indices: List of indices in buffer corresponding to decisions
             returns_1h: Actual 1h returns (if available)
             returns_24h: Actual 24h returns (if available)
+            returns_15m: Actual 15m returns (if available)
         """
         if returns_1h is not None:
             for idx, ret in zip(decision_indices, returns_1h):
@@ -1050,6 +1122,16 @@ class PPOTrainer:
                     while len(self.buffer["returns_24h"]) <= idx:
                         self.buffer["returns_24h"].append(0.0)
                     self.buffer["returns_24h"][idx] = ret
+        
+        if returns_15m is not None:
+            for idx, ret in zip(decision_indices, returns_15m):
+                if idx < len(self.buffer["returns_15m"]):
+                    self.buffer["returns_15m"][idx] = ret
+                else:
+                    # Pad if needed
+                    while len(self.buffer["returns_15m"]) <= idx:
+                        self.buffer["returns_15m"].append(0.0)
+                    self.buffer["returns_15m"][idx] = ret
     
     def train_on_rollout(
         self,

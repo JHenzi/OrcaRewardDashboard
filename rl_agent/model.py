@@ -286,6 +286,13 @@ class TradingActorCritic(nn.Module):
             nn.Linear(64, 1),
         )
         
+        # Auxiliary head for 15-minute predictions (optional, backward compatible)
+        self.aux_15m = nn.Sequential(
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+        
         # Initialize weights properly to prevent extreme values
         self._initialize_weights()
     
@@ -369,6 +376,9 @@ class TradingActorCritic(nn.Module):
         pred_1h = self.aux_1h(shared_latent)
         pred_24h = self.aux_24h(shared_latent)
         
+        # 15-minute prediction (backward compatible - only if head exists)
+        pred_15m = self.aux_15m(shared_latent) if hasattr(self, 'aux_15m') else None
+        
         # Validate and clamp outputs to prevent extreme values
         action_logits = torch.where(torch.isfinite(action_logits), action_logits, torch.zeros_like(action_logits))
         value = torch.where(torch.isfinite(value), value, torch.zeros_like(value))
@@ -381,13 +391,24 @@ class TradingActorCritic(nn.Module):
         pred_24h = torch.where(torch.isfinite(pred_24h), pred_24h, torch.zeros_like(pred_24h))
         pred_24h = torch.clamp(pred_24h, min=-1.0, max=1.0)  # Clamp to ±100% return
         
-        return {
+        # Validate and clamp 15m prediction if it exists
+        if pred_15m is not None:
+            pred_15m = torch.where(torch.isfinite(pred_15m), pred_15m, torch.zeros_like(pred_15m))
+            pred_15m = torch.clamp(pred_15m, min=-1.0, max=1.0)  # Clamp to ±100% return
+        
+        output_dict = {
             "action_logits": action_logits,
             "value": value,
             "pred_1h": pred_1h,
             "pred_24h": pred_24h,
             "attention_weights": attention_weights,
         }
+        
+        # Add 15m prediction to output if available
+        if pred_15m is not None:
+            output_dict["pred_15m"] = pred_15m
+        
+        return output_dict
     
     def get_action(
         self,
