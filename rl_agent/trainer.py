@@ -641,137 +641,166 @@ class PPOTrainer:
                     continue
                 
                 # Compute auxiliary losses (can be disabled if causing issues)
+                # POST-AUDIT: Using CrossEntropy loss (classification) instead of MSE (regression)
+                # This avoids the "predict mean" trap where MSE encourages flat predictions
                 aux_1h_loss = 0.0
                 aux_24h_loss = 0.0
                 aux_15m_loss = 0.0
                 
                 if self.enable_auxiliary_losses:
-                    pred_1h = output["pred_1h"].squeeze(1)
-                    pred_24h = output["pred_24h"].squeeze(1)
-                    # Get 15m prediction if available (backward compatible)
-                    pred_15m = output.get("pred_15m")
-                    if pred_15m is not None:
-                        pred_15m = pred_15m.squeeze(1)
+                    # Get class LOGITS from model output (POST-AUDIT: Classification)
+                    pred_1h_logits = output.get("pred_1h_logits")
+                    pred_24h_logits = output.get("pred_24h_logits")
+                    pred_15m_logits = output.get("pred_15m_logits")
+                    
+                    # Backward compatibility: fall back to scalar predictions if logits not available
+                    use_classification = pred_1h_logits is not None
+                    
+                    if not use_classification:
+                        # OLD PATH: Scalar regression (for backward compat with old models)
+                        pred_1h = output["pred_1h"].squeeze(1)
+                        pred_24h = output["pred_24h"].squeeze(1)
+                        pred_15m = output.get("pred_15m")
+                        if pred_15m is not None:
+                            pred_15m = pred_15m.squeeze(1)
+                        
+                        # Validate predictions
+                        pred_1h = torch.where(torch.isfinite(pred_1h), pred_1h, torch.zeros_like(pred_1h))
+                        pred_24h = torch.where(torch.isfinite(pred_24h), pred_24h, torch.zeros_like(pred_24h))
+                        
+                        # MSE loss (old method)
+                        if actual_returns_1h is not None:
+                            batch_returns_1h = actual_returns_1h[batch_indices]
+                            batch_returns_1h = torch.clamp(batch_returns_1h, min=-1.0, max=1.0)
+                            if torch.isfinite(pred_1h).all() and torch.isfinite(batch_returns_1h).all():
+                                aux_1h_loss = nn.functional.mse_loss(pred_1h, batch_returns_1h)
+                        
+                        if actual_returns_24h is not None:
+                            batch_returns_24h = actual_returns_24h[batch_indices]
+                            batch_returns_24h = torch.clamp(batch_returns_24h, min=-1.0, max=1.0)
+                            if torch.isfinite(pred_24h).all() and torch.isfinite(batch_returns_24h).all():
+                                aux_24h_loss = nn.functional.mse_loss(pred_24h, batch_returns_24h)
+                        
+                        if pred_15m is not None and actual_returns_15m is not None:
+                            batch_returns_15m = actual_returns_15m[batch_indices]
+                            batch_returns_15m = torch.clamp(batch_returns_15m, min=-1.0, max=1.0)
+                            if torch.isfinite(pred_15m).all() and torch.isfinite(batch_returns_15m).all():
+                                aux_15m_loss = nn.functional.mse_loss(pred_15m, batch_returns_15m)
                     else:
-                        pred_15m = None
-                    
-                    # Validate predictions before computing loss
-                    pred_1h = torch.where(torch.isfinite(pred_1h), pred_1h, torch.zeros_like(pred_1h))
-                    pred_24h = torch.where(torch.isfinite(pred_24h), pred_24h, torch.zeros_like(pred_24h))
-                    
-                    if actual_returns_1h is not None:
-                        batch_returns_1h = actual_returns_1h[batch_indices]
-                        # Validate returns - check for extreme values that could cause issues
-                        batch_returns_1h = torch.where(
-                            torch.isfinite(batch_returns_1h), 
-                            batch_returns_1h, 
-                            torch.zeros_like(batch_returns_1h)
-                        )
-                        # Clip extreme returns to prevent numerical issues
-                        batch_returns_1h = torch.clamp(batch_returns_1h, min=-1.0, max=1.0)  # Max ±100% return
+                        # NEW PATH: Classification with CrossEntropy (POST-AUDIT FIX #5)
+                        # Convert scalar returns to class labels with TIME-APPROPRIATE thresholds
+                        # FIX: Different thresholds for different time horizons to avoid class imbalance
                         
-                        # Only compute loss if we have valid data
-                        if torch.isfinite(pred_1h).all() and torch.isfinite(batch_returns_1h).all():
-                            # Clip predictions to reasonable range
-                            pred_1h_clipped = torch.clamp(pred_1h, min=-1.0, max=1.0)
-                            aux_1h_loss = nn.functional.mse_loss(pred_1h_clipped, batch_returns_1h)
-                            # Validate loss
-                            if not torch.isfinite(aux_1h_loss):
+                        def return_to_class_batch(returns: torch.Tensor, threshold: float = 0.01) -> torch.Tensor:
+                            """Convert batch of returns to class labels with custom threshold."""
+                            # 0 = Bearish (< -threshold), 1 = Neutral, 2 = Bullish (> +threshold)
+                            classes = torch.ones_like(returns, dtype=torch.long)  # Default: Neutral
+                            classes[returns < -threshold] = 0  # Bearish
+                            classes[returns > threshold] = 2   # Bullish
+                            return classes
+                        
+                        # Time-appropriate thresholds (based on typical volatility)
+                        THRESHOLD_15M = 0.002   # ±0.2% for 15-minute (typical move: 0.1-0.3%)
+                        THRESHOLD_1H = 0.005    # ±0.5% for 1-hour (typical move: 0.3-0.7%)
+                        THRESHOLD_24H = 0.01    # ±1.0% for 24-hour (typical move: 1-3%)
+                        
+                        # Class weights to penalize always predicting neutral
+                        # Higher weight for minority classes (bearish/bullish)
+                        class_weights = torch.tensor([2.0, 1.0, 2.0], device=self.device)
+                        
+                        # 1-hour prediction loss (with 0.5% threshold)
+                        if actual_returns_1h is not None:
+                            batch_returns_1h = actual_returns_1h[batch_indices]
+                            batch_returns_1h = torch.where(
+                                torch.isfinite(batch_returns_1h),
+                                batch_returns_1h,
+                                torch.zeros_like(batch_returns_1h)
+                            )
+                            batch_returns_1h = torch.clamp(batch_returns_1h, min=-1.0, max=1.0)
+                            
+                            # Convert to class labels with 1h threshold
+                            target_classes_1h = return_to_class_batch(batch_returns_1h, threshold=THRESHOLD_1H)
+                            
+                            # Validate logits
+                            if torch.isfinite(pred_1h_logits).all():
+                                aux_1h_loss = nn.functional.cross_entropy(
+                                    pred_1h_logits, target_classes_1h, weight=class_weights
+                                )
+                                if not torch.isfinite(aux_1h_loss):
+                                    aux_1h_loss = torch.tensor(0.0, device=self.device)
+                                    logger.warning("aux_1h_loss (CE) was NaN/inf, setting to 0")
+                            else:
                                 aux_1h_loss = torch.tensor(0.0, device=self.device)
-                                logger.warning("aux_1h_loss was NaN/inf, setting to 0")
-                            else:
-                                # Log auxiliary loss periodically for monitoring
-                                if hasattr(self, '_aux_1h_log_counter'):
-                                    self._aux_1h_log_counter += 1
-                                else:
-                                    self._aux_1h_log_counter = 0
-                                if self._aux_1h_log_counter % 100 == 0:
-                                    pred_std = pred_1h_clipped.std().item()
-                                    # Only warn if variance changed or is consistently zero
-                                    if pred_std < 0.001:
-                                        if not self._zero_variance_warned_1h or (self._last_aux_1h_std is not None and self._last_aux_1h_std >= 0.001):
-                                            logger.warning(f"⚠️ aux_1h predictions have zero variance (std={pred_std:.6f}) - predictions are constant! Loss={aux_1h_loss.item():.6f}, Mean={pred_1h_clipped.mean().item():.6f}")
-                                            self._zero_variance_warned_1h = True
-                                    else:
-                                        # Variance recovered - reset warning flag
-                                        if self._zero_variance_warned_1h:
-                                            logger.info(f"✅ aux_1h variance recovered: std={pred_std:.6f}")
-                                            self._zero_variance_warned_1h = False
-                                    self._last_aux_1h_std = pred_std
-                        else:
-                            # Skip auxiliary loss if data is invalid
-                            aux_1h_loss = torch.tensor(0.0, device=self.device)
-                            logger.debug("Skipping aux_1h_loss due to invalid data")
-                    
-                    if actual_returns_24h is not None:
-                        batch_returns_24h = actual_returns_24h[batch_indices]
-                        # Validate returns - check for extreme values that could cause issues
-                        batch_returns_24h = torch.where(
-                            torch.isfinite(batch_returns_24h), 
-                            batch_returns_24h, 
-                            torch.zeros_like(batch_returns_24h)
-                        )
-                        # Clip extreme returns to prevent numerical issues
-                        batch_returns_24h = torch.clamp(batch_returns_24h, min=-1.0, max=1.0)  # Max ±100% return
                         
-                        # Only compute loss if we have valid data
-                        if torch.isfinite(pred_24h).all() and torch.isfinite(batch_returns_24h).all():
-                            # Clip predictions to reasonable range
-                            pred_24h_clipped = torch.clamp(pred_24h, min=-1.0, max=1.0)
-                            aux_24h_loss = nn.functional.mse_loss(pred_24h_clipped, batch_returns_24h)
-                            # Validate loss
-                            if not torch.isfinite(aux_24h_loss):
+                        # 24-hour prediction loss (with 1% threshold)
+                        if actual_returns_24h is not None:
+                            batch_returns_24h = actual_returns_24h[batch_indices]
+                            batch_returns_24h = torch.where(
+                                torch.isfinite(batch_returns_24h),
+                                batch_returns_24h,
+                                torch.zeros_like(batch_returns_24h)
+                            )
+                            batch_returns_24h = torch.clamp(batch_returns_24h, min=-1.0, max=1.0)
+                            
+                            # Convert to class labels with 24h threshold
+                            target_classes_24h = return_to_class_batch(batch_returns_24h, threshold=THRESHOLD_24H)
+                            
+                            # Validate logits
+                            if torch.isfinite(pred_24h_logits).all():
+                                aux_24h_loss = nn.functional.cross_entropy(
+                                    pred_24h_logits, target_classes_24h, weight=class_weights
+                                )
+                                if not torch.isfinite(aux_24h_loss):
+                                    aux_24h_loss = torch.tensor(0.0, device=self.device)
+                                    logger.warning("aux_24h_loss (CE) was NaN/inf, setting to 0")
+                            else:
                                 aux_24h_loss = torch.tensor(0.0, device=self.device)
-                                logger.warning("aux_24h_loss was NaN/inf, setting to 0")
-                            else:
-                                # Log auxiliary loss periodically for monitoring
-                                if hasattr(self, '_aux_24h_log_counter'):
-                                    self._aux_24h_log_counter += 1
-                                else:
-                                    self._aux_24h_log_counter = 0
-                                if self._aux_24h_log_counter % 100 == 0:
-                                    pred_std = pred_24h_clipped.std().item()
-                                    # Only warn if variance changed or is consistently zero
-                                    if pred_std < 0.001:
-                                        if not self._zero_variance_warned_24h or (self._last_aux_24h_std is not None and self._last_aux_24h_std >= 0.001):
-                                            logger.warning(f"⚠️ aux_24h predictions have zero variance (std={pred_std:.6f}) - predictions are constant! Loss={aux_24h_loss.item():.6f}, Mean={pred_24h_clipped.mean().item():.6f}")
-                                            self._zero_variance_warned_24h = True
-                                    else:
-                                        # Variance recovered - reset warning flag
-                                        if self._zero_variance_warned_24h:
-                                            logger.info(f"✅ aux_24h variance recovered: std={pred_std:.6f}")
-                                            self._zero_variance_warned_24h = False
-                                    self._last_aux_24h_std = pred_std
-                        else:
-                            # Skip auxiliary loss if data is invalid
-                            aux_24h_loss = torch.tensor(0.0, device=self.device)
-                            logger.debug("Skipping aux_24h_loss due to invalid data")
-                    
-                    # Compute 15m auxiliary loss if head exists and we have data
-                    if pred_15m is not None and actual_returns_15m is not None:
-                        batch_returns_15m = actual_returns_15m[batch_indices]
-                        # Validate returns
-                        batch_returns_15m = torch.where(
-                            torch.isfinite(batch_returns_15m), 
-                            batch_returns_15m, 
-                            torch.zeros_like(batch_returns_15m)
-                        )
-                        # Clip extreme returns to prevent numerical issues
-                        batch_returns_15m = torch.clamp(batch_returns_15m, min=-1.0, max=1.0)
                         
-                        # Only compute loss if we have valid data
-                        if torch.isfinite(pred_15m).all() and torch.isfinite(batch_returns_15m).all():
-                            # Clip predictions to reasonable range
-                            pred_15m_clipped = torch.clamp(pred_15m, min=-1.0, max=1.0)
-                            aux_15m_loss = nn.functional.mse_loss(pred_15m_clipped, batch_returns_15m)
-                            # Validate loss
-                            if not torch.isfinite(aux_15m_loss):
+                        # 15-minute prediction loss (with 0.2% threshold - much tighter for short timeframe)
+                        if pred_15m_logits is not None and actual_returns_15m is not None:
+                            batch_returns_15m = actual_returns_15m[batch_indices]
+                            batch_returns_15m = torch.where(
+                                torch.isfinite(batch_returns_15m),
+                                batch_returns_15m,
+                                torch.zeros_like(batch_returns_15m)
+                            )
+                            batch_returns_15m = torch.clamp(batch_returns_15m, min=-1.0, max=1.0)
+                            
+                            # Convert to class labels with 15m threshold (tighter!)
+                            target_classes_15m = return_to_class_batch(batch_returns_15m, threshold=THRESHOLD_15M)
+                            
+                            # Validate logits
+                            if torch.isfinite(pred_15m_logits).all():
+                                aux_15m_loss = nn.functional.cross_entropy(
+                                    pred_15m_logits, target_classes_15m, weight=class_weights
+                                )
+                                if not torch.isfinite(aux_15m_loss):
+                                    aux_15m_loss = torch.tensor(0.0, device=self.device)
+                                    logger.warning("aux_15m_loss (CE) was NaN/inf, setting to 0")
+                            else:
                                 aux_15m_loss = torch.tensor(0.0, device=self.device)
-                                logger.warning("aux_15m_loss was NaN/inf, setting to 0")
-                        else:
-                            # Skip auxiliary loss if data is invalid
-                            aux_15m_loss = torch.tensor(0.0, device=self.device)
-                            logger.debug("Skipping aux_15m_loss due to invalid data")
+                        
+                        # Log classification metrics periodically
+                        if not hasattr(self, '_aux_class_log_counter'):
+                            self._aux_class_log_counter = 0
+                        self._aux_class_log_counter += 1
+                        if self._aux_class_log_counter % 100 == 0 and actual_returns_1h is not None:
+                            # Log 1h class distribution with correct threshold
+                            pred_probs = nn.functional.softmax(pred_1h_logits, dim=-1)
+                            pred_classes = torch.argmax(pred_probs, dim=-1)
+                            actual_classes = return_to_class_batch(actual_returns_1h[batch_indices], threshold=THRESHOLD_1H)
+                            accuracy = (pred_classes == actual_classes).float().mean().item()
+                            
+                            # Show ACTUAL class distribution to verify training data isn't all neutral
+                            actual_bear = ((actual_classes==0).sum()/len(actual_classes)).item()
+                            actual_neut = ((actual_classes==1).sum()/len(actual_classes)).item()
+                            actual_bull = ((actual_classes==2).sum()/len(actual_classes)).item()
+                            
+                            logger.info(f"📊 Aux 1h (±0.5% threshold) | Acc: {accuracy:.1%} | "
+                                      f"Pred: B={((pred_classes==0).sum()/len(pred_classes)).item():.0%}/"
+                                      f"N={(pred_classes==1).sum()/len(pred_classes):.0%}/"
+                                      f"Bu={(pred_classes==2).sum()/len(pred_classes):.0%} | "
+                                      f"Actual: B={actual_bear:.0%}/N={actual_neut:.0%}/Bu={actual_bull:.0%}")
                 else:
                     # Auxiliary losses disabled
                     aux_1h_loss = torch.tensor(0.0, device=self.device)

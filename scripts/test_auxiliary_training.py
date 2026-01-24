@@ -91,7 +91,7 @@ def test_auxiliary_loss_computation():
     # Create model
     model = TradingActorCritic(
         price_window_size=60,
-        num_indicators=10,
+        num_indicators=9,  # Stationary features only (FIX #3)
         embedding_dim=384,
         max_news_headlines=20,
         num_actions=3,
@@ -208,7 +208,7 @@ def test_prediction_generation():
     # Create model
     model = TradingActorCritic(
         price_window_size=60,
-        num_indicators=10,
+        num_indicators=9,  # Stationary features only (FIX #3)
         embedding_dim=384,
         max_news_headlines=20,
         num_actions=3,
@@ -278,7 +278,7 @@ def test_gradient_flow():
     # Create model
     model = TradingActorCritic(
         price_window_size=60,
-        num_indicators=10,
+        num_indicators=9,  # Stationary features only (FIX #3)
         embedding_dim=384,
         max_news_headlines=20,
         num_actions=3,

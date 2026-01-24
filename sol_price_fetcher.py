@@ -16,8 +16,41 @@ import numpy as np
 from collections import deque
 from statistics import mean, stdev
 import traceback
-from river import linear_model, preprocessing, metrics, optim, tree
-import pandas as pd
+
+# Optional dependencies (these should NOT prevent app startup)
+# - river (online learning bandit)
+# - pandas (bandit stats convenience)
+RIVER_AVAILABLE = False
+PANDAS_AVAILABLE = False
+
+try:
+    from river import linear_model, preprocessing, metrics, optim, tree  # type: ignore
+    RIVER_AVAILABLE = True
+except Exception as e:
+    # Includes ImportError and binary-mismatch cascades from dependencies
+    RIVER_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "River not available; contextual bandit features disabled. Error: %s", e
+    )
+
+try:
+    import pandas as pd  # type: ignore
+    PANDAS_AVAILABLE = True
+except Exception as e:
+    PANDAS_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "Pandas not available; pandas-based stats disabled. Error: %s", e
+    )
+
+
+class _DummyRiverModel:
+    """Fallback model when river isn't available."""
+
+    def learn_one(self, x, y):  # noqa: ANN001
+        return self
+
+    def predict_one(self, x):  # noqa: ANN001
+        return 0.0
 
 # # Load Jupiter Ultra Trading Bot!
 # from trading_bot import JupiterTradingBot
@@ -72,6 +105,9 @@ actions = ["buy", "sell", "hold"]
 #         l2=0.05
 #     )
 def model_factory():
+    # Keep the rest of the app usable even if river can't import.
+    if not RIVER_AVAILABLE:
+        return _DummyRiverModel()
     return tree.HoeffdingTreeRegressor()
 
 
@@ -2265,50 +2301,98 @@ class SOLPriceFetcher:
             logger.info("Database connection closed")
 
     def get_bandit_stats(self, db_path="sol_prices.db", limit=5000):
+        # Avoid pandas dependency (it may be broken due to numpy ABI mismatch).
+        # Compute stats directly from sqlite rows.
         try:
             conn = sqlite3.connect(db_path)
-            df = pd.read_sql_query(f'''
-                SELECT * FROM bandit_logs ORDER BY timestamp DESC LIMIT {limit}
-            ''', conn)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT timestamp, action, reward, prediction_buy, prediction_sell, prediction_hold, data_json
+                FROM bandit_logs
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            )
+            rows = cursor.fetchall()
             conn.close()
         except Exception as e:
             return {"error": f"Failed to load data: {str(e)}"}
 
-        # Parse and enrich
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["features"] = df["data_json"].apply(json.loads)
+        if not rows:
+            return {
+                "num_rows": 0,
+                "avg_reward": 0.0,
+                "std_reward": 0.0,
+                "action_counts": {},
+                "avg_reward_by_action": {},
+                "avg_regret": 0.0,
+                "top_rewards": [],
+            }
 
-        # Chosen prediction confidence
-        df["chosen_prediction"] = df.apply(
-            lambda row: row.get(f"prediction_{row['action']}", None), axis=1
-        )
+        rewards = []
+        regrets = []
+        action_counts = {}
+        reward_sums = {}
+        reward_counts = {}
 
-        # Optional: Calculate regret (how far the chosen prediction was from the best one)
-        def regret(row: pd.Series) -> float:
-            preds = [row["prediction_buy"], row["prediction_sell"], row["prediction_hold"]]
-            chosen_pred = row.get(f"prediction_{row['action']}", None)
-            if chosen_pred is None:
-                return 0.0
-            return max(preds) - chosen_pred
+        top = []  # (reward, timestamp, action)
 
+        for ts, action, reward, pb, ps, ph, data_json in rows:
+            try:
+                r = float(reward)
+            except Exception:
+                r = 0.0
+            rewards.append(r)
 
-        df["regret"] = df.apply(regret, axis=1)
+            action_counts[action] = action_counts.get(action, 0) + 1
+            reward_sums[action] = reward_sums.get(action, 0.0) + r
+            reward_counts[action] = reward_counts.get(action, 0) + 1
+
+            preds = []
+            for p in (pb, ps, ph):
+                try:
+                    preds.append(float(p))
+                except Exception:
+                    preds.append(0.0)
+
+            chosen_pred = None
+            if action == "buy":
+                chosen_pred = preds[0]
+            elif action == "sell":
+                chosen_pred = preds[1]
+            elif action == "hold":
+                chosen_pred = preds[2]
+
+            regret = (max(preds) - chosen_pred) if chosen_pred is not None else 0.0
+            regrets.append(regret)
+
+            top.append((r, ts, action))
 
         # Summary stats
-        summary = {
-            "num_rows": len(df),
-            "avg_reward": round(df["reward"].mean(), 4),
-            "std_reward": round(df["reward"].std(), 4),
-            "action_counts": df["action"].value_counts().to_dict(),
-            "avg_reward_by_action": df.groupby("action")["reward"].mean().round(4).to_dict(),
-            "avg_regret": round(df["regret"].mean(), 4),
+        avg_reward = sum(rewards) / len(rewards) if rewards else 0.0
+        std_reward = float(np.std(np.array(rewards, dtype=np.float64))) if len(rewards) > 1 else 0.0
+
+        avg_reward_by_action = {}
+        for a, total in reward_sums.items():
+            cnt = reward_counts.get(a, 1)
+            avg_reward_by_action[a] = round(total / cnt, 4)
+
+        avg_regret = sum(regrets) / len(regrets) if regrets else 0.0
+
+        top.sort(key=lambda x: x[0], reverse=True)
+        top_rewards = [{"timestamp": t[1], "action": t[2], "reward": round(t[0], 4)} for t in top[:5]]
+
+        return {
+            "num_rows": len(rows),
+            "avg_reward": round(avg_reward, 4),
+            "std_reward": round(std_reward, 4),
+            "action_counts": action_counts,
+            "avg_reward_by_action": avg_reward_by_action,
+            "avg_regret": round(avg_regret, 4),
+            "top_rewards": top_rewards,
         }
-
-        # Optional: Top 5 best trades
-        top_trades = df.sort_values("reward", ascending=False).head(5)
-        summary["top_rewards"] = top_trades[["timestamp", "action", "reward"]].to_dict(orient="records")
-
-        return summary
 
 def check_flask_app_running(host="127.0.0.1", port=5030):
     """Check if Flask app is running by trying to connect to it"""

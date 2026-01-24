@@ -626,9 +626,38 @@ def get_sol_price_data():
         "code": "SOL",
         "meta": True
     }
-    response = requests.post(url, headers=headers, json=payload, timeout=10)
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        # Do NOT crash the request/page when upstream price API is slow/down.
+        logger.warning(f"LiveCoinWatch SOL fetch failed: {e}. Falling back to last stored price.")
+        try:
+            conn = sqlite3.connect("sol_prices.db")
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT rate, timestamp, delta_hour, delta_day, delta_week FROM sol_prices "
+                "ORDER BY timestamp DESC LIMIT 1"
+            )
+            row = cursor.fetchone()
+            conn.close()
+            if not row:
+                return {"rate": 0, "delta": {"hour": 1.0, "day": 1.0, "week": 1.0}, "source": "fallback_none"}
+            rate, ts, dh, dd, dw = row
+            return {
+                "rate": float(rate) if rate is not None else 0,
+                "delta": {
+                    "hour": float(dh) if dh is not None else 1.0,
+                    "day": float(dd) if dd is not None else 1.0,
+                    "week": float(dw) if dw is not None else 1.0,
+                },
+                "timestamp": ts,
+                "source": "fallback_db",
+            }
+        except Exception as db_e:
+            logger.error(f"Fallback SOL price lookup failed: {db_e}")
+            return {"rate": 0, "delta": {"hour": 1.0, "day": 1.0, "week": 1.0}, "source": "fallback_error"}
 
 def get_msol_price_data():
     """
@@ -2794,7 +2823,7 @@ def predict_sol_price_15m():
         }
         
         # Generate 15-minute prediction
-        pred_15m, confidence_15m, predicted_price_15m, method = generate_15m_price_prediction(
+        pred_15m, confidence_15m, predicted_price_15m, method, class_info = generate_15m_price_prediction(
             model=rl_agent_integration.model,
             state_encoder=rl_agent_integration.state_encoder,
             price_data=prices,
@@ -2806,7 +2835,7 @@ def predict_sol_price_15m():
             device=rl_agent_integration.device,
         )
         
-        return jsonify({
+        response = {
             'success': True,
             'current_price': float(current_price),
             'predicted_price_15m': float(predicted_price_15m),
@@ -2815,7 +2844,13 @@ def predict_sol_price_15m():
             'timestamp': datetime.now().isoformat(),
             'prediction_horizon_minutes': 15,
             'method': method
-        })
+        }
+        
+        # Include classification info if available
+        if class_info:
+            response['classification'] = class_info
+        
+        return jsonify(response)
         
     except Exception as e:
         logger.error(f"Error generating 15-minute price prediction: {e}")
@@ -3475,7 +3510,7 @@ def reload_rl_agent_model():
         # Reload model (will auto-detect newer checkpoints)
         model_kwargs = {
             "price_window_size": 60,
-            "num_indicators": 10,
+            "num_indicators": 9,  # FIX #3: stationary features only
             "embedding_dim": 384,
             "max_news_headlines": 20,
             "num_actions": 3,
@@ -4440,15 +4475,21 @@ def initialize_rl_agent():
         # Try to load current model
         model_kwargs = {
             "price_window_size": 60,
-            "num_indicators": 10,
+            "num_indicators": 9,  # FIX #3: stationary features only
             "embedding_dim": 384,
             "max_news_headlines": 20,
             "num_actions": 3,
         }
         
+        # Check for low-memory mode (skip auto-deploy to reduce memory usage)
+        low_memory = os.environ.get('RL_LOW_MEMORY', '').lower() in ('1', 'true', 'yes')
+        if low_memory:
+            logger.info("🔋 Low memory mode: skipping auto-deploy check")
+        
         model = rl_model_manager.load_current_model(
             model_class=TradingActorCritic,
             model_kwargs=model_kwargs,
+            skip_auto_deploy=low_memory,
         )
         
         if model:
@@ -4478,13 +4519,23 @@ def initialize_rl_agent():
         else:
             logger.info("⚠️ No trained RL agent model found. Will wait for scheduled training.")
         
-        # Initialize retraining scheduler
+        # Initialize retraining scheduler.
+        # CRITICAL: do NOT retrain (or prep training data) just because the app started.
+        # Retraining is opt-in via env var to prevent memory exhaustion on startup.
         logger.info("Initializing RL agent retraining scheduler...")
+        retraining_enabled = os.environ.get("RL_RETRAINING_ENABLED", "").lower() in ("1", "true", "yes")
+        if not retraining_enabled:
+            logger.info("🔕 RL retraining disabled (set RL_RETRAINING_ENABLED=1 to enable scheduled retraining)")
+
+        # Use smaller default epochs when running in low-memory mode (safe default for Macs)
+        default_epochs = 3 if low_memory else 10
+        training_epochs = int(os.environ.get("RL_RETRAIN_EPOCHS", str(default_epochs)))
+
         rl_retraining_scheduler = RetrainingScheduler(
             model_manager=rl_model_manager,
             interval_days=7,  # Weekly retraining
-            enabled=True,
-            training_epochs=10,  # Train for 10 epochs (was 5)
+            enabled=retraining_enabled,
+            training_epochs=training_epochs,
         )
         
         # Log scheduler status
@@ -4494,11 +4545,13 @@ def initialize_rl_agent():
         else:
             logger.info("📅 Retraining schedule initialized (no immediate training)")
         
-        # Start scheduler (checks every hour)
-        # NOTE: Scheduler will NOT trigger training on startup if no model exists
-        # It will wait for the scheduled time or manual trigger
-        rl_retraining_scheduler.start_scheduler(check_interval_seconds=3600)
-        logger.info("✅ RL agent retraining scheduler started (weekly, non-blocking)")
+        # Start scheduler (checks every hour) ONLY if enabled.
+        # When disabled, the manual retrain endpoint can still be used to trigger retraining.
+        if retraining_enabled:
+            rl_retraining_scheduler.start_scheduler(check_interval_seconds=3600)
+            logger.info("✅ RL agent retraining scheduler started (weekly, non-blocking)")
+        else:
+            logger.info("Skipping retraining scheduler loop (disabled)")
         
     except Exception as e:
         logger.error(f"Error initializing RL agent: {e}")

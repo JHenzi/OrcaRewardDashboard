@@ -42,7 +42,7 @@ def example_basic_usage():
     # Model
     model = TradingActorCritic(
         price_window_size=60,
-        num_indicators=10,
+        num_indicators=9,  # Stationary features only (FIX #3)
         embedding_dim=384,
         max_news_headlines=20,
         num_actions=3,

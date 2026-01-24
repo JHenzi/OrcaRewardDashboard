@@ -12,6 +12,19 @@ from datetime import datetime, timedelta
 import logging
 import pickle
 from pathlib import Path
+import sys
+import os
+
+# Add project root to path for external_markets import
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(script_dir))
+sys.path.insert(0, project_root)
+
+try:
+    from external_markets import get_recent_prices, EXTERNAL_MARKETS_DB
+    EXTERNAL_MARKETS_AVAILABLE = True
+except ImportError:
+    EXTERNAL_MARKETS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -261,6 +274,48 @@ class TrainingDataPrep:
             smoothed.append((ts, smoothed_price))
         
         return smoothed
+    
+    def get_external_market_prices(
+        self,
+        timestamp: datetime,
+        hours_back: float = 2.5,
+    ) -> Tuple[List[float], List[float]]:
+        """
+        Get BTC and S&P 500 prices around a timestamp.
+        
+        Args:
+            timestamp: Target timestamp
+            hours_back: Hours of history to fetch
+            
+        Returns:
+            Tuple of (btc_prices, sp500_prices) - lists of prices
+        """
+        if not EXTERNAL_MARKETS_AVAILABLE:
+            return [], []
+        
+        try:
+            # Get BTC prices
+            btc_data = get_recent_prices(
+                EXTERNAL_MARKETS_DB,
+                "btc_prices",
+                hours=hours_back,
+                interval_minutes=5,
+            )
+            btc_prices = [price for _, price in btc_data]
+            
+            # Get S&P 500 prices
+            sp500_data = get_recent_prices(
+                EXTERNAL_MARKETS_DB,
+                "sp500_prices",
+                hours=hours_back,
+                interval_minutes=5,
+            )
+            sp500_prices = [price for _, price in sp500_data]
+            
+            return btc_prices, sp500_prices
+        except Exception as e:
+            logger.warning(f"Error fetching external market prices: {e}")
+            return [], []
     
     def get_news_at_time(
         self,
@@ -550,6 +605,8 @@ class TrainingDataPrep:
                 "future_prices_24h": [],
                 "news_data": [],
                 "price_features": [],
+                "btc_prices": [],  # NEW
+                "sp500_prices": [],  # NEW
             }
             
             for step in range(episode_length):
@@ -565,6 +622,12 @@ class TrainingDataPrep:
                 
                 # Get news at this timestamp
                 news_data = self.get_news_at_time(timestamp, hours_back=24)
+                
+                # External market prices: NOT AVAILABLE for historical training
+                # We only have current prices, not historical data aligned with SOL history
+                # TODO: Add when historical data is available
+                btc_prices = []
+                sp500_prices = []
                 
                 # Get future prices (for reward calculation)
                 future_idx_15m = min(len(price_data) - 1, idx + 3)  # ~15 minutes later (3 * 5min)
@@ -582,6 +645,8 @@ class TrainingDataPrep:
                 episode["future_prices_24h"].append(future_price_24h)
                 episode["news_data"].append(news_data)
                 episode["price_features"].append(price_features)
+                episode["btc_prices"].append(btc_prices)  # NEW
+                episode["sp500_prices"].append(sp500_prices)  # NEW
             
             episodes.append(episode)
             

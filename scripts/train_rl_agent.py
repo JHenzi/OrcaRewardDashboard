@@ -3,6 +3,10 @@ Train RL Agent on Historical Data
 
 This script trains the RL agent using historical price and news data.
 It loads preprocessed training episodes and trains the model using PPO.
+
+Memory-saving options for Mac:
+  --low-memory     Reduces batch size and adds memory cleanup
+  --max-episodes   Limit number of episodes to process
 """
 
 import torch
@@ -15,6 +19,7 @@ import pickle
 import argparse
 import sys
 import os
+import gc  # Garbage collection for memory management
 
 # Add project root to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -47,6 +52,8 @@ def train_on_historical_data(
     aux_15m_coef: float = 1.0,  # Auxiliary 15m loss coefficient
     use_prediction_outcomes: bool = False,  # NEW: Train from actual prediction outcomes
     combine_with_historical: bool = True,  # NEW: Combine prediction outcomes with historical data
+    max_episodes: int = None,  # Limit episodes for memory savings
+    low_memory: bool = False,  # Enable aggressive memory cleanup
 ):
     # Set default paths relative to project root
     if episodes_path is None:
@@ -127,6 +134,18 @@ def train_on_historical_data(
                     logger.error("No training data available!")
                     return
     
+    # Apply max_episodes limit for memory savings
+    if max_episodes is not None and len(episodes) > max_episodes:
+        logger.info(f"🔋 Limiting to {max_episodes} episodes (from {len(episodes)}) for memory savings")
+        # Sample evenly across the dataset
+        step = len(episodes) // max_episodes
+        episodes = episodes[::step][:max_episodes]
+    
+    # Memory cleanup after loading
+    if low_memory:
+        gc.collect()
+        logger.info("🔋 Memory cleanup after loading episodes")
+    
     if len(episodes) == 0:
         logger.error("No training episodes available!")
         return
@@ -152,7 +171,7 @@ def train_on_historical_data(
     
     model = TradingActorCritic(
         price_window_size=60,
-        num_indicators=10,
+        num_indicators=9,  # Reduced from 10: removed raw price (FIX #3 - stationary features only)
         embedding_dim=384,
         max_news_headlines=20,
         num_actions=3,
@@ -161,10 +180,14 @@ def train_on_historical_data(
     # Load checkpoint if resuming
     # NOTE: If checkpoint has NaN, we skip loading and train from scratch
     if resume_from and Path(resume_from).exists():
-        logger.info(f"Checking checkpoint from {resume_from}...")
+        logger.info(f"🔋 Checking checkpoint from {resume_from} (memory-efficient)...")
         try:
-            checkpoint = torch.load(resume_from, map_location=device)
+            # Memory-efficient loading: only load what we need
+            checkpoint = torch.load(resume_from, map_location=device, weights_only=False)
             model_state = checkpoint.get('model_state_dict', {})
+            
+            # Free optimizer state immediately (not needed yet)
+            checkpoint.pop('optimizer_state_dict', None)
             
             # Check for NaN in checkpoint
             has_nan = False
@@ -180,9 +203,16 @@ def train_on_historical_data(
             else:
                 logger.warning("⚠️ Checkpoint corrupted - training from scratch with fresh model")
                 resume_from = None  # Don't use corrupted checkpoint
+            
+            # Memory cleanup after loading
+            del model_state
+            del checkpoint
+            gc.collect()
+            
         except Exception as e:
             logger.error(f"Error loading checkpoint: {e} - training from scratch")
             resume_from = None
+            gc.collect()
     
     # Auxiliary losses are now enabled by default since NaN issues are fixed
     # (attention mechanism fixed, gradient clipping improved, input validation added)
@@ -256,6 +286,12 @@ def train_on_historical_data(
                 price_window_start = max(0, step - 60)
                 price_window = episode["prices"][price_window_start:step+1]
                 
+                # External market prices: NOT AVAILABLE for historical training
+                # We only have current prices, not historical data aligned with SOL history
+                # Pass empty lists - state encoder will pad with zeros
+                btc_prices = []
+                sp500_prices = []
+                
                 # Encode state
                 state_dict = state_encoder.encode_full_state(
                     prices=price_window,
@@ -268,6 +304,8 @@ def train_on_historical_data(
                     time_since_last_trade=time_since_last_trade,
                     timestamp=timestamp,
                     unrealized_pnl=0.0,  # Simplified
+                    btc_prices=btc_prices,  # Empty for now - will be zeros
+                    sp500_prices=sp500_prices,  # Empty for now - will be zeros
                 )
                 
                 # Convert to tensors and validate
@@ -449,8 +487,9 @@ def train_on_historical_data(
                 if non_zero_15m == 0 or non_zero_1h == 0 or non_zero_24h == 0:
                     logger.warning("⚠️ Some returns are zero! Auxiliary losses may be zero. Check if future_prices are available in training data.")
             
-            # Train when buffer is large enough
-            if len(trainer.buffer["states"]) >= batch_size * 4:
+            # Train when buffer is large enough (smaller threshold in low-memory mode)
+            buffer_threshold = batch_size * 2 if low_memory else batch_size * 4
+            if len(trainer.buffer["states"]) >= buffer_threshold:
                 logger.info(f"Training on {len(trainer.buffer['states'])} experiences...")
                 
                 # Compute GAE for the buffer
@@ -482,6 +521,10 @@ def train_on_historical_data(
                     "returns_24h": [],
                     "returns_15m": [],
                 }
+                
+                # Memory cleanup (helps prevent Mac crashes)
+                if low_memory:
+                    gc.collect()
         
         # Epoch summary
         if epoch_losses:
@@ -497,6 +540,11 @@ def train_on_historical_data(
         trainer.save_checkpoint(checkpoint_filename)
         checkpoint_path = Path(checkpoint_dir) / checkpoint_filename
         logger.info(f"Saved checkpoint: {checkpoint_path}")
+        
+        # Epoch memory cleanup
+        if low_memory:
+            gc.collect()
+            logger.info("🔋 Memory cleanup after epoch")
     
     logger.info("\n" + "=" * 60)
     logger.info("Training Complete!")
@@ -591,6 +639,19 @@ if __name__ == "__main__":
         help="Train ONLY on prediction outcomes (no historical data)"
     )
     
+    # Memory-saving options (for Mac)
+    parser.add_argument(
+        "--low-memory",
+        action="store_true",
+        help="Enable low-memory mode: smaller batches, frequent garbage collection"
+    )
+    parser.add_argument(
+        "--max-episodes",
+        type=int,
+        default=None,
+        help="Limit number of episodes to process (reduces memory usage)"
+    )
+    
     args = parser.parse_args()
     
     # Handle disable flag
@@ -602,10 +663,16 @@ if __name__ == "__main__":
         args.use_prediction_outcomes = True
         args.combine_with_historical = False
     
+    # Apply low-memory settings
+    batch_size = args.batch_size
+    if args.low_memory:
+        batch_size = min(batch_size, 8)  # Reduce batch size
+        logger.info("🔋 Low-memory mode enabled: batch_size=%d", batch_size)
+    
     train_on_historical_data(
         episodes_path=args.episodes,
         num_epochs=args.epochs,
-        batch_size=args.batch_size,
+        batch_size=batch_size,
         checkpoint_dir=args.checkpoint_dir,
         device=args.device,
         resume_from=args.resume,
@@ -615,5 +682,7 @@ if __name__ == "__main__":
         aux_15m_coef=args.aux_15m_coef,
         use_prediction_outcomes=args.use_prediction_outcomes,
         combine_with_historical=args.combine_with_historical,
+        max_episodes=args.max_episodes,
+        low_memory=args.low_memory,
     )
 

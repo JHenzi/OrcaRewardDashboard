@@ -12,6 +12,7 @@ Implements MLOps best practices:
 import logging
 import json
 import shutil
+import gc
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
@@ -194,13 +195,13 @@ class ModelManager:
                     # Based on StateEncoder output shapes
                     batch_size = 1
                     price_window_size = model_kwargs.get('price_window_size', 60)
-                    num_indicators = model_kwargs.get('num_indicators', 10)
+                    num_indicators = model_kwargs.get('num_indicators', 9)  # FIX #3: stationary features only
                     embedding_dim = model_kwargs.get('embedding_dim', 384)
                     max_news = model_kwargs.get('max_news_headlines', 20)
                     
                     # Price features: (batch_size, price_window_size + num_indicators)
                     # StateEncoder.encode_price_features() returns flattened array
-                    # with returns (60) + indicators (10) = 70 total
+                    # with returns (60) + indicators (9) = 69 total
                     price_features = torch.randn(batch_size, price_window_size + num_indicators)
                     
                     # News embeddings: (batch_size, max_headlines, embedding_dim)
@@ -229,11 +230,17 @@ class ModelManager:
                     
             except Exception as e:
                 return False, f"Model forward pass failed: {e}"
+            finally:
+                # Memory cleanup after validation
+                del model
+                del checkpoint
+                gc.collect()
             
             logger.info(f"✅ Model {model_path.name} validated successfully")
             return True, None
             
         except Exception as e:
+            gc.collect()  # Clean up on error too
             return False, f"Validation error: {e}"
     
     def deploy_model(
@@ -323,6 +330,7 @@ class ModelManager:
         model_class: nn.Module,
         model_kwargs: Dict,
         device: str = "cpu",
+        skip_auto_deploy: bool = False,
     ) -> Optional[nn.Module]:
         """
         Load the current active model.
@@ -334,6 +342,7 @@ class ModelManager:
             model_class: Model class to instantiate
             model_kwargs: Keyword arguments for model initialization
             device: Device to load model on
+            skip_auto_deploy: If True, skip auto-deployment of newer checkpoints (saves memory)
             
         Returns:
             Loaded model or None if not available
@@ -342,8 +351,9 @@ class ModelManager:
             # Get current version from metadata
             current_version = self.metadata.get("current_version")
             
-            if current_version:
+            if current_version and not skip_auto_deploy:
                 # Check if there's a newer epoch checkpoint than what's deployed
+                # (skip this if skip_auto_deploy is True to save memory)
                 epoch_checkpoints = list(self.model_dir.glob("checkpoint_epoch_*.pt"))
                 if epoch_checkpoints:
                     latest_epoch = max(epoch_checkpoints, key=lambda p: p.stat().st_mtime)
@@ -455,14 +465,32 @@ class ModelManager:
                         logger.error(f"Current model {current_version} not found")
                         return None
             
-            # Load model
-            checkpoint = torch.load(active_model_path, map_location=device)
+            # Load model (memory-efficient: only load model weights, skip optimizer)
+            logger.info(f"🔋 Loading model from {active_model_path.name} (memory-efficient mode)...")
+            
+            # First, create the model architecture
             model = model_class(**model_kwargs)
+            
+            # Load checkpoint with weights_only=False (needed for state_dict)
+            # Use map_location to avoid loading to GPU memory
+            checkpoint = torch.load(active_model_path, map_location=device, weights_only=False)
+            
+            # Extract only model state dict (skip optimizer_state_dict to save memory)
+            state_dict = checkpoint.get('model_state_dict', checkpoint)
+            
+            # Free the full checkpoint from memory immediately
+            optimizer_state = checkpoint.pop('optimizer_state_dict', None)
+            del optimizer_state  # Don't need optimizer for inference
+            del checkpoint
+            gc.collect()
             
             # Load state dict with strict=False to handle missing keys (e.g., new aux_15m head)
             # This allows backward compatibility when model architecture changes
-            state_dict = checkpoint.get('model_state_dict', checkpoint)
             missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+            
+            # Free state_dict from memory
+            del state_dict
+            gc.collect()
             
             # Log missing keys (expected for new architecture features like aux_15m)
             if missing_keys:

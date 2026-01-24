@@ -198,6 +198,9 @@ def retrain_model(
     resume_from: Optional[str] = None,
     checkpoint_dir: str = None,
     device: str = "cpu",
+    skip_data_prep: bool = False,
+    low_memory: bool = True,
+    max_episodes: Optional[int] = 300,
 ) -> bool:
     # Get project root (needed for resolving script paths)
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -248,25 +251,28 @@ def retrain_model(
                 resume_from = str(checkpoints[-1])
                 logger.info(f"Resuming from: {resume_from}")
     
-    # Prepare training data
-    logger.info("Preparing training data...")
-    prep_cmd = [sys.executable, "-m", "rl_agent.training_data_prep"]
-    
-    if mode == "incremental":
-        # Only use recent data (last 30 days)
-        # Could be enhanced to use only new data since last training
-        logger.info("Using incremental mode: last 30 days of data")
+    # Prepare training data (optional).
+    # IMPORTANT: Do not rebuild huge training datasets automatically during app runtime.
+    if skip_data_prep:
+        logger.info("Skipping data preparation (--skip-data-prep)")
     else:
-        logger.info("Using full mode: all historical data")
-    
-    try:
-        result = subprocess.run(prep_cmd, capture_output=True, text=True, check=True)
-        logger.info("Data preparation completed")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Data preparation failed: {e}")
-        logger.error(f"Output: {e.stdout}")
-        logger.error(f"Error: {e.stderr}")
-        return False
+        logger.info("Preparing training data...")
+        prep_cmd = [sys.executable, "-m", "rl_agent.training_data_prep"]
+        
+        if mode == "incremental":
+            # Only use recent data (last 30 days)
+            logger.info("Using incremental mode: last 30 days of data")
+        else:
+            logger.info("Using full mode: all historical data")
+        
+        try:
+            subprocess.run(prep_cmd, capture_output=True, text=True, check=True)
+            logger.info("Data preparation completed")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Data preparation failed: {e}")
+            logger.error(f"Output: {e.stdout}")
+            logger.error(f"Error: {e.stderr}")
+            return False
     
     # Train model
     logger.info("Training model...")
@@ -294,6 +300,12 @@ def retrain_model(
         "--device", device,
         "--checkpoint-dir", checkpoint_dir,
     ]
+
+    # Safe defaults for automated retraining (prevent Mac memory exhaustion)
+    if low_memory:
+        train_cmd.append("--low-memory")
+    if max_episodes is not None:
+        train_cmd.extend(["--max-episodes", str(max_episodes)])
     
     if resume_from:
         train_cmd.extend(["--resume", resume_from])
@@ -391,6 +403,23 @@ def main():
         help="Number of training epochs"
     )
     parser.add_argument(
+        "--skip-data-prep",
+        action="store_true",
+        help="Skip rebuilding training episodes (prevents huge memory usage during app runtime)"
+    )
+    parser.add_argument(
+        "--low-memory",
+        action="store_true",
+        default=True,
+        help="Run training with low-memory settings (default: True)"
+    )
+    parser.add_argument(
+        "--max-episodes",
+        type=int,
+        default=300,
+        help="Limit episodes passed to training (default: 300)"
+    )
+    parser.add_argument(
         "--checkpoint-dir",
         type=str,
         default=None,
@@ -477,6 +506,9 @@ def main():
         epochs=args.epochs,
         checkpoint_dir=args.checkpoint_dir,
         device=args.device,
+        skip_data_prep=args.skip_data_prep,
+        low_memory=args.low_memory,
+        max_episodes=args.max_episodes,
     )
     
     if success:

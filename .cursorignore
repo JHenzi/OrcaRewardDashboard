@@ -1,12 +1,19 @@
-/models/**/*    # ignore all files in the models directory
-/training_data/**/*
-/training_data_exports/**/*    # ignore all files in the training_data_exports directory
-/checkpoints/**/*    # ignore all files in the checkpoints directory
-/news_sentiment.db    # ignore the news_sentiment.db file
-/rewards.db    # ignore the rewards.db file
-/sol_prices.db    # ignore the sol_prices.db file
-/sol_prices_export.sql    # ignore the sol_prices_export.sql file
-/news_sentiment_export.sql    # ignore the news_sentiment_export.sql file
-/episodes.pkl    # ignore the episodes.pkl file
-/manifest.json    # ignore the manifest.json file
-/README.md    # ignore the README.md file
+# Model files - MUST be ignored (large binary files crash indexing)
+models/
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# Training data
+training_data/
+training_data_exports/
+checkpoints/
+
+# Database files
+*.db
+*.sql
+
+# Other large/binary files
+episodes.pkl
+manifest.json

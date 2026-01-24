@@ -89,9 +89,37 @@
       "source_path": "models/rl_agent/checkpoint_epoch_10.pt",
       "active_path": "models/rl_agent/checkpoint_20260123_000733.pt",
       "auto_deployed": true
+    },
+    {
+      "version": "20260123_004907",
+      "deployed_at": "2026-01-23T00:49:07.628234",
+      "source_path": "models/rl_agent/checkpoint_epoch_1.pt",
+      "active_path": "models/rl_agent/checkpoint_20260123_004907.pt",
+      "auto_deployed": true
+    },
+    {
+      "version": "20260123_093929",
+      "deployed_at": "2026-01-23T09:39:29.919006",
+      "source_path": "models/rl_agent/checkpoint_epoch_3.pt",
+      "active_path": "models/rl_agent/checkpoint_20260123_093929.pt",
+      "auto_deployed": true
+    },
+    {
+      "version": "20260123_111131",
+      "deployed_at": "2026-01-23T11:11:31.088549",
+      "source_path": "models/rl_agent/checkpoint_epoch_2.pt",
+      "active_path": "models/rl_agent/checkpoint_20260123_111131.pt",
+      "auto_deployed": true
+    },
+    {
+      "version": "20260123_113035",
+      "deployed_at": "2026-01-23T11:30:35.940945",
+      "source_path": "models/rl_agent/checkpoint_epoch_3.pt",
+      "active_path": "models/rl_agent/checkpoint_20260123_113035.pt",
+      "auto_deployed": true
     }
   ],
-  "current_version": "20260123_000733",
+  "current_version": "20260123_113035",
   "last_retrain_time": "2026-01-10T17:56:21.186655",
   "next_retrain_time": "2026-01-17T17:56:21.186655"
 }
