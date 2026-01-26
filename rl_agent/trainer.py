@@ -699,14 +699,14 @@ class PPOTrainer:
                             classes[returns > threshold] = 2   # Bullish
                             return classes
                         
-                        # Time-appropriate thresholds (based on typical volatility)
-                        THRESHOLD_15M = 0.002   # ±0.2% for 15-minute (typical move: 0.1-0.3%)
-                        THRESHOLD_1H = 0.005    # ±0.5% for 1-hour (typical move: 0.3-0.7%)
-                        THRESHOLD_24H = 0.01    # ±1.0% for 24-hour (typical move: 1-3%)
+                        # Time-appropriate thresholds (FIXED based on actual data volatility)
+                        THRESHOLD_15M = 0.0003  # ±0.03% (Average move is 0.05%)
+                        THRESHOLD_1H = 0.001    # ±0.1% 
+                        THRESHOLD_24H = 0.005   # ±0.5% 
                         
-                        # Class weights to penalize always predicting neutral
-                        # Higher weight for minority classes (bearish/bullish)
-                        class_weights = torch.tensor([2.0, 1.0, 2.0], device=self.device)
+                        # Aggressive class weights to penalize Neutral-collapse
+                        # 0=Bearish, 1=Neutral, 2=Bullish
+                        class_weights = torch.tensor([4.0, 1.0, 4.0], device=self.device)
                         
                         # 1-hour prediction loss (with 0.5% threshold)
                         if actual_returns_1h is not None:
@@ -796,7 +796,7 @@ class PPOTrainer:
                             actual_neut = ((actual_classes==1).sum()/len(actual_classes)).item()
                             actual_bull = ((actual_classes==2).sum()/len(actual_classes)).item()
                             
-                            logger.info(f"📊 Aux 1h (±0.5% threshold) | Acc: {accuracy:.1%} | "
+                            logger.info(f"📊 Aux 1h (±0.1% threshold) | Acc: {accuracy:.1%} | "
                                       f"Pred: B={((pred_classes==0).sum()/len(pred_classes)).item():.0%}/"
                                       f"N={(pred_classes==1).sum()/len(pred_classes):.0%}/"
                                       f"Bu={(pred_classes==2).sum()/len(pred_classes):.0%} | "

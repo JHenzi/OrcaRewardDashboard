@@ -23,15 +23,15 @@ from .prediction_manager import PredictionManager
 logger = logging.getLogger(__name__)
 
 # Time-horizon specific thresholds (must match trainer.py!)
-THRESHOLD_15M = 0.002   # ±0.2% for 15-minute
-THRESHOLD_1H = 0.005    # ±0.5% for 1-hour
-THRESHOLD_24H = 0.01    # ±1.0% for 24-hour
+THRESHOLD_15M = 0.0003  # ±0.03%
+THRESHOLD_1H = 0.001    # ±0.1%
+THRESHOLD_24H = 0.005   # ±0.5%
 
 # Class labels for interpretability (default for backward compat)
-CLASS_LABELS = ["Bearish (<-1%)", "Neutral (-1% to +1%)", "Bullish (>+1%)"]
-CLASS_LABELS_15M = ["Bearish (<-0.2%)", "Neutral (-0.2% to +0.2%)", "Bullish (>+0.2%)"]
-CLASS_LABELS_1H = ["Bearish (<-0.5%)", "Neutral (-0.5% to +0.5%)", "Bullish (>+0.5%)"]
-CLASS_LABELS_24H = ["Bearish (<-1%)", "Neutral (-1% to +1%)", "Bullish (>+1%)"]
+CLASS_LABELS = ["Bearish", "Neutral", "Bullish"]
+CLASS_LABELS_15M = ["Bearish (<-0.03%)", "Neutral", "Bullish (>+0.03%)"]
+CLASS_LABELS_1H = ["Bearish (<-0.1%)", "Neutral", "Bullish (>+0.1%)"]
+CLASS_LABELS_24H = ["Bearish (<-0.5%)", "Neutral", "Bullish (>+0.5%)"]
 
 
 def generate_prediction(
